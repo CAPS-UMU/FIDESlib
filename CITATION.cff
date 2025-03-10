@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Carlos Agulló-Domingo"
+- family-names: "Óscar Vera-López"
+- family-names: "Seyda Guzelhan"                   
+- family-names: "Lohit Daksha"                   
+- family-names: "Aymane El Jerari"
+title: "FIDESlib"
+version: 1.0.0
+date-released: 
+url: "https://github.com/CAPS-UMU/FIDESlib"
+preferred-citation:
+  type: article
+  authors:
+  - family-names: "Carlos Agulló-Domingo"
+  - family-names: "Óscar Vera-López"
+  - family-names: "Seyda Guzelhan"                   
+  - family-names: "Lohit Daksha"                   
+  - family-names: "Aymane El Jerari"                   
+  - family-names: "Kaustubh Shivdikar"                   
+  - family-names: "Rashmi Agrawal"                   
+  - family-names: "David Kaeli"                  
+  - family-names: "Ajay Joshi"                   
+  - family-names: "José L. Abellán"                   
+  doi: ""
+  journal: "IEEE International Symposium on Performance Analysis of System and Software (ISPASS)"
+  month: 
+  start:
+  end:
+  title: "FIDESlib: A Fully-Fledged Open-Source FHE Library for Efficient CKKS on GPUs"
+  year: 2025

@@ -1,0 +1,20 @@
+############### Configuration ###################
+
+get_filename_component(FIDESLIB_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+if(NOT FIDESLIB_BINARY_DIR)
+  include("${FIDESLIB_CMAKE_DIR}/@PROJECT_NAME@Targets.cmake")
+endif()
+
+############### Macros ###################
+
+include(CMakeFindDependencyMacro)
+
+############### CUDA ###################
+
+find_dependency(CUDAToolkit REQUIRED)
+
+############### Exports ###################
+
+set(FIDESLIB_INCLUDE_PATH @INSTALL_INCLUDE_DIR@)
+set(FIDESLIB_LIBRARIES_PATH @INSTALL_LIBRARY_DIR@)
+set(FIDESLIB_BINARY_PATH @INSTALL_BINARY_DIR@)

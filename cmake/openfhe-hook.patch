@@ -1,0 +1,284 @@
+From 518bd9ca79031bfe12b4f7d23554ebd0fecd6398 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=93scar=20Vera=20L=C3=B3pez?= <oscar.veral@um.es>
+Date: Wed, 11 Sep 2024 16:05:26 +0200
+Subject: [PATCH] Hook patch commit.
+
+---
+ CMakeLists.txt            | 25 +++++++++++++++++--------
+ src/binfhe/CMakeLists.txt |  9 +++++++++
+ src/core/CMakeLists.txt   |  9 ++++++++-
+ src/hook/CMakeLists.txt   | 38 ++++++++++++++++++++++++++++++++++++++
+ src/hook/hook.cpp         |  8 ++++++++
+ src/hook/hook.h           | 35 +++++++++++++++++++++++++++++++++++
+ src/pke/CMakeLists.txt    |  9 +++++++++
+ third-party/.clang-format |  2 --
+ 8 files changed, 124 insertions(+), 11 deletions(-)
+ create mode 100644 src/hook/CMakeLists.txt
+ create mode 100644 src/hook/hook.cpp
+ create mode 100644 src/hook/hook.h
+ delete mode 100644 third-party/.clang-format
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0f72d76..7a50096 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -33,6 +33,9 @@ set(OPENFHE_VERSION ${OPENFHE_VERSION_MAJOR}.${OPENFHE_VERSION_MINOR}.${OPENFHE_
+ set(CMAKE_CXX_STANDARD 17)
+ set(CXX_STANDARD_REQUIRED ON)
+ 
++# Set the default build type to debug
++set(CMAKE_BUILD_TYPE "Debug")
++
+ #--------------------------------------------------------------------
+ # Build options
+ #--------------------------------------------------------------------
+@@ -61,10 +64,10 @@ if ( EMSCRIPTEN )
+     message( "OpenMP is not supported by Emscripten" )
+ else()
+     option( BUILD_SHARED "Set to ON to build shared versions of the library"         ON  )
+-    option( BUILD_STATIC "Set to ON to build static versions of the library"         OFF )
+-    option( BUILD_UNITTESTS "Set to ON to build unit tests for the library"          ON  )
+-    option( BUILD_EXAMPLES "Set to ON to build examples for the library"             ON  )
+-    option( BUILD_BENCHMARKS "Set to ON to build benchmarks for the library"         ON  )
++    option( BUILD_STATIC "Set to ON to build static versions of the library"         ON  ) # Set static build as it is needed
++    option( BUILD_UNITTESTS "Set to ON to build unit tests for the library"          OFF  )
++    option( BUILD_EXAMPLES "Set to ON to build examples for the library"             OFF  )
++    option( BUILD_BENCHMARKS "Set to ON to build benchmarks for the library"         OFF  )
+     option( WITH_OPENMP "Use OpenMP to enable <omp.h>"                               ON  )
+ endif()
+ 
+@@ -164,8 +167,9 @@ else()
+     set (NATIVE_OPT "")
+ endif()
+ 
+-set(C_COMPILE_FLAGS "-Wall -Werror -O3 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION}")
+-set(CXX_COMPILE_FLAGS "-Wall -Werror -O3 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION} ${IGNORE_WARNINGS}")
++# Remove -O3 from the compile flags and replace with -O0 for debugging
++set(C_COMPILE_FLAGS "-Wall -Werror -O0 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION}")
++set(CXX_COMPILE_FLAGS "-Wall -Werror -O0 ${NATIVE_OPT} -DOPENFHE_VERSION=${OPENFHE_VERSION} ${IGNORE_WARNINGS}")
+ 
+ if ( EMSCRIPTEN )
+     set(EMSCRIPTEN_IGNORE_WARNINGS "-Wno-unused-but-set-variable -Wno-unknown-warning-option")
+@@ -190,11 +194,11 @@ if(WITH_COVTEST)
+ endif()
+ 
+ if(BUILD_STATIC)
+-    set(OpenFHE_STATIC_LIBS OPENFHEcore_static OPENFHEpke_static OPENFHEbinfhe_static)
++    set(OpenFHE_STATIC_LIBS OPENFHEcore_static OPENFHEpke_static OPENFHEbinfhe_static OPENFHEhook_static) # Add hook build
+ endif()
+ 
+ if(BUILD_SHARED)
+-    set(OpenFHE_SHARED_LIBS OPENFHEcore OPENFHEpke OPENFHEbinfhe)
++    set(OpenFHE_SHARED_LIBS OPENFHEcore OPENFHEpke OPENFHEbinfhe OPENFHEhook) # Add hook build
+ endif()
+ 
+ set(OpenFHE_PACKAGE_LIBS ${OpenFHE_STATIC_LIBS} ${OpenFHE_SHARED_LIBS})
+@@ -662,10 +666,15 @@ if( BUILD_UNITTESTS )
+ endif()
+ 
+ ### add each of the subdirs of src
++
++# Add the hook library
++add_subdirectory(src/hook)
++
+ add_subdirectory(src/core)
+ add_subdirectory(src/pke)
+ add_subdirectory(src/binfhe)
+ 
++
+ ### build the google test handlers
+ ###if( BUILD_UNITTESTS )
+ ###	add_subdirectory(third-party/google-test EXCLUDE_FROM_ALL)
+diff --git a/src/binfhe/CMakeLists.txt b/src/binfhe/CMakeLists.txt
+index 73864ff..9544552 100644
+--- a/src/binfhe/CMakeLists.txt
++++ b/src/binfhe/CMakeLists.txt
+@@ -5,6 +5,14 @@
+ # all files named *.cpp are compiled to form the library
+ file (GLOB BINFHE_SRC_FILES CONFIGURE_DEPENDS lib/*.cpp)
+ 
++# Hook headers inclusion
++list(APPEND BINFHE_INCLUDE_DIRS 
++		"${CMAKE_CURRENT_SOURCE_DIR}/../hook"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../core/include"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../pke/include"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../binfhe/include"
++)
++
+ include_directories(${CORE_INCLUDE_DIRS})
+ list(APPEND BINFHE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ list(APPEND BINFHE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+@@ -16,6 +24,7 @@ set(BINFHE_VERSION_PATCH ${OPENFHE_VERSION_PATCH})
+ set(BINFHE_VERSION ${BINFHE_VERSION_MAJOR}.${BINFHE_VERSION_MINOR}.${BINFHE_VERSION_PATCH})
+ 
+ add_library(binfheobj OBJECT ${BINFHE_SRC_FILES})
++add_dependencies(binfheobj OPENFHEhook_static) # Hook dependency
+ set_property(TARGET binfheobj PROPERTY POSITION_INDEPENDENT_CODE 1)
+ 
+ if ( BUILD_SHARED )
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 09206a5..2fd09dc 100644
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -5,6 +5,13 @@
+ # all files named *.c or */cpp are compiled to form the library
+ file (GLOB_RECURSE CORE_SRC_FILES CONFIGURE_DEPENDS lib/*.c lib/*.cpp lib/utils/*.cpp)
+ 
++# Hook headers inclusion
++list(APPEND CORE_INCLUDE_DIRS
++		"${CMAKE_CURRENT_SOURCE_DIR}/../hook"
++		"${CMAKE_CURRENT_SOURCE_DIR}/../pke/include"
++		"${CMAKE_CURRENT_SOURCE_DIR}/../binfhe/include"
++)
++
+ list(APPEND CORE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ list(APPEND CORE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+ include_directories(${CORE_INCLUDE_DIRS})
+@@ -17,7 +24,7 @@ set(CORE_VERSION_PATCH ${OPENFHE_VERSION_PATCH})
+ set(CORE_VERSION ${CORE_VERSION_MAJOR}.${CORE_VERSION_MINOR}.${CORE_VERSION_PATCH})
+ 
+ add_library(coreobj OBJECT ${CORE_SRC_FILES})
+-add_dependencies(coreobj third-party)
++add_dependencies(coreobj third-party OPENFHEhook_static) # Hook dependency
+ 
+ set_property(TARGET coreobj PROPERTY POSITION_INDEPENDENT_CODE 1)
+ 
+diff --git a/src/hook/CMakeLists.txt b/src/hook/CMakeLists.txt
+new file mode 100644
+index 0000000..a406094
+--- /dev/null
++++ b/src/hook/CMakeLists.txt
+@@ -0,0 +1,38 @@
++add_library(hook STATIC hook.cpp)
++set_property(TARGET hook PROPERTY POSITION_INDEPENDENT_CODE 1)
++
++set(HOOK_VERSION_MAJOR ${OPENFHE_VERSION_MAJOR})
++set(HOOK_VERSION_MINOR ${OPENFHE_VERSION_MINOR})
++set(HOOK_VERSION_PATCH ${OPENFHE_VERSION_PATCH})
++set(HOOK_VERSION ${HOOK_VERSION_MAJOR}.${HOOK_VERSION_MINOR}.${HOOK_VERSION_PATCH})
++
++list(APPEND HOOK_INCLUDE_DIRS
++		"${CMAKE_CURRENT_SOURCE_DIR}/../core/include"
++		"${CMAKE_CURRENT_SOURCE_DIR}/../pke/include"
++		"${CMAKE_CURRENT_SOURCE_DIR}/../binfhe/include"
++)
++set(HOOK_INCLUDE_DIRS "${HOOK_INCLUDE_DIRS}" CACHE INTERNAL "")
++
++target_include_directories(hook PUBLIC ${HOOK_INCLUDE_DIRS})
++
++if ( BUILD_SHARED )
++	add_library (OPENFHEhook SHARED $<TARGET_OBJECTS:hook>)
++	set_property(TARGET OPENFHEhook PROPERTY VERSION ${HOOK_VERSION})
++	set_property(TARGET OPENFHEhook PROPERTY SOVERSION ${HOOK_VERSION_MAJOR})
++	set_property(TARGET OPENFHEhook PROPERTY RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
++	install(TARGETS OPENFHEhook
++		EXPORT OpenFHETargets
++		DESTINATION lib)
++endif()
++
++
++if( BUILD_STATIC )
++	add_library (OPENFHEhook_static STATIC $<TARGET_OBJECTS:hook>)
++	set_property(TARGET OPENFHEhook_static PROPERTY RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
++	install(TARGETS OPENFHEhook_static
++		EXPORT OpenFHETargets
++		DESTINATION lib)
++endif()
++
++install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
++	DESTINATION include/openfhe)
+\ No newline at end of file
+diff --git a/src/hook/hook.cpp b/src/hook/hook.cpp
+new file mode 100644
+index 0000000..4299c4d
+--- /dev/null
++++ b/src/hook/hook.cpp
+@@ -0,0 +1,8 @@
++#include "hook.h"
++
++namespace debug {
++
++	bool enabled = true;
++};
++
++
+diff --git a/src/hook/hook.h b/src/hook/hook.h
+new file mode 100644
+index 0000000..77bb909
+--- /dev/null
++++ b/src/hook/hook.h
+@@ -0,0 +1,35 @@
++#ifndef HOOK__
++#define HOOK__
++
++#include "openfhe.h"
++
++#include <map>
++
++namespace debug {
++
++extern bool enabled;
++
++template <typename T>
++class record {
++private:
++    static std::map<size_t, T> values;
++
++public:
++    static void set(T value, size_t index) {
++        values.emplace(index, value);
++    }
++    static T get(size_t index) {
++        return values[index];		
++    }
++};
++
++template <typename T>
++std::map<size_t, T> record<T>::values;
++
++#define RECORD_GET(T, index)   if (debug::enabled) { debug::record<T>::get(index); }
++#define RECORD_SET(val, index) if (debug::enabled) { debug::record<decltype(val)>::set(val, index); }
++#define RECORD_PRINT(T, index) if (debug::enabled) { std::cout << debug::record<T>::get(index) << std::endl; }
++
++};
++
++#endif
+\ No newline at end of file
+diff --git a/src/pke/CMakeLists.txt b/src/pke/CMakeLists.txt
+index bdf9d55..ced737a 100644
+--- a/src/pke/CMakeLists.txt
++++ b/src/pke/CMakeLists.txt
+@@ -5,6 +5,14 @@
+ # all files named *.cpp are compiled to form the library
+ file (GLOB_RECURSE PKE_SRC_FILES CONFIGURE_DEPENDS lib/*.cpp)
+ 
++# Hook headers inclusion
++list(APPEND PKE_INCLUDE_DIRS 
++		"${CMAKE_CURRENT_SOURCE_DIR}/../hook"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../core/include"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../pke/include"
++		#"${CMAKE_CURRENT_SOURCE_DIR}/../binfhe/include"
++)
++
+ include_directories(${CORE_INCLUDE_DIRS})
+ list(APPEND PKE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ list(APPEND PKE_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+@@ -16,6 +24,7 @@ set(PKE_VERSION_PATCH ${OPENFHE_VERSION_PATCH})
+ set(PKE_VERSION ${PKE_VERSION_MAJOR}.${PKE_VERSION_MINOR}.${PKE_VERSION_PATCH})
+ 
+ add_library (pkeobj OBJECT ${PKE_SRC_FILES})
++add_dependencies(pkeobj OPENFHEhook_static) # Hook dependency
+ set_property(TARGET pkeobj PROPERTY POSITION_INDEPENDENT_CODE 1)
+ 
+ if( BUILD_SHARED )
+diff --git a/third-party/.clang-format b/third-party/.clang-format
+deleted file mode 100644
+index 9d15924..0000000
+--- a/third-party/.clang-format
++++ /dev/null
+@@ -1,2 +0,0 @@
+-DisableFormat: true
+-SortIncludes: false
+-- 
+2.34.1
+
