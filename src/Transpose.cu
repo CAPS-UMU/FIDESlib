@@ -1,6 +1,3 @@
-//
-// Created by carlosad on 23/05/25.
-//
 #include "CKKS/LinearTransform.cuh"
 #include "CKKS/Plaintext.cuh"
 #include "Transpose.cuh"
@@ -33,6 +30,34 @@ std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> MatrixTranspose_GPU(
     return res;
 }
 
+
+void MatrixTransposeSquare_GPU_masked(Ciphertext& cMat1, uint32_t rowSize, const TransposePrecomputations_GPU& precomp, Plaintext& mask_pt) {
+    LinearTransform(cMat1, 2 * rowSize - 1, precomp.bStep, precomp.pts_1, (int)(rowSize - 1),
+                    -(int)((rowSize - 1) * (rowSize - 1)), mask_pt);
+}
+std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> MatrixTranspose_GPU_masked(
+    std::vector<std::vector<FIDESlib::CKKS::Ciphertext>>& matrix1, 
+    uint32_t rowSize,
+    const TransposePrecomputations_GPU& precomp,
+    Plaintext& mask_pt) 
+    {
+        for (auto& row : matrix1) {
+            for (auto& ct : row) {
+                MatrixTransposeSquare_GPU_masked(ct, rowSize, precomp, mask_pt);
+            }
+        }
+
+        std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> res(matrix1.size());
+        for (size_t i = 0; i < matrix1.size(); ++i) {
+            res[i].reserve(matrix1[i].size());
+            for (size_t j = 0; j < matrix1[i].size(); ++j) {
+                res[i].emplace_back(std::move(matrix1[j][i]));
+            }
+        }
+
+        return res;
+    }
+
 struct MatrixTransposePrecomputations {
     int rowSize;
     std::vector<lbcrypto::Plaintext> diagPlaintexts;
@@ -55,7 +80,7 @@ TransposePrecomputations_GPU convertToGPUPrecomputations(Context& GPUcc,
         for (int i = 0; i < 2 * gpuPrecomp.rowSize - 1; ++i) {
             const auto& sigmaPt_ = cpuPrecomp.diagPlaintexts[i];
             auto sigmaPt = context->MakeCKKSPackedPlaintext(
-                lbcrypto::Rotate(sigmaPt_->GetCKKSPackedValue(), pt_rots[i]), 1, level);
+                lbcrypto::Rotate(sigmaPt_->GetCKKSPackedValue(), pt_rots[i]), 1, GPUcc.L - level);
             auto raw_sigma = FIDESlib::CKKS::GetRawPlainText(context, sigmaPt);
             FIDESlib::CKKS::Plaintext sigma_gpu(GPUcc, raw_sigma);
             gpuPrecomp.diagPlaintexts.emplace_back(std::move(sigma_gpu));

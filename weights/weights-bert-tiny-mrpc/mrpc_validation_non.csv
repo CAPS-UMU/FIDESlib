@@ -1,0 +1,6 @@
+sentence1,sentence2,label,idx
+"The association said 28.2 million DVDs were rented in the week that ended June 15 , compared with 27.3 million VHS cassettes .","The Video Software Dealers Association said 28.2 million DVDs were rented out last week , compared to 27.3 million VHS cassettes .",1,331
+"On Monday the Palestinian Prime Minister , Mahmoud Abbas , will report to the Palestinian parliament on his Government 's achievements in its first 100 days in office .",Palestinian Prime Minister Mahmoud Abbas must defend the record of his first 100 days in office before Parliament today as the death toll in the occupied territories continues to rise .,0,375
+"Ratliff 's daughters , Margaret and Martha Ratliff , were adopted by Peterson after their mother 's death .","Peterson helped raise Ratliff 's two daughters , Margaret and Martha Ratliff , who supported him throughout the trial .",0,417
+"After losing as much as 84.56 earlier , the Dow Jones industrial average closed up 22.81 , or 0.2 percent , at 9,340.45 .","In midday trading , the Dow Jones industrial average lost 68.84 , or 0.7 percent , to 9,248.80 .",0,426
+// TFTT
