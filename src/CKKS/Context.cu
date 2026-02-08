@@ -755,7 +755,7 @@ void ContextData::PrepareNCCLCommunication() {
             NCCLCHECK(
                 ncclCommRegister(GPUrank[g], top_limb_buffer2[i], sizeof(uint64_t) * N, &top_limb_buffer2_handle[i]));
 #else
-            cudaMalloc((void**)&top_limb_buffer[i], sizeof(uint63_t) * N);
+            cudaMalloc((void**)&top_limb_buffer[i], sizeof(uint64_t) * N);
             cudaMalloc((void**)&top_limb_buffer2[i], sizeof(uint64_t) * N);
 #endif
         } else {

@@ -9,6 +9,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
+#include <complex>
 
 #include "CCParams.hpp"
 #include "Ciphertext.hpp"
@@ -115,11 +116,15 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	Ciphertext<DCRTPoly> EvalAdd(Plaintext& pt, const Ciphertext<DCRTPoly>& ct);
 	Ciphertext<DCRTPoly> EvalAdd(const Ciphertext<DCRTPoly>& ct, double scalar);
 	Ciphertext<DCRTPoly> EvalAdd(double scalar, const Ciphertext<DCRTPoly>& ct);
+	Ciphertext<DCRTPoly> EvalAdd(const Ciphertext<DCRTPoly>& ct, std::complex<double> scalar);
+	Ciphertext<DCRTPoly> EvalAdd(std::complex<double> scalar, const Ciphertext<DCRTPoly>& ct);
 	void EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2);
 	void EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, Plaintext& pt);
 	void EvalAddInPlace(Plaintext& pt, Ciphertext<DCRTPoly>& ct1);
 	void EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, double scalar);
 	void EvalAddInPlace(double scalar, Ciphertext<DCRTPoly>& ct1);
+	void EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar);
+	void EvalAddInPlace(std::complex<double> scalar, Ciphertext<DCRTPoly>& ct1);
 	Ciphertext<DCRTPoly> EvalAddMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2);
 	Ciphertext<DCRTPoly> EvalAddMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt);
 	Ciphertext<DCRTPoly> EvalAddMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct);
@@ -146,9 +151,13 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	Ciphertext<DCRTPoly> EvalMult(Plaintext& pt, const Ciphertext<DCRTPoly>& ct1);
 	Ciphertext<DCRTPoly> EvalMult(const Ciphertext<DCRTPoly>& ct1, double scalar);
 	Ciphertext<DCRTPoly> EvalMult(double scalar, const Ciphertext<DCRTPoly>& ct1);
+	Ciphertext<DCRTPoly> EvalMult(const Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar);
+	Ciphertext<DCRTPoly> EvalMult(std::complex<double> scalar, const Ciphertext<DCRTPoly>& ct1);
 	void EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Plaintext& pt);
 	void EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, double scalar);
 	void EvalMultInPlace(double scalar, Ciphertext<DCRTPoly>& ct1);
+	void EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar);
+	void EvalMultInPlace(std::complex<double> scalar, Ciphertext<DCRTPoly>& ct1);
 	Ciphertext<DCRTPoly> EvalMultMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2);
 	Ciphertext<DCRTPoly> EvalMultMutable(Ciphertext<DCRTPoly>& ct1, Plaintext& pt);
 	Ciphertext<DCRTPoly> EvalMultMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct1);

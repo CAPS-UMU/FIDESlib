@@ -49,6 +49,7 @@ template <> class CCParams<CryptoContextCKKSRNS> {
 	void SetDevices(std::vector<int>&& devices);
 	void SetPlaintextAutoload(bool autoload);
 	void SetCiphertextAutoload(bool autoload);
+	void SetCKKSDataType(CKKSDataType ckksdt);
 
 	// ---- Getters ----
 	SecretKeyDist GetSecretKeyDist() const;

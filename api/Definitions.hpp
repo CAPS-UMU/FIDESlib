@@ -86,6 +86,11 @@ enum SecurityLevel {
     HEStd_NotSet,
 };
 
+enum CKKSDataType {
+    REAL = 0,
+    COMPLEX,
+};
+
 } // namespace fideslib
 
 #endif

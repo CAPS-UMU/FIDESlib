@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <iostream>
+#include <tuple>
 
 int main() {
     int deviceCount, device;

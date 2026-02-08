@@ -732,6 +732,97 @@ void Ciphertext::addScalar(const double c) {
 	//}
 }
 
+void Ciphertext::addScalar(const std::complex<double> c) {
+    CudaNvtxRange r(std::string{std::source_location::current().function_name()}.substr(23 + strlen(loc)));
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::ADDSCALAR]++;
+
+    auto elem1 = cc.ElemForEvalAddOrSub(c0.getLevel(), std::fabs(c.real()), this->NoiseLevel);
+    auto elem2 = cc.ElemForEvalAddOrSub(c0.getLevel(), std::fabs(c.imag()), this->NoiseLevel);
+
+    uint32_t sizeQl = c0.getLevel() + 1;
+
+    std::vector<uint64_t> moduli(sizeQl);
+    for (int i = 0; i < sizeQl; ++i)
+        moduli[i] = cc.prime[i].p;
+
+    std::vector<std::vector<uint64_t>> data;
+    for (uint32_t i = 0; i < sizeQl; i++) {
+        std::vector<uint64_t> vec(cc.N, 0);
+		// Code works for positive values only, doesn't work for negative values.
+        vec[0]            = (c.real() > 0) ? elem1[i] % (moduli[i]) : (-elem1[i] % (moduli[i]) + moduli[i]) % (moduli[i]);
+        vec[cc.N / 2]        = (c.imag() > 0) ? elem2[i] % (moduli[i]) : (-elem2[i] % (moduli[i]) + moduli[i]) % (moduli[i]);
+        // End code that only works for positive values.
+		data.push_back(vec);
+    }
+
+    RNSPoly elemComplex(cc, data);
+    elemComplex.NTT(cc.batch, true);
+    c0.add(elemComplex);
+}
+
+void Ciphertext::multScalar(const std::complex<double> c, bool rescale) {
+    CudaNvtxRange r(std::string{std::source_location::current().function_name()}.substr(23 + strlen(loc)));
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::MULTSCALAR]++;
+
+    if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT ||
+        cc.rescaleTechnique == FIXEDAUTO) {
+        if (NoiseLevel == 2)
+            this->rescale();
+    }
+    assert(this->NoiseLevel == 1);
+
+    auto elem1 = cc.ElemForEvalMult(c0.getLevel(), c.real());
+    auto elem2 = cc.ElemForEvalMult(c0.getLevel(), c.imag());
+
+    auto level0 = c0.getLevel();
+    auto level1 = c1.getLevel();
+    RNSPoly real0(cc, level0), imag0(cc, level0), real1(cc, level1), imag1(cc, level1);
+    real0.copy(c0);
+    imag0.copy(c0);
+    real1.copy(c1);
+    imag1.copy(c1);
+
+    real0.multScalar(elem1);
+    imag0.multScalar(elem2);
+    real1.multScalar(elem1);
+    imag1.multScalar(elem2);
+
+    uint32_t N               = cc.N;
+    uint32_t M               = 2 * N;
+
+    std::vector<std::vector<uint64_t>> poly;
+    uint32_t power        = M / 4;
+    uint32_t powerReduced = power % M;
+    uint32_t index        = power % N;
+    for (int i = 0; i <= c0.getLevel(); ++i) {
+        std::vector<uint64_t> vec(N, 0);
+        vec[index]       = powerReduced < N ? 1 : cc.prime[0].p - 1;
+        poly.push_back(vec);
+    }
+    RNSPoly monomial(cc, poly);
+    monomial.NTT(cc.batch, true);
+
+    imag0.multElement(monomial);
+    imag1.multElement(monomial);
+    c0.add(real0, imag0);
+    c1.add(real1, imag1);
+
+    // Manage metadata
+    NoiseLevel += 1;
+    NoiseFactor *= cc.param.ScalingFactorReal.at(c0.getLevel());
+    if (rescale) {
+        NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel());
+        NoiseLevel -= 1;
+    }
+
+    if (rescale) {
+        c0.rescale();
+        c1.rescale();
+    }
+}
+
 void Ciphertext::automorph(const int index, const int br) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);

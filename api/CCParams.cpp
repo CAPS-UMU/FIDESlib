@@ -87,6 +87,13 @@ void CCParams<CryptoContextCKKSRNS>::SetSecurityLevel(SecurityLevel level) {
 	params.SetSecurityLevel(sl_openfhe);
 }
 
+void CCParams<CryptoContextCKKSRNS>::SetCKKSDataType(CKKSDataType ckksdt) {
+	auto& params	= std::any_cast<lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(cpu);
+	auto dt_openfhe = static_cast<lbcrypto::CKKSDataType>(ckksdt);
+	assert((int)dt_openfhe == (int)ckksdt);
+	params.SetCKKSDataType(dt_openfhe);
+}
+
 // ---- Getters ----
 
 SecretKeyDist CCParams<CryptoContextCKKSRNS>::GetSecretKeyDist() const {

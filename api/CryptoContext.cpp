@@ -747,6 +747,32 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(double scalar, const C
 	return EvalAdd(ct, scalar);
 }
 
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct, std::complex<double> scalar) {
+
+	// Fall back to CPU.
+	if (this->devices.empty()) {
+		auto& context					= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		auto& ctImpl					= std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto ct							= context->EvalAdd(ctImpl, scalar);
+		Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+		ciphertext->cpu					= std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+		return ciphertext;
+	}
+
+	// GPU path.
+	this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct));
+
+	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
+	auto res_gpu				= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+	res_gpu->addScalar(scalar);
+
+	return result;
+}
+
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(std::complex<double> scalar, const Ciphertext<DCRTPoly>& ct) {
+	return EvalAdd(ct, scalar);
+}
+
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
 
 	// Fall back to CPU.
@@ -812,6 +838,28 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, doub
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(double scalar, Ciphertext<DCRTPoly>& ct1) {
+	EvalAddInPlace(ct1, scalar);
+}
+
+void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar) {
+
+	// Fall back to CPU.
+	if (this->devices.empty()) {
+
+		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+		context->EvalAddInPlace(ct1Impl, scalar);
+		return;
+	}
+
+	// GPU path. 
+	this->LoadCiphertext(ct1);
+
+	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct1->gpu));
+	res_gpu->addScalar(scalar);
+}
+
+void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(std::complex<double> scalar, Ciphertext<DCRTPoly>& ct1) {
 	EvalAddInPlace(ct1, scalar);
 }
 
@@ -1198,6 +1246,33 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(double scalar, const 
 	return EvalMult(ct1, scalar);
 }
 
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar) {
+
+	// Fall back to CPU.
+	if (this->devices.empty()) {
+
+		auto& context					= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		auto& ct1Impl					= std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+		auto ct							= context->EvalMult(ct1Impl, scalar);
+		Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+		ciphertext->cpu					= std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+		return ciphertext;
+	}
+
+	// GPU path.
+	this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct1));
+
+	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct1);
+	auto res_gpu				= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+	res_gpu->multScalar(scalar);
+
+	return result;
+}
+
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(std::complex<double> scalar, const Ciphertext<DCRTPoly>& ct1) {
+	return EvalMult(ct1, scalar);
+}
+
 void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Plaintext& pt) {
 
 	if (this->devices.empty()) {
@@ -1238,6 +1313,28 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, dou
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(double scalar, Ciphertext<DCRTPoly>& ct1) {
+	EvalMultInPlace(ct1, scalar);
+}
+
+void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, std::complex<double> scalar) {
+
+	// Fall back to CPU.
+	if (this->devices.empty()) {
+
+		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+		context->EvalMultInPlace(ct1Impl, scalar);
+		return;
+	}
+
+	// GPU path.
+	this->LoadCiphertext(ct1);
+
+	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct1->gpu));
+	res_gpu->multScalar(scalar);
+}
+
+void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(std::complex<double> scalar, Ciphertext<DCRTPoly>& ct1) {
 	EvalMultInPlace(ct1, scalar);
 }
 

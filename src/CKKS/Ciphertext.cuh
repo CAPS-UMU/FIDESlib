@@ -6,6 +6,7 @@
 #define FIDESLIB_CKKS_CIPHERTEXT_CUH
 
 #include <source_location>
+#include <complex>
 #include "RNSPoly.cuh"
 #include "forwardDefs.cuh"
 #include "openfhe-interface/RawCiphertext.cuh"
@@ -211,6 +212,18 @@ class Ciphertext {
     void addScalar(const double c);
 
     /**
+     * @brief Adds a scalar (complex) to both polynomial components.
+     *
+     * The scalar is first converted to the appropriate modulus representation
+     * via `ElemForEvalAddOrSub`.  The sign of the scalar is handled by
+     * converting the element to its complement when `c < 0`.  No metadata
+     * updates are performed.
+     *
+     * @param c Scalar value to add.
+     */
+    void addScalar(const std::complex<double> c);
+
+    /**
      * @brief Multiplies *this* ciphertext by a plaintext.
      *
      * If the current rescaling technique requires matching noise levels,
@@ -313,6 +326,20 @@ class Ciphertext {
      * @param rescale Perform rescaling after multiplication if true.
      */
     void multScalar(const Ciphertext& b, const double c, bool rescale = false);
+
+    /**
+     * @brief Multiplies both polynomial components by a complex scalar, performing necessary checks.
+     *
+     * For flexible rescaling techniques the method may rescale the ciphertext
+     * when the noise level is 2.  The scalar is converted using
+     * `ElemForEvalMult` and the multiplication is applied to both components.
+     * Metadata (noise level/factor) is updated accordingly; if `rescale`
+     * is true and the technique is `FIXEDMANUAL`, a rescaling step follows.
+     *
+     * @param c Scalar multiplier.
+     * @param rescale Perform rescaling after multiplication if true.
+     */
+    void multScalar(const std::complex<double> c, bool rescale = false);
 
     /**
      * @brief Squares the ciphertext (i.e., multiplies it by itself).
