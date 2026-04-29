@@ -7,7 +7,7 @@
 
 extern bool prescale;
 extern bool sparse_encaps;
-extern bool slow;
+extern bool boot_every_iter;
 extern std::vector<int> devices;
 extern std::vector<uint32_t> levelBudget;
 extern std::vector<uint32_t> bStep;

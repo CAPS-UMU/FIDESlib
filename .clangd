@@ -1,0 +1,16 @@
+CompileFlags:
+  CompilationDatabase: "build"
+  Remove:
+    - "-Xfatbin*"
+    - "-gencode*"
+    - "--generate-code*"
+    - "-ccbin*"
+    - "--compiler-options*"
+    - "--expt-extended-lambda"
+    - "--expt-relaxed-constexpr"
+    - "-forward-unknown-to-host-compiler"
+    - "-Werror=cross-execution-space-call"
+    - "--options-file*"
+    - "-rdc=true"
+    - "--diag-suppress*"
+    - "-Xcompiler*"

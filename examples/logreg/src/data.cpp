@@ -188,6 +188,5 @@ void print_times(const std::vector<iteration_time_t>& times, const std::string& 
 		boot += b;
 	}
 	std::cout << "[" << mode << "] " << (gpu ? "GPU" : "CPU") << " | Samples: " << samples << " | Total: " << total.count() / 1000.0 << "ms"
-			  << " | Bootstrap: " << boot.count() / 1000.0 << "ms"
-			  << " | Iters: " << times.size() << std::endl;
+			  << " Boot_every=" << boot_every_iter << " Sparse_encaps=" << sparse_encaps << std::endl;
 }

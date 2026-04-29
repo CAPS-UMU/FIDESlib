@@ -13,7 +13,7 @@ This directory contains the following Dockerfiles:
 ```bash
 $pwd
 /FIDESlib
-$docker build -t <tag> -f docker/Dockerfile.NVIDIA .
+$docker build -t <tag> -f docker/Dockerfile .
 ...
 ```
 

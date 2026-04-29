@@ -1,10 +1,10 @@
-From b7ab08c17cc370d982395f8be1581946022bf8ff Mon Sep 17 00:00:00 2001
+From a1e59e3c64658f19aba2dc8d90a19c98b658b608 Mon Sep 17 00:00:00 2001
 From: carlosad <carlos0105ad@gmail.com>
 Date: Wed, 28 Jan 2026 11:43:03 +0100
 Subject: [PATCH] Minimal Compatibility with FIDESlib
 
 ---
- CMakeLists.txt                                |   10 +-
+ CMakeLists.txt                                |   13 +-
  .../include/lattice/hal/default/dcrtpoly.h    |    1 +
  .../lattice/hal/default/ildcrtparams.h        |    3 +-
  src/core/include/lattice/hal/default/poly.h   |    2 +
@@ -17,13 +17,23 @@ Subject: [PATCH] Minimal Compatibility with FIDESlib
  .../include/schemerns/rns-cryptoparameters.h  |    4 +-
  src/pke/lib/cryptocontext.cpp                 |   27 +-
  src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp    | 1145 ++++++++++++++++-
- 13 files changed, 1189 insertions(+), 62 deletions(-)
+ 13 files changed, 1192 insertions(+), 62 deletions(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 7cc5edc2..261f53a3 100644
+index 7cc5edc2..c6e9e845 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -50,6 +50,8 @@ endif()
+@@ -15,6 +15,9 @@ if(CCACHE_PROGRAM)
+     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+ endif()
+ 
++set(CMAKE_C_COMPILER "gcc")
++set(CMAKE_CXX_COMPILER "g++")
++
+ ### To use gcc/g++ on a Macintosh, you must set the Compilers
+ ### here, not inside the project
+ ##if(APPLE)
+@@ -50,6 +53,8 @@ endif()
  
  message(STATUS "Building in ${CMAKE_BUILD_TYPE} mode")
  
@@ -32,7 +42,7 @@ index 7cc5edc2..261f53a3 100644
  if (EMSCRIPTEN)
      set(BUILD_SHARED OFF)
      message("Shared library is not supported by Emscripten")
-@@ -61,10 +63,10 @@ if (EMSCRIPTEN)
+@@ -61,10 +66,10 @@ if (EMSCRIPTEN)
      message("OpenMP is not supported by Emscripten")
  else()
      option(BUILD_SHARED "Set to ON to build shared versions of the library"            ON  )
@@ -124,7 +134,7 @@ index 9548bb02..2eebe531 100644
  
      PlaintextEncodings ptxtEncoding{INVALID_ENCODING};
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index 233234e6..fdd022e2 100644
+index 233234e6..e8aa985b 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -127,12 +127,14 @@ using namespace std::literals::complex_literals;
@@ -150,7 +160,7 @@ index 233234e6..fdd022e2 100644
 -                            std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor,
 -                            bool precompute) override;
 +                            std::vector<uint32_t> dim1, uint32_t numSlots, uint32_t correctionFactor, bool precompute,
-+                            uint32_t modevallevels = -1) override;
++                            uint32_t modevallevels = std::numeric_limits<uint32_t>::max()) override;
 +
 +    Ciphertext<DCRTPoly> EvalBootstrapNoStC(ConstCiphertext<DCRTPoly> ciphertext, uint32_t numIterations,
 +                                                        uint32_t precision) const;
@@ -380,7 +390,7 @@ index fe26edc9..aaee034d 100644
  }
  
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index c895b3e3..4e1e9f82 100644
+index c895b3e3..7b4d1888 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 @@ -84,7 +84,7 @@ namespace lbcrypto {
@@ -398,7 +408,7 @@ index c895b3e3..4e1e9f82 100644
  
 -        uint32_t approxModDepth = GetModDepthInternal(cryptoParams->GetSecretKeyDist());
 +        //uint32_t approxModDepth = GetModDepthInternal(cryptoParams->GetSecretKeyDist());
-+        uint32_t approxModDepth = modevallevels == (uint32_t)-1 ? GetModDepthInternal(cryptoParams->GetSecretKeyDist()) : modevallevels;
++        uint32_t approxModDepth = modevallevels == std::numeric_limits<uint32_t>::max() ? GetModDepthInternal(cryptoParams->GetSecretKeyDist()) : modevallevels;
 +        uint32_t depthBT = approxModDepth + precom->m_paramsEnc[CKKS_BOOT_PARAMS::LEVEL_BUDGET] +
 +                           precom->m_paramsDec[CKKS_BOOT_PARAMS::LEVEL_BUDGET];
 +

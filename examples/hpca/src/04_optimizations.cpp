@@ -126,6 +126,7 @@ void sparse_bootstrap() {
 	std::vector<uint32_t> bsgs		  = { 16, 16 };
 
 	CCParams<CryptoContextCKKSRNS> params;
+	params.SetDevices({ 0 });
 	params.SetSecurityLevel(SecurityLevel::HEStd_NotSet);
 	params.SetRingDim(ring_dim);
 	params.SetMultiplicativeDepth(multDepth);
@@ -135,13 +136,12 @@ void sparse_bootstrap() {
 	params.SetKeySwitchTechnique(HYBRID);
 	params.SetNumLargeDigits(dnum);
 	params.SetBatchSize(batchSize);
-	params.SetDevices({ 0 });
 	params.SetCiphertextAutoload(true);
 
 	// ========
 	// Secret key distribution.
 	// ========
-	params.SetSecretKeyDist(SPARSE_TERNARY);
+	params.SetSecretKeyDist(SPARSE_ENCAPSULATED);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(params);
 	cc->Enable(PKE);
@@ -156,8 +156,9 @@ void sparse_bootstrap() {
 	cc->EvalMultKeyGen(keys.secretKey);
 	cc->EvalBootstrapSetup(levelBudget, bsgs, batchSize, 0);
 	cc->EvalBootstrapKeyGen(keys.secretKey, batchSize);
-	cc->LoadContext(keys.publicKey);
 
+	cc->LoadContext(keys.publicKey);
+	
 	std::vector<double> data = { 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0 };
 	Plaintext ptxt			 = cc->MakeCKKSPackedPlaintext(data, 1, multDepth - 1);
 	auto ct					 = cc->Encrypt(keys.publicKey, ptxt);
@@ -184,17 +185,18 @@ void sparse_bootstrap() {
 void uniform_bootstrap() {
 	std::cout << std::endl << "==== UNIFORM_TERNARY Bootstrapping ====" << std::endl;
 
-	uint32_t multDepth = 26;
+	uint32_t multDepth = 22;
 	uint32_t ring_dim  = 1 << 16;
 	uint32_t batchSize = 1 << 14;
 	uint32_t dcrtBits  = 52;
 	uint32_t firstMod  = 56;
-	uint32_t dnum	   = 5;
+	uint32_t dnum	   = 3;
 
 	std::vector<uint32_t> levelBudget = { 3, 3 };
 	std::vector<uint32_t> bsgs		  = { 16, 16 };
 
 	CCParams<CryptoContextCKKSRNS> params;
+	params.SetDevices({ 0 });
 	params.SetSecurityLevel(SecurityLevel::HEStd_NotSet);
 	params.SetRingDim(ring_dim);
 	params.SetMultiplicativeDepth(multDepth);
@@ -204,7 +206,6 @@ void uniform_bootstrap() {
 	params.SetKeySwitchTechnique(HYBRID);
 	params.SetNumLargeDigits(dnum);
 	params.SetBatchSize(batchSize);
-	params.SetDevices({ 0 });
 	params.SetCiphertextAutoload(true);
 
 	// ========
@@ -304,8 +305,8 @@ int main() {
 	// Part 2: Bootstrapping Demos.
 	// =====================================================
 
-	sparse_bootstrap();
 	uniform_bootstrap();
+	sparse_bootstrap();
 
 	return 0;
 }

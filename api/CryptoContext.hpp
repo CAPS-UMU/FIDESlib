@@ -79,7 +79,7 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	/// @brief Generate bootstrap precomputation data.
 	void EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor);
 	/// @brief Generate the evaluation bootstrap keys.
-	void EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& sk, uint32_t slots);
+	void EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& secretKey, uint32_t slots);
 
 	// ---- Serialization ----
 	static bool SerializeEvalMultKey(std::ostream& ser, const SerType& sertype, const std::string& keyTag = "");
@@ -182,6 +182,7 @@ template <> class CryptoContextImpl<DCRTPoly> {
 
 	Ciphertext<DCRTPoly> AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride = 1);
 	void AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride = 1);
+	void AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride, int start);
 
 	void ConvolutionTransformInPlace(Ciphertext<DCRTPoly>& ct, int gStep, int bStep, const std::vector<Plaintext>& pts, const std::vector<int>& indexes, int stride = 1, int rowSize = 0);
 
@@ -214,6 +215,8 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	uint32_t multiplicative_depth = 0;
 	/// @brief Rotation indexes for which rotation keys are available.
 	std::vector<int32_t> rotation_indexes;
+	/// @brief Bootstrap slots available.
+	std::vector<uint32_t> slots_bootstrap;
 	/// @brief Secret key distribution.
 	SecretKeyDist keyDist = UNIFORM_TERNARY;
 
@@ -225,10 +228,8 @@ template <> class CryptoContextImpl<DCRTPoly> {
 
 	/// @brief  Registry of plaintexts stored on the GPU (opaque types).
 	std::unordered_map<uint32_t, std::shared_ptr<void>> device_plaintexts;
-	std::unique_ptr<std::shared_mutex> device_plaintexts_mutex;
 	/// @brief  Registry of ciphertexts stored on the GPU (opaque types).
 	std::unordered_map<uint32_t, std::shared_ptr<void>> device_ciphertexts;
-	std::unique_ptr<std::shared_mutex> device_ciphertexts_mutex;
 	/// @brief Next available handle for GPU objects. Zero is reserved as a null handle.
 	uint32_t next_gpu_handle = 1;
 

@@ -15,23 +15,23 @@ namespace FIDESlib {
 namespace CKKS {
 
 class KeySwitchingKey {
-    static constexpr const char* loc{"KeySwitchingKey"};
-    CudaNvtxRange my_range;
+	static constexpr const char* loc{ "KeySwitchingKey" };
+	CudaNvtxRange my_range;
 
-   public:
-    KeyHash keyID;
-    Context& cc;
-    RNSPoly a;
-    RNSPoly b;
-    // std::vector<RNSPoly> mgpu_a;
-    // std::vector<RNSPoly> mgpu_b;
+  public:
+	KeyHash keyID;
+	Context& cc;
+	RNSPoly a;
+	RNSPoly b;
+	// std::vector<RNSPoly> mgpu_a;
+	// std::vector<RNSPoly> mgpu_b;
 
-    explicit KeySwitchingKey(Context& cc);
+	explicit KeySwitchingKey(Context& cc);
 
-    void Initialize(RawKeySwitchKey& rkk);
+	void Initialize(RawKeySwitchKey& rkk);
 };
 
-}  // namespace CKKS
-}  // namespace FIDESlib
+} // namespace CKKS
+} // namespace FIDESlib
 
-#endif  //GPUCKKS_KEYSWITCHINGKEY_CUH
+#endif // GPUCKKS_KEYSWITCHINGKEY_CUH

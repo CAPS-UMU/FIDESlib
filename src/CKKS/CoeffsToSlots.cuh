@@ -10,5 +10,5 @@ namespace FIDESlib::CKKS {
 void EvalLinearTransform(Ciphertext& ctxt, int slots, bool decode);
 
 void EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode);
-}  // namespace FIDESlib::CKKS
-#endif  //GPUCKKS_COEFFSTOSLOTS_CUH
+} // namespace FIDESlib::CKKS
+#endif // GPUCKKS_COEFFSTOSLOTS_CUH

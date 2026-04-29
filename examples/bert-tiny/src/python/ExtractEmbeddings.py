@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Usage: python3 ExtractEmbeddings.py <sentence> <dataset> <model_name> <out_dir> <out_fname> [mode]
 import sys, os, torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, logging
+from transformers import BertForSequenceClassification, BertTokenizer, logging
 
 # Suppress warnings
 logging.set_verbosity_error()
@@ -42,14 +42,10 @@ model_id = resolve_model_id(dataset, model_name)
 hf_token = os.getenv("HF_TOKEN", None)
 local_only = bool(os.getenv("HF_OFFLINE"))
 
-tokenizer = AutoTokenizer.from_pretrained(
-    model_id, use_fast=True, local_files_only=local_only,
-    use_auth_token=hf_token if hf_token else None
-)
-model = AutoModelForSequenceClassification.from_pretrained(
-    model_id, local_files_only=local_only,
-    use_auth_token=hf_token if hf_token else None
-)
+tokenizer = BertTokenizer.from_pretrained(
+    model_id, use_fast=True, local_files_only=local_only)
+model = BertForSequenceClassification.from_pretrained(
+    model_id, local_files_only=local_only)
 model.eval()
 
 # Load custom weights for SST-2 if available

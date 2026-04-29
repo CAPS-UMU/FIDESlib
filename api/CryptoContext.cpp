@@ -43,6 +43,14 @@ std::map<std::string, std::shared_ptr<std::map<usint, lbcrypto::EvalKey<lbcrypto
 
 namespace fideslib {
 
+namespace {
+inline void EnsureMutableCpuCiphertext(Ciphertext<DCRTPoly>& ct) {
+	if (ct->need_lazy_copy) {
+		ct->EnsureLazyCPUCopy();
+	}
+}
+} // namespace
+
 static std::vector<FIDESlib::PrimeRecord> p64{ { .p = 2305843009218281473 },
 	{ .p = 2251799661248513 },
 	{ .p = 2251799661641729 },
@@ -117,6 +125,12 @@ static std::unordered_map<PKESchemeFeature, lbcrypto::PKESchemeFeature> PKESchem
 };
 
 CryptoContextImpl<DCRTPoly>::~CryptoContextImpl() {
+
+	if (this->loaded) {
+		auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
+		FIDESlib::CKKS::DeregisterCryptoContextGPU(context_gpu);
+		this->gpu = std::any();
+	}
 	lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::ClearEvalMultKeys();
 	lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::ClearEvalAutomorphismKeys();
 }
@@ -197,7 +211,7 @@ void CryptoContextImpl<DCRTPoly>::LoadContext(const PublicKey<DCRTPoly>& publicK
 	auto& pkImpl = std::any_cast<const lbcrypto::PublicKey<lbcrypto::DCRTPoly>&>(publicKey->pimpl);
 
 	// Multiplicative key switching key.
-	auto& keyMap = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalMultKeyMap;
+	auto& keyMap = context->GetAllEvalMultKeys(); // lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalMultKeyMap;
 	if (keyMap.find(pkImpl->GetKeyTag()) != keyMap.end()) {
 		auto raw_eval_ksk = FIDESlib::CKKS::GetEvalKeySwitchKey(pkImpl);
 		FIDESlib::CKKS::KeySwitchingKey eval_ksk(c);
@@ -211,16 +225,9 @@ void CryptoContextImpl<DCRTPoly>::LoadContext(const PublicKey<DCRTPoly>& publicK
 		rot_ksk.Initialize(raw_rot_ksk);
 		c->AddRotationKey(step, std::move(rot_ksk));
 	}
-
-	// Bootstrapping precomputations.
-	auto fhe = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(context->GetScheme()->m_FHE);
-	if (fhe) {
-		auto precom = fhe->m_bootPrecomMap;
-		if (!precom.empty()) {
-			for (const auto& [slots, _] : precom) {
-				FIDESlib::CKKS::AddBootstrapPrecomputation(pkImpl, static_cast<int32_t>(slots), c);
-			}
-		}
+	// Bootstrapping keys.
+	for (const auto& slot : this->slots_bootstrap) {
+		FIDESlib::CKKS::AddBootstrapPrecomputation(pkImpl, slot, c);
 	}
 
 	this->gpu	 = std::make_any<FIDESlib::CKKS::Context>(std::move(c));
@@ -308,49 +315,15 @@ void CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen(const PrivateKey<DCRTPoly>& s
 void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor) {
 
 	// Only before loading one must compute the bootstrapping auxiliary data.
-	if (!this->devices.empty() && this->loaded) {
-		OPENFHE_THROW("EvalBootstrapSetup must be called before LoadContext");
-	}
-
-	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+	if (this->loaded) {
+		OPENFHE_THROW("Context is already loaded");
+	}auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 
 	std::vector<double> coeffchebyshev;
 	int doubleAngleIts = 3;
 
 	if (this->keyDist == fideslib::SPARSE_ENCAPSULATED) {
-		coeffchebyshev = { 0.24554573401685137,
-			-0.047919064883347899,
-			0.28388702040840819,
-			-0.029944538735513584,
-			0.35576522619036460,
-			0.015106561885073030,
-			0.29532946674499999,
-			0.071203602333739374,
-			-0.10347347339668074,
-			0.044997590512555294,
-			-0.42750712431925747,
-			-0.090342129729094875,
-			0.36762876269324946,
-			0.049318066039335348,
-			-0.14535986272411980,
-			-0.015106938483063579,
-			0.035951935499240355,
-			0.0031036582188686437,
-			-0.0062644606607068463,
-			-0.00046609430477154916,
-			0.00082128798852385086,
-			0.000053910533892372678,
-			-0.000084551549768927401,
-			-4.9773801787288514e-6,
-			7.0466620439083618e-6,
-			3.7659807574103204e-7,
-			-4.8648510153626034e-7,
-			-2.3830267651437146e-8,
-			2.8329709716159918e-8,
-			1.2817720050334158e-9,
-			-1.4122220430105397e-9,
-			-5.9306213139085216e-11,
-			6.3298928388417848e-11 };
+		coeffchebyshev = lbcrypto::FHECKKSRNS::g_coefficientsSparseEncapsulated;
 		doubleAngleIts = lbcrypto::FHECKKSRNS::R_SPARSE;
 	} else if (this->keyDist == fideslib::SPARSE_TERNARY) {
 		coeffchebyshev = lbcrypto::FHECKKSRNS::g_coefficientsSparse;
@@ -372,20 +345,17 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>
 	context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, true, modall);
 }
 
-void CryptoContextImpl<DCRTPoly>::EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& sk, uint32_t slots) {
+void CryptoContextImpl<DCRTPoly>::EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& secretKey, uint32_t slots) {
 
-	if (!this->devices.empty() && this->loaded) {
-		OPENFHE_THROW("EvalBootstrapKeyGen must be called before LoadContext");
+	if (this->loaded) {
+		OPENFHE_THROW("Context is already loaded");
 	}
 
-	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
-	auto& skImpl  = std::any_cast<const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>&>(sk->pimpl);
+	auto& skImpl  = std::any_cast<const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>&>(secretKey->pimpl);
 
-	if (this->devices.empty()) {
-		context->EvalBootstrapKeyGen(skImpl, slots);
-	} else {
-		FIDESlib::CKKS::GenBootstrapKeys(skImpl, static_cast<int>(slots));
-	}
+	this->slots_bootstrap.push_back(slots);
+
+	FIDESlib::CKKS::GenBootstrapKeys(skImpl, slots, this->keyDist == fideslib::SPARSE_ENCAPSULATED);
 }
 
 // ---- Serialization ----
@@ -568,6 +538,11 @@ DecryptResult CryptoContextImpl<DCRTPoly>::Decrypt(Ciphertext<DCRTPoly>& ct, con
 	}
 
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+
+	if (ct->loaded) {
+		EnsureMutableCpuCiphertext(ct);
+	}
+
 	auto& ct_cpu  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 	// Copy ciphertext to CPU if needed.
@@ -654,6 +629,7 @@ void CryptoContextImpl<DCRTPoly>::EvalNegateInPlace(Ciphertext<DCRTPoly>& ct) {
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct);
 		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 		context->EvalNegateInPlace(ctImpl);
 		return;
@@ -753,6 +729,7 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, cons
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		auto& ct2Impl = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
 		context->EvalAddInPlace(ct1Impl, ct2Impl);
@@ -774,6 +751,7 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, Plai
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		auto& ptImpl  = std::any_cast<lbcrypto::Plaintext&>(pt->cpu);
 		context->EvalAddInPlace(ct1Impl, ptImpl);
@@ -799,6 +777,7 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, doub
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		context->EvalAddInPlace(ct1Impl, scalar);
 		return;
@@ -1046,6 +1025,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, cons
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		auto& ct2Impl = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
 		context->EvalSubInPlace(ct1Impl, ct2Impl);
@@ -1067,6 +1047,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, doub
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		context->EvalSubInPlace(ct1Impl, scalar);
 		return;
@@ -1085,6 +1066,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(double scalar, Ciphertext<DCRTP
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		context->EvalSubInPlace(scalar, ct1Impl);
 		return;
@@ -1203,6 +1185,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Pla
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		auto& ptImpl  = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
 		auto res	  = context->EvalMult(ct1Impl, ptImpl);
@@ -1225,6 +1208,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, dou
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		context->EvalMultInPlace(ct1Impl, scalar);
 		return;
@@ -1258,6 +1242,8 @@ void CryptoContextImpl<DCRTPoly>::EvalMultMutableInPlace(Ciphertext<DCRTPoly>& c
 	// Fall back to CPU.
 	if (this->devices.empty()) {
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct1);
+		EnsureMutableCpuCiphertext(ct2);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
 		auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
 		context->EvalMultMutableInPlace(ct1Impl, ct2Impl);
@@ -1300,6 +1286,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSquareInPlace(Ciphertext<DCRTPoly>& ct) {
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct);
 		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 		context->EvalSquareInPlace(ctImpl);
 		return;
@@ -1395,7 +1382,8 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, co
 	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
 	auto res_gpu				= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
 	auto ct_gpu					= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
-	ct_gpu->rotate_hoisted({ (int)index }, { res_gpu.get() }, false);
+	res_gpu->copy(*ct_gpu);
+	res_gpu->rotate((int)index, true);
 
 	return result;
 }
@@ -1420,7 +1408,9 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciph
 	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
 	auto res_gpu				= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
 	auto ct_gpu					= std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
-	ct_gpu->rotate_hoisted({ (int)index }, { res_gpu.get() }, true);
+	// ct_gpu->rotate((int)index, false);
+	res_gpu->copy(*ct_gpu);
+	res_gpu->rotate((int)index, false);
 
 	return result;
 }
@@ -1537,6 +1527,7 @@ void CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesInPlace(Ciphertext<DCRTPoly
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct);
 		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 		auto res	  = context->EvalChebyshevSeries(ctImpl, coeffs, a, b);
 		ct->cpu		  = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
@@ -1583,6 +1574,7 @@ void CryptoContextImpl<DCRTPoly>::RescaleInPlace(Ciphertext<DCRTPoly>& ciphertex
 	if (this->devices.empty()) {
 
 		auto& context	= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ciphertext);
 		auto& ctImpl	= std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ciphertext->cpu);
 		auto ct			= context->Rescale(ctImpl);
 		ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
@@ -1680,6 +1672,7 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 
 	if (this->devices.empty()) {
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct);
 		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 		for (int i = 0; i < log2(slots); i++) {
@@ -1697,6 +1690,30 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
 
 	FIDESlib::CKKS::Accumulate(*res_gpu, 4, stride, slots);
+}
+
+void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride, int start) {
+
+	if (this->devices.empty()) {
+		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		EnsureMutableCpuCiphertext(ct);
+		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+
+		for (int s = start; s < slots; s <<= 1) {
+			int rot_idx = stride * s;
+			auto tmp	= context->EvalRotate(ctImpl, rot_idx);
+			context->EvalAddInPlace(ctImpl, tmp);
+		}
+
+		return;
+	}
+
+	// GPU path.
+	this->LoadCiphertext(ct);
+
+	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
+
+	FIDESlib::CKKS::Accumulate(*res_gpu, 4, stride, slots, start);
 }
 
 void CryptoContextImpl<DCRTPoly>::ConvolutionTransformInPlace(Ciphertext<DCRTPoly>& ct,
@@ -1786,10 +1803,10 @@ uint32_t CryptoContextImpl<DCRTPoly>::RegisterDevicePlaintext(std::shared_ptr<vo
 	if (this->devices.empty()) {
 		OPENFHE_THROW("No devices available to register plaintext");
 	}
-	device_plaintexts_mutex->lock();
+	//device_plaintexts_mutex->lock();
 	uint32_t handle = next_gpu_handle++;
 	device_plaintexts.emplace(handle, std::move(p));
-	device_plaintexts_mutex->unlock();
+	//device_plaintexts_mutex->unlock();
 	return handle;
 }
 
@@ -1797,38 +1814,38 @@ uint32_t CryptoContextImpl<DCRTPoly>::RegisterDeviceCiphertext(std::shared_ptr<v
 	if (this->devices.empty()) {
 		OPENFHE_THROW("No devices available to register ciphertext");
 	}
-	device_ciphertexts_mutex->lock();
+	//device_ciphertexts_mutex->lock();
 	uint32_t handle = next_gpu_handle++;
 	device_ciphertexts.emplace(handle, std::move(c));
-	device_ciphertexts_mutex->unlock();
+	//device_ciphertexts_mutex->unlock();
 	return handle;
 }
 
 std::shared_ptr<void>& CryptoContextImpl<DCRTPoly>::GetDevicePlaintext(uint32_t handle) {
-	device_plaintexts_mutex->lock_shared();
+	//device_plaintexts_mutex->lock_shared();
 	auto& it = device_plaintexts.at(handle);
-	device_plaintexts_mutex->unlock_shared();
+	//device_plaintexts_mutex->unlock_shared();
 	return it;
 }
 
 std::shared_ptr<void>& CryptoContextImpl<DCRTPoly>::GetDeviceCiphertext(uint32_t handle) {
-	device_ciphertexts_mutex->lock_shared();
+	//device_ciphertexts_mutex->lock_shared();
 	auto& it = device_ciphertexts.at(handle);
-	device_ciphertexts_mutex->unlock_shared();
+	//device_ciphertexts_mutex->unlock_shared();
 	return it;
 }
 
 bool CryptoContextImpl<DCRTPoly>::EvictDevicePlaintext(uint32_t handle) {
-	device_plaintexts_mutex->lock();
+	//device_plaintexts_mutex->lock();
 	auto result = device_plaintexts.erase(handle) > 0;
-	device_plaintexts_mutex->unlock();
+	//device_plaintexts_mutex->unlock();
 	return result;
 }
 
 bool CryptoContextImpl<DCRTPoly>::EvictDeviceCiphertext(uint32_t handle) {
-	device_ciphertexts_mutex->lock();
+	//device_ciphertexts_mutex->lock();
 	auto result = device_ciphertexts.erase(handle) > 0;
-	device_ciphertexts_mutex->unlock();
+	//device_ciphertexts_mutex->unlock();
 	return result;
 }
 

@@ -13,6 +13,6 @@ void parallel_for(int init, int end, int increment, const std::function<void(int
 
 void openmp_synchronize();
 
-}  // namespace FIDESlib
+} // namespace FIDESlib
 
-#endif  //FIDESLIB_PARALLEL_FOR_HPP
+#endif // FIDESLIB_PARALLEL_FOR_HPP

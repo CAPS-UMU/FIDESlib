@@ -28,26 +28,16 @@ int main(int argc, char* argv[]) {
 	// Get experiment settings.
 	experiment_settings settings = get_experiment_settings(program_args.context_index);
 	settings.verbose = program_args.verbose;
-
-	if (program_args.generate_context) {
 		
-		// Generate context for the experiment.
-		resnet_controller.generate_context(settings);
-		// Generate rotation keys and bootstrapping keys.
-		resnet_controller.generate_rotations(settings);
-		// Serialize context and keys.
-		resnet_controller.serialize_context(settings);
-
-		return 0;
-	}
-
-	// Load context.
-	resnet_controller.deserialize_context(settings);
+	// Generate context for the experiment.
+	resnet_controller.generate_context(settings);
+	// Generate rotation keys and bootstrapping keys.
+	resnet_controller.generate_rotations(settings);
 	// Generate bootstrapping keys.
 	resnet_controller.generate_bootstrapping(settings);
+
 	// Into GPU mode.
 	resnet_controller.load_context();
-
 	// Get input image.
 	 if (program_args.input_filename.empty()) {
         program_args.input_filename = "../inputs/luis.png";
