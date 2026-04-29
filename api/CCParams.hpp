@@ -58,7 +58,7 @@ template <> class CCParams<CryptoContextCKKSRNS> {
 	// ---- Internal State ----
 
 	std::any cpu;
-	std::vector<int> devices = { 0 };
+	std::vector<int> devices = { };
 	SecretKeyDist keyDist	 = UNIFORM_TERNARY;
 	bool plaintextAutoload	 = false;
 	bool ciphertextAutoload	 = true;

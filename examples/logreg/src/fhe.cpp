@@ -1,5 +1,6 @@
 #include "fhe.hpp"
 #include "Definitions.hpp"
+#include <algorithm>
 #include <iostream>
 #include <vector>
 
@@ -31,8 +32,8 @@ uint32_t create_context(bool inference) {
 	// Boot every 2 iterations parameters.
 	uint32_t scale_mod = 50;
 	uint32_t first_mod = 55;
-	uint32_t digits	   = sparse_encaps ? 3 : 5;
-	depth			   = sparse_encaps ? (slow ? 23 : 22) : 26;
+	uint32_t digits	   = sparse_encaps ? 3 : 3;
+	depth			   = sparse_encaps ? 22 : 22;
 
 	fideslib::CCParams<fideslib::CryptoContextCKKSRNS> params;
 	params.SetScalingModSize(scale_mod);
@@ -67,10 +68,15 @@ void prepare_context(const fideslib::KeyPair<fideslib::DCRTPoly>& k, size_t cols
 	}
 	for (size_t i = cols; i < cols * rows; i <<= 1)
 		rot_idx.push_back(i);
+	rot_idx.push_back(32765);
+	rot_idx.push_back(32756);
+	rot_idx.push_back(32720);
+	rot_idx.push_back(32576);
 	cc->EvalRotateKeyGen(k.secretKey, rot_idx);
-
+	
 	cc->EvalBootstrapSetup(levelBudget, bStep, cols, 0);
 	cc->EvalBootstrapKeyGen(k.secretKey, cols);
+	
 	cc->LoadContext(k.publicKey);
 
 	// Create masks for activation function
@@ -94,20 +100,23 @@ static void activation(fideslib::Ciphertext<fideslib::DCRTPoly>& ct) {
 
 // Cascading row accumulation - each rotation uses the updated ct
 static void row_accumulate(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, size_t cols) {
-	for (size_t j = 1; j < cols; j <<= 1)
-		cc->EvalAddInPlace(ct, cc->EvalRotate(ct, j));
+	cc->AccumulateSumInPlace(ct, cols, 1);
+	//for (size_t j = 1; j < cols; j <<= 1)
+	//	cc->EvalAddInPlace(ct, cc->EvalRotate(ct, j));
 }
 
 // Cascading row propagation (negative direction)
 static void row_propagate(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, size_t cols) {
-	for (size_t j = 1; j < cols; j <<= 1)
-		cc->EvalAddInPlace(ct, cc->EvalRotate(ct, -static_cast<int>(j)));
+	cc->AccumulateSumInPlace(ct, static_cast<int>(cols), static_cast<int>(numSlots - 1));
+	//for (size_t j = 1; j < cols; j <<= 1)
+	//	cc->EvalAddInPlace(ct, cc->EvalRotate(ct, -static_cast<int>(j)));
 }
 
 // Cascading column accumulation
 static void column_accumulate(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, size_t rows, size_t cols) {
-	for (size_t j = cols; j < rows * cols; j <<= 1)
-		cc->EvalAddInPlace(ct, cc->EvalRotate(ct, j));
+	cc->AccumulateSumInPlace(ct, static_cast<int>(rows * cols), 1, static_cast<int>(cols));
+	//for (size_t j = cols; j < rows * cols; j <<= 1)
+	//	cc->EvalAddInPlace(ct, cc->EvalRotate(ct, j));
 }
 
 static void train_iteration(fideslib::Ciphertext<fideslib::DCRTPoly>& data,
@@ -116,8 +125,8 @@ static void train_iteration(fideslib::Ciphertext<fideslib::DCRTPoly>& data,
   size_t rows,
   size_t cols,
   size_t batch_size,
-  double lr) {
-	static bool do_boot = false;
+	double lr,
+	bool& do_boot) {
 
 	auto ct = cc->EvalMult(data, weights);
 
@@ -127,8 +136,9 @@ static void train_iteration(fideslib::Ciphertext<fideslib::DCRTPoly>& data,
 	cc->EvalSubInPlace(ct, results);
 	row_propagate(ct, cols);
 	auto scale = (lr / batch_size);
-	if (do_boot && (!sparse_encaps || !slow)) {
-		scale *= cc->GetPreScaleFactor(cols);
+	auto prescale_factor = cc->GetPreScaleFactor(cols);
+	if (boot_every_iter || (do_boot && !boot_every_iter)) {
+		scale *= prescale_factor;
 	}
 	cc->EvalMultInPlace(data, scale);
 
@@ -136,12 +146,12 @@ static void train_iteration(fideslib::Ciphertext<fideslib::DCRTPoly>& data,
 
 	column_accumulate(ct, rows, cols);
 
-	if (do_boot && (!sparse_encaps || !slow)) {
-		cc->EvalMultInPlace(weights, cc->GetPreScaleFactor(cols));
+	if (boot_every_iter || (do_boot && !boot_every_iter)) {
+		cc->EvalMultInPlace(weights, prescale_factor);
 	}
 	cc->EvalSubInPlace(weights, ct);
 
-	if (do_boot) {
+	if (boot_every_iter || (do_boot && !boot_every_iter)) {
 		weights->SetSlots(cols);
 		cc->EvalBootstrapInPlace(weights, 1, 0, prescale);
 		weights->SetSlots(numSlots);
@@ -167,20 +177,49 @@ std::vector<iteration_time_t> logistic_regression_train(const std::vector<std::v
 
 	std::vector<fideslib::Ciphertext<fideslib::DCRTPoly>> enc_data(data.size());
 	std::vector<fideslib::Ciphertext<fideslib::DCRTPoly>> enc_results(results.size());
+	if (enc_data.empty() || enc_results.empty()) {
+		return { { time_unit_t::zero(), time_unit_t::zero() } };
+	}
 
-	for (size_t i = 0; i < iterations; ++i) {
-		enc_data[i]	 = encrypt_data(data[i], pk, 2, depth - 9);
-		enc_results[i] = encrypt_data(results[i], pk, 2, depth - 7);
+	auto data_depth = boot_every_iter ? (depth - 5) : (depth - 9);
+	auto res_depth  = boot_every_iter ? (depth - 3) : (depth - 7);
+
+	const size_t sample_count = std::min(enc_data.size(), enc_results.size());
+	for (size_t i = 0; i < sample_count; ++i) {
+		enc_data[i]    = encrypt_data(data[i], pk, 2, data_depth);
+		enc_results[i] = encrypt_data(results[i], pk, 2, res_depth);
+	}
+
+	const size_t warmup_iterations = std::min<size_t>(2, iterations);
+	if (warmup_iterations > 0 && sample_count > 0) {
+		std::vector<fideslib::Ciphertext<fideslib::DCRTPoly>> warmup_data;
+		warmup_data.reserve(enc_data.size());
+		for (const auto& ct : enc_data) {
+			warmup_data.push_back(ct->Clone());
+		}
+		auto warmup_weights = weights->Clone();
+		bool warmup_do_boot = false;
+
+		cc->Synchronize();
+		for (size_t it = 0; it < warmup_iterations; ++it) {
+			size_t idx	 = it % sample_count;
+			size_t batch = (idx == sample_count - 1) ? last_rows : rows;
+			double lr	 = std::max(10.0 / (it + 1), 0.005);
+
+			train_iteration(warmup_data[idx], enc_results[idx], warmup_weights, rows, cols, batch, lr, warmup_do_boot);
+		}
+		cc->Synchronize();
 	}
 
 	cc->Synchronize();
 	auto start_total = std::chrono::high_resolution_clock::now();
+	bool do_boot	 = false;
 	for (size_t it = 0; it < iterations; ++it) {
-		size_t idx	 = it % data.size();
-		size_t batch = (idx == data.size() - 1) ? last_rows : rows;
+		size_t idx	 = it % sample_count;
+		size_t batch = (idx == sample_count - 1) ? last_rows : rows;
 		double lr	 = std::max(10.0 / (it + 1), 0.005);
 
-		train_iteration(enc_data[idx], enc_results[idx], weights, rows, cols, batch, lr);
+		train_iteration(enc_data[idx], enc_results[idx], weights, rows, cols, batch, lr, do_boot);
 	}
 	cc->Synchronize();
 	auto end_total = std::chrono::high_resolution_clock::now();
@@ -194,8 +233,9 @@ std::vector<iteration_time_t> logistic_regression_inference(std::vector<std::vec
   const fideslib::KeyPair<fideslib::DCRTPoly>& k) {
 
 	std::vector<fideslib::Ciphertext<fideslib::DCRTPoly>> enc_data(data.size());
+	auto data_depth = depth - 4;
 	for (size_t i = 0; i < data.size(); ++i)
-		enc_data[i] = encrypt_data(data[i], k.publicKey, 1, depth - 4);
+		enc_data[i] = encrypt_data(data[i], k.publicKey, 1, data_depth);
 
 
 	cc->Synchronize();
@@ -226,7 +266,8 @@ fideslib_training(const std::vector<std::vector<double>>& data, const std::vecto
 	prepare_context(keys, cols, rows);
 
 	weights_fhe.resize(cols);
-	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 2, depth - 9);
+	auto weights_depth = boot_every_iter ? (depth - 5) : (depth - 9);
+	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 2, weights_depth);
 
 	auto times = logistic_regression_train(data_fhe, results_fhe, enc_weights, rows, cols, last, iterations, keys.publicKey);
 
@@ -248,7 +289,8 @@ fideslib_inference(const std::vector<std::vector<double>>& data, const std::vect
 	keys = cc->KeyGen();
 	prepare_context(keys, cols, rows);
 
-	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 1, depth - 4);
+	auto weights_depth = depth - 4;
+	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 1, weights_depth);
 	auto times		 = logistic_regression_inference(data_fhe, enc_weights, cols, keys);
 
 	std::vector<std::vector<double>> unpacked;

@@ -9,7 +9,7 @@
 std::vector<int> devices		  = {};
 bool prescale					  = true;
 bool sparse_encaps				  = true;
-bool slow						  = false;
+bool boot_every_iter			  = false;
 std::vector<uint32_t> bStep		  = { 16, 16 };
 std::vector<uint32_t> levelBudget = { 2, 2 };
 uint32_t ringDim				  = 1 << 16;
@@ -17,12 +17,13 @@ uint32_t numSlots				  = ringDim / 2;
 
 static void print_usage(const char* name) {
 	std::cerr << "Usage:\n"
-			  << "  " << name << " train <dataset> <iterations> <devices> <sparse> <slow>\n"
-			  << "  " << name << " inference <dataset> <devices> <sparse> <slow>\n"
-			  << "  " << name << " perf <dataset> <iterations> <devices> <sparse> <slow>\n"
+			  << "  " << name << " train <dataset> <iterations> <sparse> <boot_every_iter>\n"
+			  << "  " << name << " inference <dataset> <sparse> <boot_every_iter>\n"
+			  << "  " << name << " perf <dataset> <iterations> <sparse> <boot_every_iter>\n"
 			  << "\nDatasets: random, mnist\n"
-			  << "Sparse: 0 = UNIFORM_TERNARY, 1 = SPARSE_TERNARY\n"
-			  << "Slow: 0 = fast mode, 1 = slow mode\n";
+			  << "Sparse: 0 = UNIFORM_TERNARY, 1 = SPARSE_ENCAPSULATED\n"
+			  << "Boot every iter: 0 = false, 1 = true\n"
+			  << "Set FIDESLIB_USE_NUM_GPUS env var for number of GPUs (default: 0)\n";
 	exit(EXIT_FAILURE);
 }
 
@@ -35,8 +36,13 @@ static dataset_t parse_dataset(const std::string& s) {
 	exit(EXIT_FAILURE);
 }
 
-static void setup_devices(int count) {
+static void setup_devices() {
 	devices.clear();
+	int count = 0;
+	char* env = getenv("FIDESLIB_USE_NUM_GPUS");
+	if (env && env[0] != '\0') {
+		count = std::atoi(env);
+	}
 	for (int i = 0; i < count; ++i)
 		devices.push_back(i);
 }
@@ -47,14 +53,14 @@ int main(int argc, char* argv[]) {
 
 	std::string mode  = argv[1];
 	dataset_t dataset = parse_dataset(argv[2]);
+	setup_devices();
 
 	if (mode == "train") {
-		if (argc != 7)
+		if (argc != 6)
 			print_usage(argv[0]);
 		size_t iterations = std::stoul(argv[3]);
-		setup_devices(std::stoi(argv[4]));
-		sparse_encaps = std::stoi(argv[5]) != 0;
-		slow = std::stoi(argv[6]) != 0;
+		sparse_encaps = std::stoi(argv[4]) != 0;
+		boot_every_iter = std::stoi(argv[5]) != 0;
 
 		std::vector<std::vector<double>> data;
 		std::vector<double> results, weights;
@@ -65,11 +71,10 @@ int main(int argc, char* argv[]) {
 		print_times(times, "TRAIN", !devices.empty(), data.size());
 
 	} else if (mode == "inference") {
-		if (argc != 6)
+		if (argc != 5)
 			print_usage(argv[0]);
-		setup_devices(std::stoi(argv[3]));
-		sparse_encaps = std::stoi(argv[4]) != 0;
-		slow = std::stoi(argv[5]) != 0;
+		sparse_encaps = std::stoi(argv[3]) != 0;
+		boot_every_iter = std::stoi(argv[4]) != 0;
 
 		std::vector<std::vector<double>> data;
 		std::vector<double> results, weights;
@@ -81,12 +86,11 @@ int main(int argc, char* argv[]) {
 		std::cout << "Accuracy: " << accuracy << "%" << std::endl;
 
 	} else if (mode == "perf") {
-		if (argc != 7)
+		if (argc != 6)
 			print_usage(argv[0]);
 		size_t iterations = std::stoul(argv[3]);
-		setup_devices(std::stoi(argv[4]));
-		sparse_encaps = std::stoi(argv[5]) != 0;
-		slow = std::stoi(argv[6]) != 0;
+		sparse_encaps = std::stoi(argv[4]) != 0;
+		boot_every_iter = std::stoi(argv[5]) != 0;
 
 		std::vector<std::vector<double>> train_data, val_data;
 		std::vector<double> train_results, val_results;

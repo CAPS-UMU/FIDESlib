@@ -2,11 +2,11 @@
   <img src="https://github.com/CAPS-UMU/FIDESlib/blob/main/doxygen/FidesLogo.drawio.svg?raw=true" width="200">
 </p>
 
-# FIDESlib 2.0
+# FIDESlib 2.1
 
 A server-side CKKS GPU library fully interoperable with OpenFHE.
 
-## Improvements in version 2.0
+## Improvements in version 2.1
 
   - OpenFHE version 1.4.2 compatibility.
   - Multi-GPU support with NCCL.
@@ -42,9 +42,8 @@ If you use FIDESlib on your research, please cite our ISPASS paper.
 
 > [!IMPORTANT]
 > Requirements:
->  -  NVIDIA CUDA version 12 or greater.
->     - Must provide a NVTX implementation.
->  -  Clang Compiler toolchain version >=17 or GCC version >=11
+>  -  NVIDIA CUDA version 12.
+>  -  GCC version >=11
 >  -  OpenMP development library.
 >  -  CMake version 3.25.2 or greater.
 >  -  (Optional) NVIDIA Collective Communications Library to enable Multi-GPU support.
@@ -56,7 +55,7 @@ dependencies, install them using the package manager or mehtod of your choice.
 
 On Ubuntu:
 ```bash 
-apt install make build-essential cmake git libtbb-dev libomp-dev
+apt install make build-essential cmake git
 ```
 
 > [!NOTE]

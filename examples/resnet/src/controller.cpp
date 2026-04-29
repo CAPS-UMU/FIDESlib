@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
+#include <numeric>
 
 void resnet::generate_context(experiment_settings e) {
 
@@ -38,16 +39,11 @@ void resnet::generate_context(experiment_settings e) {
 	parameters.SetCiphertextAutoload(this->auto_load_ciphertexts);
 	parameters.SetPlaintextAutoload(this->auto_load_plaintexts);
 
-	const char* env_devices = std::getenv("FIDESLIB_DEVICES");
+	const char* env_devices = std::getenv("FIDESLIB_USE_NUM_GPUS");
 	if (env_devices) {
-		this->devices.clear();
-		std::string str_devices(env_devices);
-		std::replace(str_devices.begin(), str_devices.end(), ',', ' ');
-		std::stringstream ss(str_devices);
-		int device_id;
-		while (ss >> device_id) {
-			this->devices.push_back(device_id);
-		}
+		int num_gpus = std::stoi(env_devices);
+		this->devices.resize(num_gpus);
+		std::iota(this->devices.begin(), this->devices.end(), 0);
 	}
 
 	parameters.SetDevices(std::vector(this->devices));
@@ -59,6 +55,9 @@ void resnet::generate_context(experiment_settings e) {
 	this->circuit_depth		= e.depth;
 	this->prescaled			= e.prescale;
 	this->partial_load		= e.by_layer_loading;
+	this->auto_load_ciphertexts = e.autoload;
+	this->auto_load_plaintexts	= e.autoload;
+	this->verbose				= e.verbose;
 
 	if (this->devices.empty() && this->prescaled) {
 		std::cout << "Prescale only on GPU mode." << std::endl;
@@ -132,7 +131,7 @@ void resnet::serialize_context(experiment_settings e) {
 
 	if (stat(("../" + folder).c_str(), &sb) == 0) {
 		std::string command = "rm -r ../" + folder;
-		system(command.c_str());
+		[[maybe_unused]] int a = system(command.c_str());
 	}
 	mkdir(("../" + folder).c_str(), 0777);
 
@@ -288,8 +287,9 @@ void resnet::load_context() {
 void resnet::load_weights_layer0() {
 
 	if (!this->devices.empty() && this->prescaled) {
-		std::cout << "Prescale optimization enabled." << std::endl;
 		this->prescale = this->context->GetPreScaleFactor(this->num_slots);
+
+		std::cout << "Prescale optimization enabled: using a prescale factor of " << this->prescale << "." << std::endl;	
 	}
 
 	const uint32_t convbn_l0_levels_weights = this->prescaled ? this->circuit_depth - 2 : this->circuit_depth - 3;
@@ -1158,20 +1158,26 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	std::vector<double> input_image_data = read_image(input_image.c_str());
 
+	bool loaded = false;
+	fideslib::Ciphertext<fideslib::DCRTPoly> encrypted_image;
+	std::array<std::chrono::time_point<std::chrono::system_clock, std::chrono::duration<long, std::ratio<1, 1000000000>>>, 22> starts, ends;
+
+	for (size_t i = 0; i < 10; ++i) {
+
 	auto intial_level										 = this->prescaled ? this->circuit_depth - 2 : this->circuit_depth - 3;
-	fideslib::Ciphertext<fideslib::DCRTPoly> encrypted_image = this->encrypt(input_image_data, intial_level, this->num_slots);
+	encrypted_image = this->encrypt(input_image_data, intial_level, this->num_slots);
 
 	if (this->verbose) {
 		this->measure_bootstrap_precision();
 	}
 
-	if (!this->partial_load)
+	if (!this->partial_load && !loaded) {
 		this->load_weights();
-
-	std::array<std::chrono::time_point<std::chrono::system_clock, std::chrono::duration<long, std::ratio<1, 1000000000>>>, 22> starts, ends;
+		loaded = true;
+	}
 
 	// Block 0. Layer 0
-	if (this->partial_load)
+	if (this->partial_load && !loaded)
 		this->load_funcs[0]();
 	starts[0] = std::chrono::high_resolution_clock::now();
 	this->print(encrypted_image, "L0 Input");
@@ -1187,7 +1193,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 	ends[0] = std::chrono::high_resolution_clock::now();
 	// Block 1.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[1]();
 		starts[1] = std::chrono::high_resolution_clock::now();
 		auto in	  = encrypted_image->Clone();
@@ -1206,7 +1212,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[1] = std::chrono::high_resolution_clock::now();
 
 		// Layer 2.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[2]();
 		starts[2] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L2 Input");
@@ -1228,7 +1234,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 2.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[3]();
 		starts[3] = std::chrono::high_resolution_clock::now();
 		auto in	  = encrypted_image->Clone();
@@ -1247,7 +1253,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[3] = std::chrono::high_resolution_clock::now();
 
 		// Layer 4.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[4]();
 		starts[4] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L4 Input");
@@ -1269,7 +1275,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 3.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[5]();
 		starts[5] = std::chrono::high_resolution_clock::now();
 		auto in	  = encrypted_image->Clone();
@@ -1288,7 +1294,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[5] = std::chrono::high_resolution_clock::now();
 
 		// Layer 6.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[6]();
 		starts[6] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L6 Input");
@@ -1311,7 +1317,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 	// Block 4.
 	{
 		// Layer 7. SX.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[7]();
 		starts[7] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L7 Input");
@@ -1334,7 +1340,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[7] = std::chrono::high_resolution_clock::now();
 
 		// Layer 8. DX.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[8]();
 		starts[8] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L8 Input");
@@ -1351,7 +1357,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		encrypted_image = std::move(sxd);
 
 		// Layer 9.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[9]();
 		starts[9] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L9 Input");
@@ -1371,7 +1377,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 5.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[10]();
 		starts[10] = std::chrono::high_resolution_clock::now();
 		auto in	   = encrypted_image->Clone();
@@ -1390,7 +1396,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[10] = std::chrono::high_resolution_clock::now();
 
 		// Layer 11.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[11]();
 		starts[11] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L11 Input");
@@ -1412,7 +1418,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 6.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[12]();
 		starts[12] = std::chrono::high_resolution_clock::now();
 		auto in	   = encrypted_image->Clone();
@@ -1431,7 +1437,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[12] = std::chrono::high_resolution_clock::now();
 
 		// Layer 13.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[13]();
 		starts[13] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L13 Input");
@@ -1454,7 +1460,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 	// Block 7.
 	{
 		// Layer 14. SX.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[14]();
 		starts[14] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L14 SX Input");
@@ -1479,7 +1485,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[14] = std::chrono::high_resolution_clock::now();
 
 		// Layer 15. DX.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[15]();
 		starts[15] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L15 DX Input");
@@ -1498,7 +1504,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		encrypted_image = std::move(sxd);
 
 		// Layer 16.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[16]();
 		starts[16] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L16 Input");
@@ -1518,7 +1524,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 8.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[17]();
 		starts[17] = std::chrono::high_resolution_clock::now();
 		auto in	   = encrypted_image->Clone();
@@ -1537,7 +1543,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[17] = std::chrono::high_resolution_clock::now();
 
 		// Layer 18.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[18]();
 		starts[18] = std::chrono::high_resolution_clock::now();
 		this->print(encrypted_image, "L18 Input");
@@ -1559,7 +1565,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 9.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[19]();
 		starts[19] = std::chrono::high_resolution_clock::now();
 		auto in	   = encrypted_image->Clone();
@@ -1578,7 +1584,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		ends[19] = std::chrono::high_resolution_clock::now();
 
 		// Layer 20.
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[20]();
 		starts[20] = std::chrono::high_resolution_clock::now();
 		this->convbn(20, encrypted_image);
@@ -1596,7 +1602,7 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	// Block 10.
 	{
-		if (this->partial_load)
+		if (this->partial_load && !loaded)
 			this->load_funcs[21]();
 		starts[21] = std::chrono::high_resolution_clock::now();
 		this->context->AccumulateSumInPlace(encrypted_image, 64, 1);
@@ -1611,6 +1617,9 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 		this->print(encrypted_image, "L21 After final weight Mult");
 		this->context->AccumulateSumInPlace(encrypted_image, 64, 64);
 		ends[21] = std::chrono::high_resolution_clock::now();
+	}
+
+	loaded = this->partial_load ? false : true;
 	}
 
 	// Elapsed time in milliseconds
@@ -1648,8 +1657,11 @@ void resnet::measure_bootstrap_precision() {
 	auto clone_initial = initial->Clone();
 	auto a			   = decrypt(clone_initial);
 
-	this->context->LoadCiphertext(initial);
-	this->context->EvalBootstrapInPlace(initial, 1, 0, false);
+	//this->context->LoadCiphertext(initial);
+
+
+
+	//this->context->EvalBootstrapInPlace(initial, 1, 0, false);
 
 	auto b = decrypt(initial);
 
@@ -1833,6 +1845,7 @@ fideslib::Ciphertext<fideslib::DCRTPoly> resnet::downsample(size_t downsample_la
 }
 
 void resnet::relu(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, double scale) {
+	auto prescaled = this->prescaled ? this->prescale : 1.0;
 	std::function<double(double)> relu = [scale](double x) -> double {
 		if (x < 0)
 			return 0;
@@ -2001,5 +2014,5 @@ void resnet::print(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, std::string msg
 	std::cout << msg << std::endl;
 	std::cout << "\tLevel " << ct->GetLevel() << " , Scale " << ct->GetNoiseScaleDeg() << std::endl;
 	fideslib::Plaintext result = this->decrypt(ct);
-	std::cout << "\t" << result << std::endl;
+	//std::cout << "\t" << result << std::endl;
 }

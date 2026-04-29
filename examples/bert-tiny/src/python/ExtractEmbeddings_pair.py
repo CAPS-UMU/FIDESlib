@@ -1,6 +1,6 @@
 # /projectnb/he/seyda/FIDESlib/src/python/ExtractEmbeddings_pair.py
 import sys, os, torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, logging
+from transformers import BertForSequenceClassification, BertTokenizer, logging
 logging.set_verbosity_error()
 
 USAGE = "Usage: python3 ExtractEmbeddings_pair.py <s1> <s2> <model_name> <out_dir> <out_fname>"
@@ -34,18 +34,14 @@ model_id = resolve_model_id(model_name)
 hf_token = os.getenv("HF_TOKEN", None)
 local_only = bool(os.getenv("HF_OFFLINE"))
 
-tokenizer = AutoTokenizer.from_pretrained(
+tokenizer = BertTokenizer.from_pretrained(
     model_id,
     use_fast=True,
-    local_files_only=local_only,
-    use_auth_token=hf_token if hf_token else None,
-)
+    local_files_only=local_only)
 
-model = AutoModelForSequenceClassification.from_pretrained(
+model = BertForSequenceClassification.from_pretrained(
     model_id,
-    local_files_only=local_only,
-    use_auth_token=hf_token if hf_token else None,
-)
+    local_files_only=local_only)
 model.eval()
 
 # Pair tokenization (segment ids matter for pair tasks)

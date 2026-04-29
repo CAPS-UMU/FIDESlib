@@ -8,6 +8,9 @@
 
 enum dataset_t { RANDOM, MNIST };
 
+extern bool sparse_encaps;
+extern bool boot_every_iter;
+
 enum exec_t { TRAIN, VALIDATION, PERFORMANCE };
 
 using time_unit_t	   = std::chrono::microseconds;

@@ -14,9 +14,9 @@ git submodule update --init --recursive --remote
 #Source submodule.
 cd openfhe-src
 git checkout v1.4.2
-git config user.email "FIDESlib"
-git config user.name "FIDESlib"
-git am ../openfhe-1.4.2.patch
+#git config user.email "FIDESlib"
+#git config user.name "FIDESlib"
+git apply ../openfhe-1.4.2.patch
 
 # Compilation and installation.
 mkdir build

@@ -60,6 +60,13 @@ bool SerializeToFile(const std::string& filename, const fideslib::CryptoContext<
 	// Serialize key distribution setting if applicable.
 	std::string keyDistData = "KeyDist: " + std::to_string(obj->keyDist) + "\n";
 	devFile.write(keyDistData.c_str(), keyDistData.size());
+	// Serialize bootstrap slots if applicable.
+	std::string bootstrapData = "BootstrapSlots: { ";
+	for (const auto& slot : obj->slots_bootstrap) {
+		bootstrapData += std::to_string(slot) + " ";
+	}
+	bootstrapData += "}\n";
+	devFile.write(bootstrapData.c_str(), bootstrapData.size());
 	devFile.close();
 	return true;
 }
@@ -117,8 +124,6 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 	gpu_context.cpu						 = std::make_any<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>>(context);
 	gpu_context.devices					 = std::vector<int>();
 	gpu_context.multiplicative_depth	 = context->GetCryptoParameters()->GetElementParams()->GetParams().size() - 1;
-	gpu_context.device_plaintexts_mutex	 = std::make_unique<std::shared_mutex>();
-	gpu_context.device_ciphertexts_mutex = std::make_unique<std::shared_mutex>();
 	auto ptr							 = std::make_shared<CryptoContextImpl<DCRTPoly>>(std::move(gpu_context));
 	ptr->self_reference					 = std::weak_ptr<CryptoContextImpl<DCRTPoly>>(ptr);
 	obj									 = ptr;
@@ -183,6 +188,19 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 		int dist;
 		iss >> dist;
 		ptr->keyDist = (SecretKeyDist)dist;
+	}
+	// Sixth line: Boostrap slots 
+	if (std::getline(devFile, line)) {
+		std::istringstream iss(line);
+		std::string label;
+		iss >> label; // Read "BootstrapSlots:"
+		char brace;
+		iss >> brace; // Read '{'
+		ptr->slots_bootstrap.clear();
+		uint32_t slot;
+		while (iss >> slot) {
+			ptr->slots_bootstrap.push_back(slot);
+		}
 	}
 	devFile.close();
 

@@ -373,6 +373,19 @@ void FIDESlib::CKKS::evalChebyshevSeries(Ciphertext& ctxt, std::vector<double>& 
 	Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalChebyshevSeriesPS(ConstCiphertext<DCRTPoly> x,
 const std::vector<double>& coefficients, double a, double b) const {
 	*/
+
+	if (abs(lower_bound + 1.0) > 1e-9 || abs(upper_bound - 1.0) > 1e-9) {
+		if (abs(upper_bound - lower_bound - 2.0) < 1e-8) {
+			ctxt.addScalar(-lower_bound + 1.0);
+		} else {
+			if (abs(lower_bound + upper_bound) > 1e-8)
+				ctxt.addScalar(-lower_bound + (upper_bound - lower_bound) / 2.0); // center on 0
+			if (ctxt.cc.rescaleTechnique == CKKS::FIXEDMANUAL && ctxt.NoiseLevel == 2)
+				ctxt.rescale();
+			ctxt.multScalar(2.0 / (upper_bound - lower_bound));
+		}
+	}
+
 	constexpr bool sync = false;
 
 	uint32_t n			   = lbcrypto::Degree(coefficients);
