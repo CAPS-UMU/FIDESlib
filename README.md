@@ -42,7 +42,7 @@ If you use FIDESlib on your research, please cite our ISPASS paper.
 
 > [!IMPORTANT]
 > Requirements:
->  -  NVIDIA CUDA version 12.
+>  -  NVIDIA CUDA version 12 or 13.
 >  -  GCC version >=11
 >  -  OpenMP development library.
 >  -  CMake version 3.25.2 or greater.
