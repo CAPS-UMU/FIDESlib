@@ -15,7 +15,7 @@ if (NOT EXISTS "${CUDA_PATH}")
     message(FATAL_ERROR "CUDA not found at ${CUDA_PATH}. Please install CUDA.")
 endif ()
 
-set(CMAKE_CUDA_ARCHITECTURES "70-real;75-real;80-real;86-real;89-real;90-real;90-virtual;100-real;120-real")
+set(CMAKE_CUDA_ARCHITECTURES "80-real;86-real;89-real;90-real;90-virtual;100-real;120-real")
 set(CMAKE_CUDA_STANDARD 20)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_EXTENSIONS ON)
@@ -132,7 +132,7 @@ target_compile_options(llm PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo -Xcompiler=-Wall -rdc=true -diag-suppress 611 >
         $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:DEBUG>>:-G -g>
 )
-target_link_options(llm PRIVATE
+target_link_options(llm PUBLIC
         $<DEVICE_LINK:SHELL:-dlto>
 )
 set_target_properties(llm PROPERTIES

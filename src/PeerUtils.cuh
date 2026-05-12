@@ -14,7 +14,13 @@
 
 #include <cuda.h>
 #undef duration
+
+#ifdef __CUDACC__
 #include <cuda/atomic>
+#else 
+#include <atomic>
+#endif
+
 #include <cuda_runtime.h>
 
 namespace FIDESlib {
@@ -49,8 +55,12 @@ void transferKernel(float* src, float* dst, size_t elems, cudaStream_t s, int sr
 __global__ void notify_kernel(volatile uint32_t* gpu_complete_flag, uint32_t value);
 
 struct TimelineSemaphore {
+#ifdef __CUDACC__
 	cuda::atomic<uint64_t, cuda::thread_scope_system> value{ 0 };
-	char pad[120]; // Avoid false sharing
+#else
+  std::atomic<uint64_t> value{ 0 };
+#endif
+  char pad[120]; // Avoid false sharing
 };
 
 __global__ void notify_kernel_hostpin(TimelineSemaphore* gpu_complete_flag, uint64_t value);

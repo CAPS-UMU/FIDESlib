@@ -5,7 +5,7 @@ cmake_policy(VERSION 3.21.3...3.30)
 
 # Set target architectures.
 if (NOT DEFINED FIDESLIB_ARCH)
-    set(FIDESLIB_ARCH "70-real;75-real;80-real;86-real;89-real;90-real;90-virtual;100-real;120-real" CACHE STRING "Set the backend architecture target.")
+    set(FIDESLIB_ARCH "80-real;86-real;89-real;90-real;90-virtual;100-real;120-real" CACHE STRING "Set the backend architecture target.")
 endif ()
 
 # Set build type.
