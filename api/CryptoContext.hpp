@@ -77,7 +77,12 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	// ---- Bootstrapping ----
 
 	/// @brief Generate bootstrap precomputation data.
-	void EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor);
+	void EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget = { 5, 4 },
+	  std::vector<uint32_t> dim1									 = { 0, 0 },
+	  uint32_t slots												 = 0,
+	  uint32_t correctionFactor										 = 0,
+	  bool precompute												 = true,
+	  bool btsfirstboot												 = false);
 	/// @brief Generate the evaluation bootstrap keys.
 	void EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& secretKey, uint32_t slots);
 

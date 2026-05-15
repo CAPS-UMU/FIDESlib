@@ -66,13 +66,14 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 	for (auto i : pts) {
 		assert(i != nullptr);
 	}
+
 	Context& cc_	= ctxt.cc_;
 	ContextData& cc = ctxt.cc;
-	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
+	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
 
 	if (ctxt.NoiseLevel == 2)
 		ctxt.rescale();
-
+	assert(pts[0]->c0.getLevel() == ctxt.getLevel());
 	{
 		std::vector<Ciphertext> fastRotation;
 		fastRotation.reserve(bStep);
@@ -80,7 +81,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 			fastRotation.emplace_back(cc_);
 			fastRotation.back().growToLevel(ctxt.getLevel());
 			fastRotation.back().dropToLevel(ctxt.getLevel(), true);
-			fastRotation.back().extend(false);
+			// fastRotation.back().extend(false);
 		}
 
 		{
@@ -94,8 +95,6 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 					indexes.push_back(i * stride);
 				}
 
-				if (bStep == 1)
-					ext = false;
 				for (auto& i : pts) {
 					if (!i->c0.isModUp()) {
 						ext = false;
@@ -109,7 +108,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 			constexpr bool ONLY_C1		 = true;
 			constexpr bool FUSED		 = true;
 			if constexpr (FUSED) {
-				assert(rowSize == pts.size());
+				assert(rowSize <= pts.size());
 				std::vector<Plaintext*> Aptr(bStep * gStep, nullptr);
 				for (uint32_t j = 0; j < gStep; ++j) {
 					for (int i = 0; i < bStep; ++i) {
@@ -143,14 +142,8 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 					}
 				}
 
-				// CudaCheckErrorMod;
-
 				DotProductPtInternal<Ciphertext*, Plaintext*>(results, fastRotationPtr, Aptr, bStep, 1, gStep, MODDOWN_HOIST && ext);
-
-				// CudaCheckErrorMod;
-
-				// todo: for correctness, fastRotationPtr ciphertexts should not be modified until this point
-
+				
 				for (auto& i : results) {
 					for (uint32_t j = 0; j < i->c0.GPU.size(); ++j) {
 						i->c0.GPU[j].s.wait(results[0]->c0.GPU[j].s);
@@ -169,9 +162,11 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 				for (uint32_t j = gStep - 1; j < gStep; --j) {
 
 					if (j != gStep - 1) {
-						if (results[j + 1]->c1.isModUp())
-							results[j]->extend();
+						// if (results[j + 1]->c1.isModUp())
+						//	results[j]->extend();
+						// CudaCheckErrorMod;
 						results[j]->add(*results[j + 1]);
+						// CudaCheckErrorMod;
 						results.pop_back();
 					}
 
@@ -183,6 +178,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 								else
 									results[j]->modDown(false);
 							results[j]->rotate((int)bStep * stride, false);
+							// results[j]->rotate((int)bStep * stride);
 						}
 					} else if (offset != 0) {
 						if (results[j]->c1.isModUp())
@@ -190,7 +186,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 								results[j]->c1.moddown(true, false);
 							else
 								results[j]->modDown(false);
-						results[j]->rotate(offset, true);
+						results[j]->rotate(offset);
 					} else {
 						if (results[j]->c1.isModUp())
 							results[j]->modDown(false);
@@ -225,8 +221,8 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 					if (j == gStep - 1) {
 						ctxt.copy(inner);
 					} else {
-						if (!ext)
-							inner.extend();
+						// if (!ext)
+						//	inner.extend();
 						ctxt.add(inner);
 					}
 
@@ -1032,7 +1028,7 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 
 	Context& cc_	= ctxt1.cc_;
 	ContextData& cc = ctxt1.cc;
-	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
+	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
 
 	if (ctxt1.NoiseLevel == 2)
 		ctxt1.rescale();
@@ -1157,6 +1153,7 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 		}
 	}
 
+	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel() - 1] * cc.param.ModReduceFactor[result.getLevel()];
 	result.rescale();
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel()];
 	ctxt1.copy(result);
@@ -1377,6 +1374,7 @@ void FIDESlib::CKKS::LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
 		}
 	}
 
+	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel() - 1] * cc.param.ModReduceFactor[result.getLevel()];
 	result.rescale();
 	// result.rescale();
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel()];

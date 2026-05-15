@@ -25,7 +25,6 @@
 #include <cstdint>
 #include <functional>
 #include <openfhe.h>
-
 // Serialization headers - required for cereal type registration.
 #include <ciphertext-ser.h>
 #include <cryptocontext-ser.h>
@@ -125,7 +124,7 @@ static std::unordered_map<PKESchemeFeature, lbcrypto::PKESchemeFeature> PKESchem
 };
 
 CryptoContextImpl<DCRTPoly>::~CryptoContextImpl() {
-
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->loaded) {
 		auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
 		FIDESlib::CKKS::DeregisterCryptoContextGPU(context_gpu);
@@ -138,11 +137,13 @@ CryptoContextImpl<DCRTPoly>::~CryptoContextImpl() {
 // ---- Enable features ----
 
 void CryptoContextImpl<DCRTPoly>::Enable(PKESchemeFeature feature) {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	context->Enable(PKESchemeFeatureMap[feature]);
 }
 
 void CryptoContextImpl<DCRTPoly>::Enable(uint32_t featureMask) {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	context->Enable(featureMask);
 }
@@ -150,17 +151,21 @@ void CryptoContextImpl<DCRTPoly>::Enable(uint32_t featureMask) {
 // ---- Getters ----
 
 uint32_t CryptoContextImpl<DCRTPoly>::GetCyclotomicOrder() const {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	return context->GetCyclotomicOrder();
 }
 
 uint32_t CryptoContextImpl<DCRTPoly>::GetRingDimension() const {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	return context->GetRingDimension();
 }
 
 double CryptoContextImpl<DCRTPoly>::GetPreScaleFactor(uint32_t slots) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (!this->loaded) {
+		FIDESlib::CudaNvtxRange r("API");
 		OPENFHE_THROW("CryptoContext not loaded to any device");
 	}
 	auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
@@ -170,15 +175,19 @@ double CryptoContextImpl<DCRTPoly>::GetPreScaleFactor(uint32_t slots) {
 // ---- Setters ----
 
 void CryptoContextImpl<DCRTPoly>::SetAutoLoadPlaintexts(bool autoload) {
+	FIDESlib::CudaNvtxRange r("API");
 	this->auto_load_plaintexts = autoload;
 }
 
 void CryptoContextImpl<DCRTPoly>::SetAutoLoadCiphertexts(bool autoload) {
+	FIDESlib::CudaNvtxRange r("API");
 	this->auto_load_ciphertexts = autoload;
 }
 
 void CryptoContextImpl<DCRTPoly>::SetDevices(const std::vector<int>& devices) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->loaded) {
+		FIDESlib::CudaNvtxRange r("API");
 		OPENFHE_THROW("SetDevices must be called before LoadContext");
 	}
 
@@ -188,6 +197,7 @@ void CryptoContextImpl<DCRTPoly>::SetDevices(const std::vector<int>& devices) {
 // ---- Load to devices ----
 
 void CryptoContextImpl<DCRTPoly>::LoadContext(const PublicKey<DCRTPoly>& publicKey) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->loaded || this->devices.empty())
 		return;
 
@@ -235,6 +245,7 @@ void CryptoContextImpl<DCRTPoly>::LoadContext(const PublicKey<DCRTPoly>& publicK
 }
 
 void CryptoContextImpl<DCRTPoly>::LoadPlaintext(Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (pt->loaded || this->devices.empty())
 		return;
 
@@ -253,6 +264,7 @@ void CryptoContextImpl<DCRTPoly>::LoadPlaintext(Plaintext& pt) {
 }
 
 void CryptoContextImpl<DCRTPoly>::LoadCiphertext(Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (ct->loaded || this->devices.empty())
 		return;
 
@@ -274,6 +286,7 @@ void CryptoContextImpl<DCRTPoly>::LoadCiphertext(Ciphertext<DCRTPoly>& ct) {
 // ---- Key Generation ----
 
 KeyPair<DCRTPoly> CryptoContextImpl<DCRTPoly>::KeyGen() {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	auto keys	  = context->KeyGen();
 
@@ -288,6 +301,7 @@ KeyPair<DCRTPoly> CryptoContextImpl<DCRTPoly>::KeyGen() {
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultKeyGen(const PrivateKey<DCRTPoly>& sk) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (!this->devices.empty() && this->loaded) {
 		OPENFHE_THROW("EvalMultKeyGen must be called before LoadContext");
@@ -299,6 +313,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultKeyGen(const PrivateKey<DCRTPoly>& sk)
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen(const PrivateKey<DCRTPoly>& sk, const std::vector<int32_t>& steps) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (!this->devices.empty() && this->loaded) {
 		OPENFHE_THROW("EvalRotateKeyGen must be called before LoadContext");
@@ -312,7 +327,8 @@ void CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen(const PrivateKey<DCRTPoly>& s
 
 // ---- Bootstrapping ----
 
-void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor) {
+void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute, bool btsfirstboot) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Only before loading one must compute the bootstrapping auxiliary data.
 	if (this->loaded) {
@@ -342,10 +358,11 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>
 		return;
 	}
 
-	context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, true, modall);
+	context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, precompute, btsfirstboot, modall);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& secretKey, uint32_t slots) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->loaded) {
 		OPENFHE_THROW("Context is already loaded");
@@ -361,6 +378,7 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>
 // ---- Serialization ----
 
 bool CryptoContextImpl<DCRTPoly>::SerializeEvalMultKey(std::ostream& ser, const fideslib::SerType& sertype, const std::string& keyTag) {
+	FIDESlib::CudaNvtxRange r("API");
 	bool res;
 	switch (sertype) {
 	case fideslib::SerType::BINARY:
@@ -378,6 +396,7 @@ bool CryptoContextImpl<DCRTPoly>::SerializeEvalMultKey(std::ostream& ser, const 
 }
 
 bool CryptoContextImpl<DCRTPoly>::SerializeEvalAutomorphismKey(std::ostream& ser, const SerType& sertype, const std::string& keyTag) {
+	FIDESlib::CudaNvtxRange r("API");
 	bool res;
 	switch (sertype) {
 	case SerType::BINARY:
@@ -397,6 +416,7 @@ bool CryptoContextImpl<DCRTPoly>::SerializeEvalAutomorphismKey(std::ostream& ser
 // ---- Deserialization ----
 
 bool CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(std::istream& ser, const SerType& sertype) const {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (!this->devices.empty() && this->loaded) {
 		OPENFHE_THROW("DeserializeEvalMultKey must be called before LoadContext");
@@ -419,6 +439,7 @@ bool CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(std::istream& ser, cons
 }
 
 bool CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(std::istream& ser, const SerType& sertype) const {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (!this->devices.empty() && this->loaded) {
 		OPENFHE_THROW("DeserializeEvalAutomorphismKey must be called before LoadContext");
@@ -447,6 +468,7 @@ Plaintext CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector
   uint32_t level,
   const std::shared_ptr<void> params,
   uint32_t slots) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	auto pt		  = context->MakeCKKSPackedPlaintext(value, noiseScaleDeg, level, nullptr, slots);
@@ -466,6 +488,7 @@ Plaintext CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector
 
 Plaintext
 CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector<double>& value, size_t noiseScaleDeg, uint32_t level, const std::shared_ptr<void> params, uint32_t slots) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	auto pt		  = context->MakeCKKSPackedPlaintext(value, noiseScaleDeg, level, nullptr, slots);
@@ -486,6 +509,7 @@ CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector<double>& 
 // ---- Encryption ----
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(Plaintext& pt, const PublicKey<DCRTPoly>& pk) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	auto& context	   = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	const auto& pkImpl = std::any_cast<const lbcrypto::PublicKey<lbcrypto::DCRTPoly>&>(pk->pimpl);
@@ -505,10 +529,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(Plaintext& pt, const P
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(const PublicKey<DCRTPoly>& pk, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return Encrypt(pt, pk);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(Plaintext& pt, const PrivateKey<DCRTPoly>& sk) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	auto& context	   = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	const auto& skImpl = std::any_cast<const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>&>(sk->pimpl);
@@ -528,10 +554,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(Plaintext& pt, const P
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Encrypt(const PrivateKey<DCRTPoly>& sk, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return Encrypt(pt, sk);
 }
 
 DecryptResult CryptoContextImpl<DCRTPoly>::Decrypt(Ciphertext<DCRTPoly>& ct, const PrivateKey<DCRTPoly>& sk, Plaintext* pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (pt == nullptr) {
 		OPENFHE_THROW("Plaintext pointer is null");
@@ -543,7 +571,7 @@ DecryptResult CryptoContextImpl<DCRTPoly>::Decrypt(Ciphertext<DCRTPoly>& ct, con
 		EnsureMutableCpuCiphertext(ct);
 	}
 
-	auto& ct_cpu  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+	auto& ct_cpu = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 	// Copy ciphertext to CPU if needed.
 	if (ct->loaded) {
@@ -597,12 +625,14 @@ DecryptResult CryptoContextImpl<DCRTPoly>::Decrypt(Ciphertext<DCRTPoly>& ct, con
 }
 
 DecryptResult CryptoContextImpl<DCRTPoly>::Decrypt(const PrivateKey<DCRTPoly>& sk, Ciphertext<DCRTPoly>& ct, Plaintext* pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return Decrypt(ct, sk, pt);
 }
 
 // ---- Operations ----
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalNegate(const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -624,13 +654,14 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalNegate(const Ciphertext<DC
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalNegateInPlace(Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
-		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 		context->EvalNegateInPlace(ctImpl);
 		return;
 	}
@@ -643,6 +674,7 @@ void CryptoContextImpl<DCRTPoly>::EvalNegateInPlace(Ciphertext<DCRTPoly>& ct) {
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -669,6 +701,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -694,10 +727,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(Plaintext& pt, const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalAdd(ct, pt);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -720,10 +755,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(double scalar, const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalAdd(ct, scalar);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -746,6 +783,7 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, cons
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -768,10 +806,12 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, Plai
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Plaintext& pt, Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 	EvalAddInPlace(ct1, pt);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -791,26 +831,32 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(Ciphertext<DCRTPoly>& ct1, doub
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(double scalar, Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 	EvalAddInPlace(ct1, scalar);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalAdd(ct1, ct2);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalAdd(ct, pt);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalAdd(ct, pt);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 	EvalAddInPlace(ct1, ct2);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMany(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (ciphertexts.empty()) {
 		OPENFHE_THROW("EvalAddMany: input ciphertext vector is empty");
@@ -855,6 +901,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMany(const std::vector<
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddManyInPlace(std::vector<Ciphertext<DCRTPoly>>& ciphertexts) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (ciphertexts.empty()) {
 		OPENFHE_THROW("EvalAddManyInPlace: input ciphertext vector is empty");
@@ -893,6 +940,7 @@ void CryptoContextImpl<DCRTPoly>::EvalAddManyInPlace(std::vector<Ciphertext<DCRT
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -919,6 +967,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -945,6 +994,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(Plaintext& pt, const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -972,6 +1022,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(Plaintext& pt, const C
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTPoly>& ct, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -995,6 +1046,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(const Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(double scalar, const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1020,6 +1072,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(double scalar, const C
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1042,6 +1095,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, cons
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1061,6 +1115,7 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(Ciphertext<DCRTPoly>& ct1, doub
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(double scalar, Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1082,22 +1137,27 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(double scalar, Ciphertext<DCRTP
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalSub(ct1, ct2);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalSub(ct, pt);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalSub(pt, ct);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSubMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 	EvalSubInPlace(ct1, ct2);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1124,6 +1184,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRT
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRTPoly>& ct1, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1150,10 +1211,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRT
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(Plaintext& pt, const Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalMult(ct1, pt);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRTPoly>& ct1, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1177,10 +1240,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRT
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(double scalar, const Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalMult(ct1, scalar);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
 
@@ -1203,6 +1268,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Pla
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, double scalar) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1222,22 +1288,27 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, dou
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(double scalar, Ciphertext<DCRTPoly>& ct1) {
+	FIDESlib::CudaNvtxRange r("API");
 	EvalMultInPlace(ct1, scalar);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalMult(ct1, ct2);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalMult(ct, pt);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalMult(ct, pt);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1259,6 +1330,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultMutableInPlace(Ciphertext<DCRTPoly>& c
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSquare(const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1281,13 +1353,14 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSquare(const Ciphertext<DC
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSquareInPlace(Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
-		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 		context->EvalSquareInPlace(ctImpl);
 		return;
 	}
@@ -1300,22 +1373,26 @@ void CryptoContextImpl<DCRTPoly>::EvalSquareInPlace(Ciphertext<DCRTPoly>& ct) {
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSquareMutable(Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	return EvalSquare(ct);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalRotate(const Ciphertext<DCRTPoly>& ciphertext, int32_t index) {
+	FIDESlib::CudaNvtxRange r("API");
 
-	// Fall back to CPU.
-	if (this->devices.empty()) {
+	{
+		FIDESlib::CudaNvtxRange r("API_fallback");
+		// Fall back to CPU.
+		if (this->devices.empty()) {
 
-		auto& context				= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
-		auto& ctImpl				= std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ciphertext->cpu);
-		auto ct						= context->EvalRotate(ctImpl, index);
-		Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
-		result->cpu					= std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
-		return result;
+			auto& context				= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+			auto& ctImpl				= std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ciphertext->cpu);
+			auto ct						= context->EvalRotate(ctImpl, index);
+			Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+			result->cpu					= std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+			return result;
+		}
 	}
-
 	// GPU path.
 	this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ciphertext));
 
@@ -1327,6 +1404,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalRotate(const Ciphertext<DC
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalRotateInPlace(Ciphertext<DCRTPoly>& ciphertext, int32_t index) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1345,6 +1423,7 @@ void CryptoContextImpl<DCRTPoly>::EvalRotateInPlace(Ciphertext<DCRTPoly>& cipher
 }
 
 std::shared_ptr<void> CryptoContextImpl<DCRTPoly>::EvalFastRotationPrecompute(const Ciphertext<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1363,6 +1442,7 @@ std::shared_ptr<void> CryptoContextImpl<DCRTPoly>::EvalFastRotationPrecompute(co
 
 Ciphertext<DCRTPoly>
 CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, const int32_t index, const uint32_t m, const std::shared_ptr<void>& precomp) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1389,6 +1469,7 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, co
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct, const int32_t index, const std::shared_ptr<void>& digits, bool addFirst) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1417,6 +1498,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciph
 
 std::vector<Ciphertext<DCRTPoly>>
 CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, const std::vector<int32_t>& indices, const uint32_t m, const std::shared_ptr<void>& precomp) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	std::vector<Ciphertext<DCRTPoly>> results;
 
@@ -1459,6 +1541,7 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, co
 
 std::vector<Ciphertext<DCRTPoly>>
 CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct, const std::vector<int32_t>& indices, const std::shared_ptr<void>& digits, bool addFirst) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	std::vector<Ciphertext<DCRTPoly>> results;
 
@@ -1499,6 +1582,7 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct,
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeries(const Ciphertext<DCRTPoly>& ct, std::vector<double>& coeffs, double a, double b) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1522,15 +1606,16 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeries(const Ciph
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesInPlace(Ciphertext<DCRTPoly>& ct, std::vector<double>& coeffs, double a, double b) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
 
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
-		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
-		auto res	  = context->EvalChebyshevSeries(ctImpl, coeffs, a, b);
-		ct->cpu		  = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
+		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto res	 = context->EvalChebyshevSeries(ctImpl, coeffs, a, b);
+		ct->cpu		 = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
 		return;
 	}
 
@@ -1542,10 +1627,12 @@ void CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesInPlace(Ciphertext<DCRTPoly
 }
 
 std::vector<double> CryptoContextImpl<DCRTPoly>::GetChebyshevCoefficients(std::function<double(double)>& func, double a, double b, size_t degree) {
+	FIDESlib::CudaNvtxRange r("API");
 	return FIDESlib::CKKS::get_chebyshev_coefficients(func, a, b, degree);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Rescale(const Ciphertext<DCRTPoly>& ciphertext) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
@@ -1569,11 +1656,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Rescale(const Ciphertext<DCRTP
 }
 
 void CryptoContextImpl<DCRTPoly>::RescaleInPlace(Ciphertext<DCRTPoly>& ciphertext) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	// Fall back to CPU.
 	if (this->devices.empty()) {
 
-		auto& context	= std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ciphertext);
 		auto& ctImpl	= std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ciphertext->cpu);
 		auto ct			= context->Rescale(ctImpl);
@@ -1589,10 +1677,12 @@ void CryptoContextImpl<DCRTPoly>::RescaleInPlace(Ciphertext<DCRTPoly>& ciphertex
 }
 
 void CryptoContextImpl<DCRTPoly>::SetLevel(Ciphertext<DCRTPoly>& ct, size_t level) {
+	FIDESlib::CudaNvtxRange r("API");
 	ct->SetLevel(level);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrap(const Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations, uint32_t precision, bool prescaled) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 	// Fall back to CPU.
@@ -1617,6 +1707,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrap(const Ciphertext
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations, uint32_t precision, bool prescaled) {
+	FIDESlib::CudaNvtxRange r("API");
 	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 
 	// Fall back to CPU.
@@ -1639,6 +1730,7 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& cip
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
@@ -1669,11 +1761,12 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext
 }
 
 void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
-		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 		for (int i = 0; i < log2(slots); i++) {
 			int rot_idx = stride * (1 << i);
@@ -1697,7 +1790,7 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 	if (this->devices.empty()) {
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
-		auto& ctImpl  = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 		for (int s = start; s < slots; s <<= 1) {
 			int rot_idx = stride * s;
@@ -1723,6 +1816,7 @@ void CryptoContextImpl<DCRTPoly>::ConvolutionTransformInPlace(Ciphertext<DCRTPol
   const std::vector<int>& indexes,
   int stride,
   int rowSize) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
 		OPENFHE_THROW("Not implemented for CPU path");
@@ -1755,6 +1849,7 @@ void CryptoContextImpl<DCRTPoly>::SpecialConvolutionTransformInPlace(Ciphertext<
   int stride,
   int maskRotationStride,
   int rowSize) {
+	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
 		OPENFHE_THROW("Not implemented for CPU path");
@@ -1785,6 +1880,7 @@ void CryptoContextImpl<DCRTPoly>::SpecialConvolutionTransformInPlace(Ciphertext<
 // ---- Copy helpers ----
 
 uint32_t CryptoContextImpl<DCRTPoly>::CopyDeviceCiphertext(const CiphertextImpl<DCRTPoly>& ct) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (!ct.loaded) {
 		OPENFHE_THROW("Ciphertext not loaded to any device");
 	}
@@ -1800,56 +1896,63 @@ uint32_t CryptoContextImpl<DCRTPoly>::CopyDeviceCiphertext(const CiphertextImpl<
 // ---- Map Handling ----
 
 uint32_t CryptoContextImpl<DCRTPoly>::RegisterDevicePlaintext(std::shared_ptr<void>&& p) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->devices.empty()) {
 		OPENFHE_THROW("No devices available to register plaintext");
 	}
-	//device_plaintexts_mutex->lock();
+	// device_plaintexts_mutex->lock();
 	uint32_t handle = next_gpu_handle++;
 	device_plaintexts.emplace(handle, std::move(p));
-	//device_plaintexts_mutex->unlock();
+	// device_plaintexts_mutex->unlock();
 	return handle;
 }
 
 uint32_t CryptoContextImpl<DCRTPoly>::RegisterDeviceCiphertext(std::shared_ptr<void>&& c) {
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->devices.empty()) {
 		OPENFHE_THROW("No devices available to register ciphertext");
 	}
-	//device_ciphertexts_mutex->lock();
+	// device_ciphertexts_mutex->lock();
 	uint32_t handle = next_gpu_handle++;
 	device_ciphertexts.emplace(handle, std::move(c));
-	//device_ciphertexts_mutex->unlock();
+	// device_ciphertexts_mutex->unlock();
 	return handle;
 }
 
 std::shared_ptr<void>& CryptoContextImpl<DCRTPoly>::GetDevicePlaintext(uint32_t handle) {
-	//device_plaintexts_mutex->lock_shared();
+	FIDESlib::CudaNvtxRange r("API");
+	// device_plaintexts_mutex->lock_shared();
 	auto& it = device_plaintexts.at(handle);
-	//device_plaintexts_mutex->unlock_shared();
+	// device_plaintexts_mutex->unlock_shared();
 	return it;
 }
 
 std::shared_ptr<void>& CryptoContextImpl<DCRTPoly>::GetDeviceCiphertext(uint32_t handle) {
-	//device_ciphertexts_mutex->lock_shared();
+	FIDESlib::CudaNvtxRange r("API");
+	// device_ciphertexts_mutex->lock_shared();
 	auto& it = device_ciphertexts.at(handle);
-	//device_ciphertexts_mutex->unlock_shared();
+	// device_ciphertexts_mutex->unlock_shared();
 	return it;
 }
 
 bool CryptoContextImpl<DCRTPoly>::EvictDevicePlaintext(uint32_t handle) {
-	//device_plaintexts_mutex->lock();
+	FIDESlib::CudaNvtxRange r("API");
+	// device_plaintexts_mutex->lock();
 	auto result = device_plaintexts.erase(handle) > 0;
-	//device_plaintexts_mutex->unlock();
+	// device_plaintexts_mutex->unlock();
 	return result;
 }
 
 bool CryptoContextImpl<DCRTPoly>::EvictDeviceCiphertext(uint32_t handle) {
-	//device_ciphertexts_mutex->lock();
+	FIDESlib::CudaNvtxRange r("API");
+	// device_ciphertexts_mutex->lock();
 	auto result = device_ciphertexts.erase(handle) > 0;
-	//device_ciphertexts_mutex->unlock();
+	// device_ciphertexts_mutex->unlock();
 	return result;
 }
 
 void CryptoContextImpl<DCRTPoly>::Synchronize() const {
+	FIDESlib::CudaNvtxRange r("API");
 	if (this->devices.empty() || !this->loaded) {
 		return;
 	}
@@ -1861,6 +1964,7 @@ void CryptoContextImpl<DCRTPoly>::Synchronize() const {
 }
 
 std::vector<int> CryptoContextImpl<DCRTPoly>::GetConvolutionTransformRotationIndices(int rowSize, int bStep, int stride, uint32_t gStep) {
+	FIDESlib::CudaNvtxRange r("API");
 	return FIDESlib::CKKS::GetConvolutionTransformRotationIndices(rowSize, bStep, stride, gStep);
 }
 

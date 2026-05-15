@@ -6,7 +6,7 @@
 #include <cinttypes>
 #include <vector>
 // #include "CKKS/BootstrapPrecomputation.cuh"
-#include "pke/openfhe.h"
+#include <openfhe.h>
 
 namespace FIDESlib::CKKS {
 

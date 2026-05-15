@@ -95,12 +95,15 @@ void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int str
 			auxptr.emplace_back(&aux[idx / stride / s - 1]);
 		}
 		ctxt.rotate_hoisted(indexes, auxptr, true);
-		ctxt.extend();
+		// ctxt.extend();
 		for (size_t i = 0; i < indexes.size(); ++i) {
 			ctxt.add(*auxptr[i]);
 		}
-		ctxt.modDown(false);
+		ctxt.c1.moddown();
 	}
+	if (ctxt.c0.isModUp())
+		ctxt.c0.moddown();
+
 	if (size * stride == ctxt.slots)
 		ctxt.slots = stride;
 }
@@ -152,8 +155,11 @@ void FIDESlib::CKKS::Broadcast(Ciphertext& ctxt, const int bStep, const int init
 				ctxt.add(*auxptr[i]);
 			}
 		}
-		ctxt.modDown(false);
+		ctxt.c1.moddown(false);
 	}
+	if (ctxt.c0.isModUp())
+		ctxt.c0.moddown();
+	
 	if (outsize == ctxt.slots)
 		ctxt.slots = initsize;
 }

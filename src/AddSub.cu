@@ -2,6 +2,7 @@
 // Created by carlosad on 25/03/24.
 //
 #include "AddSub.cuh"
+#include "ModMult.cuh"
 #include <cassert>
 
 namespace FIDESlib {
@@ -35,6 +36,36 @@ __global__ void add_(void** a, void** b, const int primeid_init) {
 		((uint64_t*)a[blockIdx.y])[idx] = modadd(((uint64_t*)a[blockIdx.y])[idx], ((uint64_t*)b[blockIdx.y])[idx], primeid);
 	} else {
 		((uint32_t*)a[blockIdx.y])[idx] = modadd(((uint32_t*)a[blockIdx.y])[idx], ((uint32_t*)b[blockIdx.y])[idx], primeid);
+	}
+}
+
+__global__ void add_scale_p_b_(void** a, void** b, const int primeid_init) {
+
+	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	if (ISU64(primeid)) {
+		uint64_t tmp					= ((uint64_t*)b[blockIdx.y])[idx];
+		tmp								= modmult<ALGO_SHOUP>(tmp, C_.P[primeid], primeid, C_.P_shoup[primeid]);
+		((uint64_t*)a[blockIdx.y])[idx] = modadd(((uint64_t*)a[blockIdx.y])[idx], tmp, primeid);
+	} else {
+		uint32_t tmp					= ((uint64_t*)b[blockIdx.y])[idx];
+		tmp								= modmult<ALGO_SHOUP>(tmp, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+		((uint32_t*)a[blockIdx.y])[idx] = modadd(((uint32_t*)a[blockIdx.y])[idx], tmp, primeid);
+	}
+}
+
+__global__ void add_scale_p_a_(void** a, void** b, const int primeid_init) {
+
+	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	if (ISU64(primeid)) {
+		uint64_t tmp					= ((uint64_t*)a[blockIdx.y])[idx];
+		tmp								= modmult<ALGO_SHOUP>(tmp, C_.P[primeid], primeid, C_.P_shoup[primeid]);
+		((uint64_t*)a[blockIdx.y])[idx] = modadd(((uint64_t*)b[blockIdx.y])[idx], tmp, primeid);
+	} else {
+		uint32_t tmp					= ((uint64_t*)a[blockIdx.y])[idx];
+		tmp								= modmult<ALGO_SHOUP>(tmp, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+		((uint32_t*)a[blockIdx.y])[idx] = modadd(((uint32_t*)b[blockIdx.y])[idx], tmp, primeid);
 	}
 }
 

@@ -5,7 +5,7 @@
 #ifndef PARAMETERSWITCH_CUH
 #define PARAMETERSWITCH_CUH
 
-#include "pke/openfhe.h"
+#include <openfhe.h>
 
 namespace FIDESlib {
 namespace CKKS {

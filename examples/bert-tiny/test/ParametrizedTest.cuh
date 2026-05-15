@@ -363,7 +363,7 @@ inline std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters> tparams64_16_LL
 inline std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> tparams64_16_LLM_sq_flex{ tparams64_16_LLM_sq,
 	lbcrypto::ScalingTechnique::FLEXIBLEAUTO };
 
-inline GeneralTestParams gparams64_16_LLM{ .multDepth = 26, .scaleModSize = 55, .batchSize = 1 << 15, .ringDim = 1 << 16, .dnum = 2, .GPUs = { 0 } };
+inline GeneralTestParams gparams64_16_LLM{ .multDepth = 10, .scaleModSize = 55, .batchSize = 1 << 14, .ringDim = 1 << 16, .dnum = 2, .GPUs = { 0 } };
 inline std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters> tparams64_16_LLM = std::tuple(gparams64_16_LLM, params64_16_LLM);
 inline std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> tparams64_16_LLM_flex{ tparams64_16_LLM,
 	lbcrypto::ScalingTechnique::FLEXIBLEAUTO };

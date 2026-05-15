@@ -413,7 +413,7 @@ void evalFunction(FIDESlib::CKKS::Ciphertext& ctxt, std::vector<double> cheb_coe
 	if (bts == true) {
 		Bootstrap(ctxt, numSlots, (ctxt.getLevel() + 1 - ctxt.NoiseLevel == 0));
 	}
-	evalChebyshevSeries(ctxt, cheb_coeff, lower_bound, upper_bound);
+	evalChebyshevSeries(ctxt, cheb_coeff, -1.0, 1.0);
 }
 
 void evalTanh(FIDESlib::CKKS::Ciphertext& ctxt, int numSlots, double lower_bound, double upper_bound, bool bts) {
@@ -513,7 +513,10 @@ void EvalSoftmax(FIDESlib::CKKS::Ciphertext& ctxt,
 		Bootstrap(scores_sum, numSlots);
 	}
 
-	// // 1/x step 2
+	if (layerNo == 0) {
+		scores_sum.addScalar(0.5); // TODO: remove
+	}
+	//  // 1/x step 2
 	evalFunction(scores_sum, cheb_coeff_inv_softmax2_59, numSlots, 1, 3, bts);
 	if (bts) {
 		Bootstrap(scores_sum, numSlots);
@@ -524,6 +527,14 @@ void EvalSoftmax(FIDESlib::CKKS::Ciphertext& ctxt,
 
 	// NewtonRaphson
 	NewtonRaphsonInv(scores_sum_x, scores_sum, 3, ctxt, ctxt_cpu, privateKey);
+
+	{
+		// ctxt.copy(scores_sum_x);
+		if (bts) {
+			Bootstrap(ctxt, numSlots);
+		}
+		return;
+	}
 	if (bts) {
 		Bootstrap(ctxt, numSlots);
 	}

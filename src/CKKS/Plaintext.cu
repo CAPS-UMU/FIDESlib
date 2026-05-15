@@ -107,7 +107,7 @@ void Plaintext::moddown() {
 
 bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, const double scaling_factor) {
 	assert(scaleDegree == 2 ? cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] == cc.param.ScalingFactorRealBig[level] : true);
-	assert(scaleDegree < 3 ? scaling_factor == (scaleDegree == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
+	//	assert(scaleDegree < 3 ? scaling_factor == (scaleDegree == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
 
 	usint c1lvl	  = c0.getLevel();
 	usint c2lvl	  = level;

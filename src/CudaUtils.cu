@@ -14,7 +14,11 @@
 #include "CKKS/Context.cuh"
 #define DISABLE_STREAMS false
 
+#include <cuda_runtime.h>
+
 namespace FIDESlib {
+
+extern std::vector<cudaDeviceProp> GPUprop;
 
 struct my_domain {
 	static constexpr char const* name{ "FIDESlib" };
@@ -193,8 +197,10 @@ void Stream::wait(Stream& s, bool external) {
 
 #if !DISABLE_STREAMS
 	// CudaCheckErrorModNoSync;
-	if (ptr_ == 0 || s.ptr_ == 0 || ptr_ == s.ptr_)
+	if (ptr_ == 0 || s.ptr_ == 0 || ptr_ == s.ptr_) {
+		updated = false;
 		return;
+	}
 	assert(ptr_ != nullptr);
 	assert(s.ptr_ != nullptr);
 	assert(ev != nullptr);

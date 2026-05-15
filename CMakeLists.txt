@@ -121,7 +121,7 @@ if (FIDESLIB_INSTALL_OPENFHE)
             COMMAND_ERROR_IS_FATAL ANY)
 endif ()
 
-find_package(OpenFHE 1.4.2 CONFIG EXACT REQUIRED PATHS "${OPENFHE_INSTALL_PREFIX}")
+find_package(OpenFHE 1.5.1 CONFIG EXACT REQUIRED PATHS "${OPENFHE_INSTALL_PREFIX}")
 
 option(BUILD_STATIC "Set to ON to include static versions of the library" ON)
 

@@ -250,15 +250,14 @@ void RNSPoly::add(const RNSPoly& p) {
 
 	if (p.isModUp() && !this->isModUp()) {
 		// std::cout << "Adapt non modup destination add" << std::endl;
-		generateSpecialLimbs(true, false);
-		scaleByP();
+		generateSpecialLimbs(false, false);
+		// scaleByP();
 	}
-	assert(p.isModUp() == this->isModUp());
 	assert(level <= p.level);
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).add(p.GPU.at(i), this->isModUp() || p.isModUp());
+		GPU.at(i).add(p.GPU.at(i), this->isModUp(), p.isModUp());
 	}
 	this->SetModUp(this->isModUp() || p.isModUp());
 }

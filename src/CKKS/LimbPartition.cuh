@@ -115,7 +115,7 @@ class LimbPartition {
 
 	void generateSpecialLimb(bool zero_out, bool for_communication);
 
-	void add(const LimbPartition& p, const bool ext);
+	void add(const LimbPartition& p, const bool exta, bool extb);
 	void add(const LimbPartition& a, const LimbPartition& b, const bool ext_a, const bool ext_b);
 
 	void sub(const LimbPartition& p);

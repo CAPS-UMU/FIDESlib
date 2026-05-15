@@ -155,12 +155,8 @@ void Ciphertext::multMetadata(const Ciphertext& a, const Plaintext& b) {
 }
 
 int Ciphertext::normalyzeIndex(int index) const {
-	index = index % slots;
-	if (index < 0)
-		index += slots;
-	if (index > slots / 2)
-		index += cc.N / 2 - slots;
-	return index;
+
+	return FIDESlib::CKKS::normalyzeIndex(index, slots, cc.N);
 }
 
 void Ciphertext::add(const Ciphertext& b) {
@@ -444,6 +440,7 @@ void Ciphertext::rescale() {
 	// Manage metadata
 	NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
 	NoiseLevel -= 1;
+	assert(NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[this->getLevel()] : cc.param.ScalingFactorRealBig[this->getLevel()]));
 }
 
 /** "in" needs to have Digit and Gather limbs pre-generated */
@@ -822,16 +819,15 @@ void Ciphertext::extend(bool init) {
 	}
 }
 
-void Ciphertext::rotate(const int index_, const bool moddown) {
+void Ciphertext::rotate(const int index__, const bool moddown) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
 	op_count[OPS::ROTATE]++;
-	int index = normalyzeIndex(index_);
+	int index = normalyzeIndex(index__);
 
 	assert(index != 0);
-	// constexpr bool PRINT	= false;
-	// KeySwitchingKey& kskRot = cc.GetRotationKey(index, keyID, slots);
-
+	//constexpr bool PRINT = false;
+	assert(!c1.isModUp());
 	{
 		/*
 		RNSPoly& in = cc.getKeySwitchAux();
@@ -874,10 +870,11 @@ void Ciphertext::rotate(const int index_, const bool moddown) {
 			{
 				c0_out.push_back(&c0);
 				c1_out.push_back(&c1);
-				auto& ksk = cc.GetRotationKey(index, keyID, slots);
+				int32_t actual_index;
+				auto& ksk = cc.GetRotationKey(index, keyID, slots, actual_index);
 				ksk_a.push_back(&ksk.a);
 				ksk_b.push_back(&ksk.b);
-				index_.push_back(index);
+				index_.push_back(actual_index);
 			}
 		}
 
@@ -916,10 +913,11 @@ void Ciphertext::conjugate(const Ciphertext& c) {
 		{
 			c0_out.push_back(&c0);
 			c1_out.push_back(&c1);
-			auto& ksk = cc.GetRotationKey(index, c.keyID, slots);
+			int actual_index;
+			auto& ksk = cc.GetRotationKey(index, c.keyID, slots, actual_index);
 			ksk_a.push_back(&ksk.a);
 			ksk_b.push_back(&ksk.b);
-			index_.push_back(index);
+			index_.push_back(actual_index);
 		}
 	}
 
@@ -955,9 +953,7 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 		i->growToLevel(grow_full ? cc.L : this->c0.getLevel());
 		i->dropToLevel(getLevel(), true);
 		if (ext)
-			i->c0.generateSpecialLimbs(false, false);
-		if (ext)
-			i->c1.generateSpecialLimbs(false, false);
+			i->extend(false);
 
 		// i->c0.setLevel(c0.getLevel());
 		// i->c1.setLevel(c1.getLevel());
@@ -991,19 +987,20 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 						results[i]->extend();
 					}
 				} else {
-					RNSPoly& aux0 = results[i]->c1.dotKSKInPlaceFrom(cc.getKeySwitchAux(), cc.GetRotationKey(indexes[i], keyID, slots), &c1);
+					int actual_index;
+					RNSPoly& aux0 = results[i]->c1.dotKSKInPlaceFrom(cc.getKeySwitchAux(), cc.GetRotationKey(indexes[i], keyID, slots, actual_index), &c1);
 					// results[i]->c0.dropToLevel(getLevel());
 					// results[i]->c1.dropToLevel(getLevel());
 					if (!ext)
 						results[i]->c1.moddown(true, false, 0);
-					results[i]->c1.automorph(indexes[i], 1);
+					results[i]->c1.automorph(actual_index, 1);
 
 					if (!ext)
 						aux0.moddown(true, false, 1);
 
 					// results[i]->c0.generateSpecialLimbs(true);
 					results[i]->c0.add(c0, aux0);
-					results[i]->c0.automorph(indexes[i], 1);
+					results[i]->c0.automorph(actual_index, 1);
 					// if (!ext)
 					//     results[i]->c0.moddown(true, false);
 
@@ -1026,14 +1023,15 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 						results[i]->extend();
 					}
 				} else {
-					RNSPoly& aux0 = in.dotKSKInPlace(cc.GetRotationKey(indexes[i], keyID, slots), &c1);
+					int actual_index;
+					RNSPoly& aux0 = in.dotKSKInPlace(cc.GetRotationKey(indexes[i], keyID, slots, actual_index), &c1);
 					// results[i]->c0.dropToLevel(getLevel());
 					// results[i]->c1.dropToLevel(getLevel());
 					if (!ext) {
 						in.moddown(true, false, 0);
 					}
 					// std::cout << "in ismodup: " << in.isModUp() << std::endl;
-					results[i]->c1.automorph(indexes[i], 1, &in);
+					results[i]->c1.automorph(actual_index, 1, &in);
 					// std::cout << "results[i] c1 ismodup: " << results[i]->c1.isModUp() << std::endl;
 					if (!ext) {
 						aux0.moddown(true, false, 1);
@@ -1042,7 +1040,7 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 					// std::cout << "c0 ismodup: " << c0.isModUp() << std::endl;
 					results[i]->c0.add(c0, aux0);
 					// std::cout << "results[i] c0 ismodup: " << results[i]->c0.isModUp() << std::endl;
-					results[i]->c0.automorph(indexes[i], 1, nullptr);
+					results[i]->c0.automorph(actual_index, 1, nullptr);
 					// std::cout << "results[i] c0 ismodup: " << results[i]->c0.isModUp() << std::endl;
 
 					results[i]->copyMetadata(*this);
@@ -1090,10 +1088,11 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 			} else {
 				c0_out.push_back(&results[i]->c0);
 				c1_out.push_back(&results[i]->c1);
-				auto& ksk = cc.GetRotationKey(indexes[i], keyID, slots);
+				int actual_index;
+				auto& ksk = cc.GetRotationKey(indexes[i], keyID, slots, actual_index);
 				ksk_a.push_back(&ksk.a);
 				ksk_b.push_back(&ksk.b);
-				index.push_back(indexes[i]);
+				index.push_back(actual_index);
 
 				results[i]->copyMetadata(*this);
 			}
@@ -1389,15 +1388,15 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 			if (c2depth == 2) {
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf	= cc.param.ScalingFactorReal[c1lvl];	 // cryptoParams->GetScalingFactorReal(c1lvl);
-				double q1	= cc.param.ModReduceFactor[sizeQl1 - 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
-				multScalarNoPrecheck(scf2 / scf1 * q1 / scf);
-				rescale();
-				if (getLevel() > static_cast<int32_t>(c2lvl)) {
-					this->dropToLevel(c2lvl, true);
+				double scf	= cc.param.ScalingFactorReal[c1lvl];   // cryptoParams->GetScalingFactorReal(c1lvl);
+				double q1	= cc.param.ModReduceFactor[c2lvl + 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+				multScalarNoPrecheck(scf2 * q1 / scf1 / scf);
+				if (getLevel() > static_cast<int32_t>(c2lvl + 1)) {
+					this->dropToLevel(c2lvl + 1, true);
 				}
-
-				assert(std::abs((NoiseFactor * scf2 / scf1 * q1 / scf - scaling_factor) / scaling_factor) < 0.001);
+				NoiseFactor = cc.param.ScalingFactorRealBig[c2lvl] * cc.param.ModReduceFactor[c2lvl + 1];
+				rescale();
+				assert(std::abs((scf1 * scf * scf2 * q1 / scf1 / scf / q1 - scaling_factor) / scaling_factor) < 1e-9);
 				NoiseFactor = scaling_factor;
 			} else {
 				if (c1lvl - 1 == c2lvl) {
@@ -1413,8 +1412,9 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 						this->dropToLevel(c2lvl + 1, true);
 						// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 2);
 					}
+					NoiseFactor *= scf2 / scf1 * q1 / scf;
 					rescale();
-					assert(std::abs((NoiseFactor * scf2 / scf1 * q1 / scf - scaling_factor) / scaling_factor) < 0.001);
+					// assert(std::abs((NoiseFactor * scf2 / scf1 * q1 / scf - scaling_factor) / scaling_factor) < 0.001);
 
 					NoiseFactor = scaling_factor;
 				}
@@ -1438,11 +1438,13 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 					this->dropToLevel(c2lvl + 1, true);
 					// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 1);
 				}
+				NoiseFactor *= scf2 / scf1 / scf;
 				rescale();
-				assert(std::abs((NoiseFactor * scf2 / scf1 / scf - scaling_factor) / scaling_factor) < 0.001);
+				// assert(std::abs((NoiseFactor * scf2 / scf1 / scf - scaling_factor) / scaling_factor) < 0.001);
 				NoiseFactor = scaling_factor;
 			}
 		}
+		assert(scaleDegree < 3 ? this->NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
 		return true;
 	} else if (c1lvl < c2lvl) {
 		return false;

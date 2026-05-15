@@ -550,13 +550,22 @@ BootstrapPrecomputation& ContextData::GetBootPrecomputation(int slots) {
 	return precom.boot[slots];
 }
 
-KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, int slots) {
+KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID) {
+
+	if (!precom.keys.at(keyID).rot_keys.contains(index)) {
+		throw std::runtime_error("Rotation index " + std::to_string(index) + " not found");
+	}
+
+	return precom.keys.at(keyID).rot_keys.at(index);
+}
+
+KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, int slots, int& actual_index) {
 	if (index != 2 * N - 1) { // Handle conjugate key independently
 		index = index % (N / 2);
 		if (index < 0)
 			index += this->N / 2;
-		if (index > slots / 2)
-			index += N / 2 - slots;
+		// if (index > slots / 2)
+		//	index += N / 2 - slots;
 
 		if (!precom.keys.at(keyID).rot_keys.contains(index)) {
 			if (slots != -1 && slots != N / 2) {
@@ -565,14 +574,17 @@ KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, in
 				for (int i = 1; i < N / 2 / slots; ++i) {
 					int index_ = (index + i * slots) % (N / 2);
 					if (precom.keys.at(keyID).rot_keys.contains(index_)) {
+						actual_index = index_;
 						return precom.keys.at(keyID).rot_keys.at(index_);
 					}
 				}
 			}
 			std::cout << "Rotation index " << index << "/ " << index - slots << "not found." << std::endl;
+			throw std::runtime_error("Rotation index" + std::to_string(index) + " not found");
 		}
 	}
 
+	actual_index = index;
 	return precom.keys.at(keyID).rot_keys.at(index);
 }
 
@@ -1071,6 +1083,15 @@ KeySwitchingKey& GetSecretSwitchingKey(const Context& a, const Context& b, const
 
 	assert("No key present");
 	exit(-1);
+}
+
+int32_t normalyzeIndex(int32_t index, int32_t slots, int32_t N) {
+	index = index % slots;
+	if (index < 0)
+		index += slots;
+	if (index > slots / 2)
+		index += N / 2 - slots;
+	return index;
 }
 
 void DeregisterAllContexts() {

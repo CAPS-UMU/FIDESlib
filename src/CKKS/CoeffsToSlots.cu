@@ -25,8 +25,8 @@ constexpr bool BATCHED = false;
 
 void FIDESlib::CKKS::EvalLinearTransform(Ciphertext& ctxt, int slots, bool decode) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() });
-	constexpr bool PRINT		 = false;
-	FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
+	//constexpr bool PRINT		 = false;
+	//FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
 	ContextData& cc				 = ctxt.cc;
 
 	if constexpr (BATCHED) {
@@ -57,98 +57,13 @@ void FIDESlib::CKKS::EvalLinearTransform(Ciphertext& ctxt, int slots, bool decod
 		LinearTransform(bctxt, rowSize_padded, LTconf.bStep, bptxt, 1, 0);
 		*/
 	} else {
-		// Computing the baby-step bStep and the giant-step gStep.
-		uint32_t bStep = cc.GetBootPrecomputation(slots).LT.bStep;
-		uint32_t gStep = ceil(static_cast<double>(slots) / bStep);
 
-		// uint32_t M = cc.N * 2;
-		// uint32_t N = cc.N;
-
-		std::vector<Ciphertext> fastRotation;
-
-		for (auto i = fastRotation.size(); i < bStep; ++i)
-			fastRotation.emplace_back(cc_);
-
-		std::vector<Ciphertext*> fastRotationPtr;
-		std::vector<int> indexes;
-		for (uint32_t i = 0; i < bStep; ++i) {
-			fastRotationPtr.push_back(&fastRotation[i]);
-			indexes.push_back(i);
-		}
-
-		if constexpr (PRINT) {
-			cudaDeviceSynchronize();
-			std::cout << "Input LT ";
-			for (auto& j : ctxt.c0.GPU) {
-				cudaSetDevice(j.device);
-				for (auto& i : j.limb) {
-					SWITCH(i, printThisLimb(1));
-				}
-			}
-			std::cout << std::endl;
-			cudaDeviceSynchronize();
-		}
-
-		bool ext = true;
-		if (bStep == 1)
-			ext = false;
-		for (auto& i : decode ? cc.GetBootPrecomputation(slots).LT.invA : cc.GetBootPrecomputation(slots).LT.A) {
-			if (!i.c0.isModUp()) {
-				ext = false;
-			}
-		}
-
-		if constexpr (PRINT) {
-			cudaDeviceSynchronize();
-			for (int i = 0; i < bStep; ++i) {
-				std::cout << "In hoistRotation ";
-				for (auto& j : fastRotation[i].c0.GPU) {
-					cudaSetDevice(j.device);
-					for (auto& k : j.limb) {
-						SWITCH(k, printThisLimb(1));
-					}
-				}
-				std::cout << std::endl;
-				for (auto& j : fastRotation[i].c0.GPU) {
-					cudaSetDevice(j.device);
-					for (auto& k : j.SPECIALlimb) {
-						SWITCH(k, printThisLimb(1));
-					}
-				}
-				std::cout << std::endl;
-			}
-			cudaDeviceSynchronize();
-		}
-
-		ctxt.rotate_hoisted(indexes, fastRotationPtr, ext);
-
-		if constexpr (PRINT) {
-			cudaDeviceSynchronize();
-			for (int i = 0; i < bStep; ++i) {
-				std::cout << "Out hoistRotation ";
-				for (auto& j : fastRotation[i].c0.GPU) {
-					cudaSetDevice(j.device);
-					for (auto& k : j.limb) {
-						SWITCH(k, printThisLimb(1));
-					}
-				}
-				std::cout << std::endl;
-				for (auto& j : fastRotation[i].c0.GPU) {
-					cudaSetDevice(j.device);
-					for (auto& k : j.SPECIALlimb) {
-						SWITCH(k, printThisLimb(1));
-					}
-				}
-				std::cout << std::endl;
-			}
-			cudaDeviceSynchronize();
-		}
-		Ciphertext inner(cc_);
+		int bStep				  = cc.GetBootPrecomputation(slots).LT.bStep;
+		int gStep				  = slots / bStep;
 		std::vector<Plaintext>& A = decode ? cc.GetBootPrecomputation(slots).LT.invA : cc.GetBootPrecomputation(slots).LT.A;
-
 		std::vector<Plaintext*> Aptr(slots, nullptr);
-		for (uint32_t j = 0; j < gStep; ++j) {
-			for (uint32_t i = 0; i < bStep; ++i) {
+		for (uint32_t j = 0; j < static_cast<uint32_t>(gStep); ++j) {
+			for (uint32_t i = 0; i < static_cast<uint32_t>(bStep); ++i) {
 				if (bStep * j + i < static_cast<uint32_t>(slots))
 					Aptr[bStep * j + i] = &(A[bStep * j + i]);
 			}
@@ -184,7 +99,7 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 	for (BootstrapPrecomputation::LTstep& step : (decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS)) {
 		// computes the NTTs for each CRT limb (for the hoisted automorphisms used later on)
 
-		if constexpr (AFFINE_LT && BATCHED) {
+		if constexpr (BATCHED) {
 			/*
 			CiphertextBatch<Ciphertext*> bctxt = {.cts = {&ctxt},
 												  .conf = {.cc_ = ctxt.cc_,
@@ -227,7 +142,9 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 
 				int stride = step.bStep > 1 ? step.rotIn[1] - step.rotIn[0] : step.rotOut[1] - step.rotOut[0];
 				int offset = step.rotOut[0];
-				{ LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset); }
+				{
+					LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset);
+				}
 			}
 		}
 	}

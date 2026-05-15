@@ -40,7 +40,7 @@ TEST_P(MMTests, MatrixMultiplication) {
 	int bStepAcc	 = 4;
 	int numSlots	 = cc->GetEncodingParams()->GetBatchSize();
 	int blockSize	 = 128;
-	int bStep		 = 4;
+	int bStep		 = 16;
 	int num_heads	 = 2;
 	size_t rows		 = 128;
 	size_t cols		 = 128;
@@ -57,7 +57,7 @@ TEST_P(MMTests, MatrixMultiplication) {
 	eval_key_gpu.Initialize(eval_key);
 	GPUccData.AddEvalKey(std::move(eval_key_gpu));
 
-	std::vector<int32_t> rotation_indices = GenerateRotationIndices_GPU(blockSize, bStep, bStepAcc, num_heads);
+	std::vector<int32_t> rotation_indices = GenerateRotationIndices_GPU(blockSize, bStep, bStepAcc, 0, cc->GetRingDimension());
 	GenAndAddRotationKeys(cc, keys, cc_, rotation_indices);
 
 	struct PtMasks_GPU masks = GetPtMasks_GPU(cc_, cc, numSlots, blockSize, matmul_level + 1);
@@ -77,8 +77,8 @@ TEST_P(MMTests, MatrixMultiplication) {
 
 	struct PtWeights_GPU weights_layer0 = GetPtWeightsGPU(cc_, keys.publicKey, model_path, 0, numSlots, blockSize, rows, cols, matmul_level, num_heads);
 
-	// Bootstrap(tokens_gpu[0][0], numSlots, false);
-	printMatrix(decryptGPUMatrix(tokens_gpu, keys.secretKey, ct_tokens, numSlots, blockSize), 32, 32, "tokens_gpu: ", false, 10);
+	// Bootstrap(tokens_gpu[0][0z], numSlots, false);
+	printMatrix(decryptGPUMatrix(tokens_gpu, keys.secretKey, ct_tokens, numSlots, blockSize), 2, 2, "tokens_gpu: ", false, 10);
 
 	// ------- PCMM on GPU ------
 	if (verbose)
@@ -95,12 +95,14 @@ TEST_P(MMTests, MatrixMultiplication) {
 	dropMatrixLevel(tokens_gpu, matmul_level);
 	int N = 1;
 
+	std::cout << "# limbs: " << tokens_gpu[0][0].getLevel() + 1 << " " << tokens_gpu[0][0].NoiseLevel << std::endl;
 	std::cout << "PCMM 1: " << std::endl;
 
 	start_gpu = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; i++) {
 		CudaCheckErrorMod;
-		PCMM_GPU(tokens_gpu, weights_layer0.Wk, blockSize, K, precomp_gpu, weights_layer0.bk);
+		PCMM_GPU(tokens_gpu, weights_layer0.Wq, blockSize, K, precomp_gpu, weights_layer0.bk);
+		//	PCMM_GPU(tokens_gpu, weights_layer0.Wq, blockSize, K, precomp_gpu, weights_layer0.bk);
 		CudaCheckErrorMod;
 		PCMM_GPU(tokens_gpu, weights_layer0.Wq, blockSize, Q, precomp_gpu, weights_layer0.bq);
 		CudaCheckErrorMod;
@@ -109,9 +111,9 @@ TEST_P(MMTests, MatrixMultiplication) {
 	end_gpu = std::chrono::high_resolution_clock::now();
 	std::cout << "took: " << (std::chrono::duration_cast<std::chrono::milliseconds>(end_gpu - start_gpu).count()) / N << " ms." << std::endl;
 
-	std::cout << "# limbs: " << K[0][0].getLevel() << " " << K[0][0].NoiseLevel << std::endl;
-	printMatrix(decryptGPUMatrix(K, keys.secretKey, ct_tokens, numSlots, blockSize), 32, 32, "K: ", false, 4, true);
-	printMatrix(decryptGPUMatrix(Q, keys.secretKey, ct_tokens, numSlots, blockSize), 32, 32, "Q: ", false, 4, true);
+	std::cout << "# limbs: " << K[0][0].getLevel() + 1 << " " << K[0][0].NoiseLevel << std::endl;
+	printMatrix(decryptGPUMatrix(K, keys.secretKey, ct_tokens, numSlots, blockSize), 2, 2, "K: ", false, 4, false);
+	printMatrix(decryptGPUMatrix(Q, keys.secretKey, ct_tokens, numSlots, blockSize), 2, 2, "Q: ", false, 4, false);
 
 	std::cout << "Transpose: " << std::endl;
 
@@ -119,7 +121,7 @@ TEST_P(MMTests, MatrixMultiplication) {
 	auto K_T = /*std::move(K);*/ MatrixTranspose_GPU(std::move(K), blockSize, Tprecomp_gpu);
 	CudaCheckErrorMod;
 
-	printMatrix(decryptGPUMatrix(K_T, keys.secretKey, ct_tokens, numSlots, blockSize), 32, 32, "K_T: ", false, 4, true);
+	printMatrix(decryptGPUMatrix(K_T, keys.secretKey, ct_tokens, numSlots, blockSize), 2, 2, "K_T: ", false, 4, true);
 
 	std::cout << "CCMM 1: " << std::endl;
 
@@ -137,5 +139,5 @@ TEST_P(MMTests, MatrixMultiplication) {
 	cc_->clearParamSwitchKeys();
 }
 
-INSTANTIATE_TEST_SUITE_P(LLMTests, MMTests, testing::Values(tparams64_15_LLM_flexext));
+INSTANTIATE_TEST_SUITE_P(LLMTests, MMTests, testing::Values(tparams64_15_LLM_flex, tparams64_16_LLM_flex));
 } // namespace FIDESlib::Testing

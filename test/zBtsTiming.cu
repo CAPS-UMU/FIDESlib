@@ -48,7 +48,7 @@ TEST_P(BtsTimingTests, Regular) {
 	keys = cc->KeyGen();
 
 	// Bootstrapping Precomputation
-	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, false);
 
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 	std::cout << GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
@@ -123,12 +123,13 @@ TEST_P(BtsTimingTests, SSE) {
 	// Parameters
 	GPUcc.batch	 = 128;
 	int numSlots = cc->GetRingDimension() / 2;
-
-	// Keys
+	// int numSlots = 64;
+	//  Keys
 	keys = cc->KeyGen();
 
 	// Bootstrapping Precomputation
-	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	cc->EvalBootstrapSetup(
+	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 	std::cout << GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
 	std::cout << GPUcc.GetDoubleAngleIts() << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
@@ -154,7 +155,7 @@ TEST_P(BtsTimingTests, SSE) {
 		std::cout << result_pt->GetLogPrecision() << std::endl;
 	}
 
-	int N = 3;
+	int N = 1;
 
 	auto start_gpu = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; i++) {
@@ -227,7 +228,8 @@ TEST_P(BtsTimingTests, REGULAR2) {
 	GPUcc.AddEvalKey(std::move(eval_key_gpu));
 
 	// Bootstrapping Precomputation
-	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	cc->EvalBootstrapSetup(
+	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);
@@ -305,7 +307,8 @@ TEST_P(BtsTimingTests, SPARSE) {
 	GPUcc.AddEvalKey(std::move(eval_key_gpu));
 
 	// Bootstrapping Precomputation
-	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	cc->EvalBootstrapSetup(
+	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);

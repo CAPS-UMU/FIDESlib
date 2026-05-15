@@ -444,30 +444,54 @@ template <ALGO algo, INTT_MODE mode> void LimbPartition::INTT(int batch, bool sy
 #include "ntt_types.inc"
 #undef WWW
 
-void LimbPartition::add(const LimbPartition& p, const bool ext) {
+void LimbPartition::add(const LimbPartition& p, const bool exta, const bool extb) {
 	cudaSetDevice(device);
 	const int limbsize = getLimbSize(*level);
 	s.wait(p.getS());
+
 	for (int i = 0; i < limbsize; i += cc.batch) {
 		STREAM(limb[i]).wait(s);
 		uint32_t num_limbs = std::min((int)limbsize - i, cc.batch);
-		add_<<<dim3{ (uint32_t)cc.N / 128, num_limbs }, 128, 0, STREAM(limb[i]).ptr()>>>(limbptr.data + i, p.limbptr.data + i, PARTITION(id, i));
-	}
-	if (ext) {
-		int start	  = cc.splitSpecialMeta.at(id).at(0).id - (cc.L + 1);
-		int num_limbs = cc.splitSpecialMeta.at(id).size();
-		for (int32_t i = start; i < start + num_limbs; i += cc.batch) {
-			STREAM(SPECIALlimb[i]).wait(s);
-			uint32_t size = std::min((int)start + num_limbs - (int)i, cc.batch);
-			{
-				add_<<<dim3{ (uint32_t)cc.N / 128, size }, 128, 0, STREAM(SPECIALlimb[i]).ptr()>>>(SPECIALlimbptr.data + i,
-				  p.SPECIALlimbptr.data + i,
-				  SPECIAL(id,
-					i)); // TODO: have to check if Limbpartition comes from a plaintext, where extension limbs are mapped differently
-			}
+		if (exta == extb) {
+			add_<<<dim3{ (uint32_t)cc.N / 128, num_limbs }, 128, 0, STREAM(limb[i]).ptr()>>>(limbptr.data + i, p.limbptr.data + i, PARTITION(id, i));
+		} else if (exta) {
+			add_scale_p_b_<<<dim3{ (uint32_t)cc.N / 128, num_limbs }, 128, 0, STREAM(limb[i]).ptr()>>>(limbptr.data + i, p.limbptr.data + i, PARTITION(id, i));
+		} else if (extb) {
+			add_scale_p_a_<<<dim3{ (uint32_t)cc.N / 128, num_limbs }, 128, 0, STREAM(limb[i]).ptr()>>>(limbptr.data + i, p.limbptr.data + i, PARTITION(id, i));
 		}
-		for (int32_t i = start; i < start + num_limbs; i += cc.batch) {
-			s.wait(STREAM(SPECIALlimb[i]));
+	}
+	if (exta || extb) {
+		if (exta && !extb) {
+			// DO NOTHING !!!
+		} else if (extb && !exta) {
+			int start	  = cc.splitSpecialMeta.at(id).at(0).id - (cc.L + 1);
+			int num_limbs = cc.splitSpecialMeta.at(id).size();
+			for (size_t i = start; i < static_cast<size_t>(start + num_limbs); i += cc.batch) {
+				STREAM(SPECIALlimb[i]).wait(s);
+				uint32_t size = std::min((int)start + num_limbs - (int)i, cc.batch);
+				{
+					copy_<<<dim3{ (uint32_t)cc.N / 128, size }, 128, 0, STREAM(SPECIALlimb[i]).ptr()>>>(p.SPECIALlimbptr.data + i, SPECIALlimbptr.data + i);
+				} // TODO: have to check if Limbpartition comes from a plaintext, where extension limbs are mapped differently
+			}
+			for (size_t i = start; i < static_cast<size_t>(start + num_limbs); i += cc.batch) {
+				s.wait(STREAM(SPECIALlimb[i]));
+			}
+		} else if (exta && extb) {
+			int start	  = cc.splitSpecialMeta.at(id).at(0).id - (cc.L + 1);
+			int num_limbs = cc.splitSpecialMeta.at(id).size();
+			for (size_t i = start; i < static_cast<size_t>(start + num_limbs); i += cc.batch) {
+				STREAM(SPECIALlimb[i]).wait(s);
+				uint32_t size = std::min((int)start + num_limbs - (int)i, cc.batch);
+				{
+					add_<<<dim3{ (uint32_t)cc.N / 128, size }, 128, 0, STREAM(SPECIALlimb[i]).ptr()>>>(SPECIALlimbptr.data + i,
+					  p.SPECIALlimbptr.data + i,
+					  SPECIAL(id,
+						i)); // TODO: have to check if Limbpartition comes from a plaintext, where extension limbs are mapped differently
+				}
+			}
+			for (size_t i = start; i < static_cast<size_t>(start + num_limbs); i += cc.batch) {
+				s.wait(STREAM(SPECIALlimb[i]));
+			}
 		}
 	}
 	for (int32_t i = 0; i < limbsize; i += cc.batch) {

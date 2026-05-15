@@ -2,13 +2,12 @@
   <img src="https://github.com/CAPS-UMU/FIDESlib/blob/main/doxygen/FidesLogo.drawio.svg?raw=true" width="200">
 </p>
 
-# FIDESlib 2.1
+# FIDESlib 2.1.2
 
 A server-side CKKS GPU library fully interoperable with OpenFHE.
 
-## Improvements in version 2.1
-
-  - OpenFHE version 1.4.2 compatibility.
+## Improvements in version 2.1.2
+  - OpenFHE version 1.5.1 compatibility.
   - Multi-GPU support with NCCL.
   - Sparse Secret Encapsulation support.
   - Many performance optimizations.

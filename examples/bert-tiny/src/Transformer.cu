@@ -126,6 +126,9 @@ std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> encoder(PtWeights_GPU& weig
 
 	// MatrixBootstrap(QKT1, conf.numSlots, conf.prescale);
 
+	if constexpr (PRINT)
+		printMatrix(decryptGPUMatrix(QKT1, keys_.secretKey, ct_tokens, conf.numSlots, conf.blockSize), 2, 2, "QKT1: ", false);
+
 	MatrixBootstrap(QKT2, conf.numSlots, true);
 	EvalSoftmax_Matrix(QKT2,
 	  ct_tokens[0][0],
@@ -140,6 +143,9 @@ std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> encoder(PtWeights_GPU& weig
 	  conf.token_length,
 	  true);
 	// MatrixBootstrap(QKT2, conf.numSlots, conf.prescale);
+
+	if constexpr (PRINT)
+		printMatrix(decryptGPUMatrix(QKT2, keys_.secretKey, ct_tokens, conf.numSlots, conf.blockSize), 2, 2, "QKT2: ", false);
 
 	double_mask.copy(masks.row_masks[conf.token_length]);
 	double_mask.multPt(double_mask, masks.head_masks[0], true);
@@ -229,6 +235,10 @@ std::vector<std::vector<FIDESlib::CKKS::Ciphertext>> encoder(PtWeights_GPU& weig
 	tokens.clear();
 
 	MatrixBootstrap(GPUResult_Output, conf.numSlots, false);
+
+	if constexpr (PRINT)
+		printMatrix(decryptGPUMatrix(GPUResult_Output, keys_.secretKey, ct_tokens, conf.numSlots, conf.blockSize), 2, 2, "Result_output: ", false);
+
 	EvalLayerNorm_Matrix(GPUResult_Output,
 	  ct_tokens[0][0],
 	  keys_.secretKey,
@@ -613,13 +623,14 @@ int32_t classifier(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& context,
 	std::cout << std::endl;
 }
 
-std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bStep, int bStepAcc, int colSize) {
+std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bStep, int bStepAcc, int colSize, int N) {
 
 	if (colSize == 0) {
 		colSize = blockSize;
 	}
 	// JKLS MatMul rotation indices
-	std::vector<int32_t> rotation_indices_MM = GenerateMatMulRotationIndices_GPU(blockSize, bStep, colSize);
+	std::vector<int32_t> rotation_indices_MM  = GenerateMatMulRotationIndices_GPU(blockSize, bStep, blockSize);
+	std::vector<int32_t> rotation_indices_MM2 = GenerateMatMulRotationIndices_GPU(blockSize, bStep, colSize);
 	// Multi-head Attention rotation indices
 	std::vector<int32_t> rotation_indices_MHA = GenerateMatMulRotationIndices_GPU(64, bStep, colSize); // d_k = 64
 
@@ -645,6 +656,7 @@ std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bStep, int bStep
 
 	std::set<int32_t> merged_set(rotsum_indices.begin(), rotsum_indices.end());
 	merged_set.insert(rotation_indices_MM.begin(), rotation_indices_MM.end());
+	merged_set.insert(rotation_indices_MM2.begin(), rotation_indices_MM2.end());
 	merged_set.insert(rotation_indices_MHA.begin(), rotation_indices_MHA.end());
 	merged_set.insert(rotation_indices_T.begin(), rotation_indices_T.end());
 	merged_set.insert(accum_indices.begin(), accum_indices.end());
@@ -657,8 +669,12 @@ std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bStep, int bStep
 	merged_set.insert(broad_indices4.begin(), broad_indices4.end());
 	merged_set.insert(broad_indices5.begin(), broad_indices5.end());
 	merged_set.insert(broad_indices6.begin(), broad_indices6.end());
-	std::vector<int32_t> rotation_indices(merged_set.begin(), merged_set.end());
 
+	std::set<int32_t> normalized_set;
+	for (auto i : merged_set) {
+		normalized_set.insert(FIDESlib::CKKS::normalyzeIndex(i, blockSize * colSize, N));
+	}
+	std::vector<int32_t> rotation_indices(normalized_set.begin(), normalized_set.end());
 	return rotation_indices;
 }
 

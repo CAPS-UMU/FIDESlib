@@ -64,7 +64,7 @@ int main(const int argc, char** argv) {
 	std::cout << "Encoder 2 took: " << (std::chrono::duration_cast<std::chrono::milliseconds>(end_gpu - start_gpu).count()) << " ms." << std::endl;
 	start_gpu			= std::chrono::high_resolution_clock::now();
 	uint32_t class_pred = classifier(
-	  cc, tokens_gpu, keys.secretKey, ct_tokens, precomp_gpu, weights_layer1, masks, conf.numSlots, conf.blockSize, conf.token_length, true, output_path, TODO);
+	  cc, tokens_gpu, keys.secretKey, ct_tokens, precomp_gpu, weights_layer1, masks, conf.numSlots, conf.blockSize, conf.token_length, true, output_path, conf);
 	cudaDeviceSynchronize();
 	end_gpu = std::chrono::high_resolution_clock::now();
 	std::cout << "Classifier took: " << (std::chrono::duration_cast<std::chrono::milliseconds>(end_gpu - start_gpu).count()) << " ms." << std::endl;

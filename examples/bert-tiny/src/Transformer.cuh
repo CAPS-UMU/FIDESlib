@@ -97,7 +97,7 @@ int32_t classifier(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& context,
   const std::string& output_path,
   const EncoderConfiguration& conf);
 
-std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bstep, int bStepAcc, int colSize = 0);
+std::vector<int> GenerateRotationIndices_GPU(int blockSize, int bstep, int bStepAcc, int colSize = 0, int N = 0);
 
 /**
  * Process pre-tokenized samples from manifest file (for cluster use without Python).

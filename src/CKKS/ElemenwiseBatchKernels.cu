@@ -157,13 +157,13 @@ __global__ void broadcastLimb0_mgpu(void** a, const __grid_constant__ int primei
 	}
 }
 
-__global__ void copy_(void** a, void** b) {
+__global__ void copy_(void** src, void** dst) {
 	int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
 	if (ISU64(blockIdx.y)) {
-		((uint64_t*)b[blockIdx.y])[idx] = ((uint64_t*)a[blockIdx.y])[idx];
+		((uint64_t*)dst[blockIdx.y])[idx] = ((uint64_t*)src[blockIdx.y])[idx];
 	} else {
-		((uint32_t*)b[blockIdx.y])[idx] = ((uint32_t*)a[blockIdx.y])[idx];
+		((uint32_t*)dst[blockIdx.y])[idx] = ((uint32_t*)src[blockIdx.y])[idx];
 	}
 }
 

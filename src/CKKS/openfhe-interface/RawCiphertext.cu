@@ -674,7 +674,7 @@ FIDESlib::CKKS::GenRotationKeys(const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>& 
 			indexes3.emplace_back(i);
 		}
 	}
-	auto evalKeys = cc->GetScheme()->EvalAtIndexKeyGen(nullptr, keys, indexes3);
+	auto evalKeys = cc->GetScheme()->EvalAtIndexKeyGen(keys, indexes3);
 	CryptoContextImpl<lbcrypto::DCRTPoly>::InsertEvalAutomorphismKey(evalKeys, keys->GetKeyTag());
 	return evalKeys;
 	// std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)
@@ -703,6 +703,7 @@ void FIDESlib::CKKS::GenAndAddRotationKeys(lbcrypto::CryptoContext<lbcrypto::DCR
   const KeyPair<lbcrypto::DCRTPoly>& keys,
   FIDESlib::CKKS::Context& GPUcc,
   std::vector<int> indexes) {
+
 	GenRotationKeys(keys, indexes);
 	AddRotationKeys(keys.publicKey, GPUcc, indexes);
 }
@@ -717,10 +718,10 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 	BootstrapPrecomputation result;
 	auto precom = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
 
-	if (precom->m_paramsEnc[CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1 && precom->m_paramsDec[CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1) {
+	if (precom->m_paramsEnc.lvlb /* [CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1 && precom->m_paramsDec.lvlb /*[CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1) {
 
 		result.LT.slots = slots;
-		result.LT.bStep = (precom->m_dim1 == 0) ? ceil(sqrt(slots)) : precom->m_dim1;
+		result.LT.bStep = (precom->m_paramsEnc.g /*m_dim1*/ == 0) ? ceil(sqrt(slots)) : precom->m_paramsEnc.g /*m_dim1*/;
 
 		for (int i = 1; i < result.LT.bStep; ++i) {
 			indexes.push_back(i);
@@ -735,17 +736,18 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 #endif
 	} else {
 		{ // CoeffToSlots metadata
-			uint32_t M				= cc->GetCyclotomicOrder();
-			uint32_t N				= cc->GetRingDimension();
-			int32_t levelBudget		= precom->m_paramsEnc[CKKS_BOOT_PARAMS::LEVEL_BUDGET];
-			int32_t layersCollapse	= precom->m_paramsEnc[CKKS_BOOT_PARAMS::LAYERS_COLL];
-			int32_t remCollapse		= precom->m_paramsEnc[CKKS_BOOT_PARAMS::LAYERS_REM];
-			int32_t numRotations	= precom->m_paramsEnc[CKKS_BOOT_PARAMS::NUM_ROTATIONS];
-			int32_t b				= precom->m_paramsEnc[CKKS_BOOT_PARAMS::BABY_STEP];
-			int32_t g				= precom->m_paramsEnc[CKKS_BOOT_PARAMS::GIANT_STEP];
-			int32_t numRotationsRem = precom->m_paramsEnc[CKKS_BOOT_PARAMS::NUM_ROTATIONS_REM];
-			int32_t bRem			= precom->m_paramsEnc[CKKS_BOOT_PARAMS::BABY_STEP_REM];
-			int32_t gRem			= precom->m_paramsEnc[CKKS_BOOT_PARAMS::GIANT_STEP_REM];
+			uint32_t M = cc->GetCyclotomicOrder();
+			uint32_t N = cc->GetRingDimension();
+
+			int32_t levelBudget		= precom->m_paramsEnc.lvlb;			   // [CKKS_BOOT_PARAMS::LEVEL_BUDGET];
+			int32_t layersCollapse	= precom->m_paramsEnc.layersCollapse;  //[CKKS_BOOT_PARAMS::LAYERS_COLL];
+			int32_t remCollapse		= precom->m_paramsEnc.remCollapse;	   // [CKKS_BOOT_PARAMS::LAYERS_REM];
+			int32_t numRotations	= precom->m_paramsEnc.numRotations;	   // [CKKS_BOOT_PARAMS::NUM_ROTATIONS];
+			int32_t b				= precom->m_paramsEnc.b;			   // [CKKS_BOOT_PARAMS::BABY_STEP];
+			int32_t g				= precom->m_paramsEnc.g;			   //[CKKS_BOOT_PARAMS::GIANT_STEP];
+			int32_t numRotationsRem = precom->m_paramsEnc.numRotationsRem; //[CKKS_BOOT_PARAMS::NUM_ROTATIONS_REM];
+			int32_t bRem			= precom->m_paramsEnc.bRem;			   // [CKKS_BOOT_PARAMS::BABY_STEP_REM];
+			int32_t gRem			= precom->m_paramsEnc.gRem;			   //[CKKS_BOOT_PARAMS::GIANT_STEP_REM];
 
 			int32_t stop	= -1;
 			int32_t flagRem = 0;
@@ -817,17 +819,16 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 			uint32_t M = cc->GetCyclotomicOrder();
 			uint32_t N = cc->GetRingDimension();
 
-			int32_t levelBudget		= precom->m_paramsDec[CKKS_BOOT_PARAMS::LEVEL_BUDGET];
-			int32_t layersCollapse	= precom->m_paramsDec[CKKS_BOOT_PARAMS::LAYERS_COLL];
-			int32_t remCollapse		= precom->m_paramsDec[CKKS_BOOT_PARAMS::LAYERS_REM];
-			int32_t numRotations	= precom->m_paramsDec[CKKS_BOOT_PARAMS::NUM_ROTATIONS];
-			int32_t b				= precom->m_paramsDec[CKKS_BOOT_PARAMS::BABY_STEP];
-			int32_t g				= precom->m_paramsDec[CKKS_BOOT_PARAMS::GIANT_STEP];
-			int32_t numRotationsRem = precom->m_paramsDec[CKKS_BOOT_PARAMS::NUM_ROTATIONS_REM];
-			int32_t bRem			= precom->m_paramsDec[CKKS_BOOT_PARAMS::BABY_STEP_REM];
-			int32_t gRem			= precom->m_paramsDec[CKKS_BOOT_PARAMS::GIANT_STEP_REM];
-
-			auto algo = cc->GetScheme();
+			int32_t levelBudget		= precom->m_paramsDec.lvlb;			   // [CKKS_BOOT_PARAMS::LEVEL_BUDGET];
+			int32_t layersCollapse	= precom->m_paramsDec.layersCollapse;  //[CKKS_BOOT_PARAMS::LAYERS_COLL];
+			int32_t remCollapse		= precom->m_paramsDec.remCollapse;	   // [CKKS_BOOT_PARAMS::LAYERS_REM];
+			int32_t numRotations	= precom->m_paramsDec.numRotations;	   // [CKKS_BOOT_PARAMS::NUM_ROTATIONS];
+			int32_t b				= precom->m_paramsDec.b;			   // [CKKS_BOOT_PARAMS::BABY_STEP];
+			int32_t g				= precom->m_paramsDec.g;			   //[CKKS_BOOT_PARAMS::GIANT_STEP];
+			int32_t numRotationsRem = precom->m_paramsDec.numRotationsRem; //[CKKS_BOOT_PARAMS::NUM_ROTATIONS_REM];
+			int32_t bRem			= precom->m_paramsDec.bRem;			   // [CKKS_BOOT_PARAMS::BABY_STEP_REM];
+			int32_t gRem			= precom->m_paramsDec.gRem;			   //[CKKS_BOOT_PARAMS::GIANT_STEP_REM];
+			auto algo				= cc->GetScheme();
 
 			int32_t flagRem = 0;
 
@@ -1081,6 +1082,7 @@ void FIDESlib::CKKS::AddBootstrapKeys(const lbcrypto::PublicKey<lbcrypto::DCRTPo
 		{
 			std::shared_ptr<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>> res =
 			  std::dynamic_pointer_cast<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>>(evalKeys[2 * GPUcc.N - 2]);
+			assert(res != nullptr);
 			FIDESlib::CKKS::RawKeySwitchKey rawKskEval = FIDESlib::CKKS::GetKeySwitchKey(res);
 			ksk_atob.Initialize(rawKskEval);
 		}
@@ -1107,7 +1109,7 @@ void FIDESlib::CKKS::AddBootstrapPlaintexts(lbcrypto::CryptoContext<lbcrypto::DC
 	ContextData& GPUcc = *GPUcc_;
 	auto precom		   = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
 
-	if (precom->m_paramsEnc[CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1 && precom->m_paramsDec[CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1) {
+	if (precom->m_paramsEnc.lvlb /*[CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1 && precom->m_paramsDec.lvlb /*[CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1) {
 
 		if (!GPUcc.HasBootPrecomputation(slots)) {
 			if constexpr (1) { // extended limbs computation
@@ -1136,7 +1138,6 @@ void FIDESlib::CKKS::AddBootstrapPlaintexts(lbcrypto::CryptoContext<lbcrypto::DC
 
 		if (!GPUcc.HasBootPrecomputation(slots)) {
 			uint32_t M = cc->GetCyclotomicOrder();
-
 			auto& A	   = precom->m_U0hatTPreFFT;
 			auto& invA = precom->m_U0PreFFT;
 

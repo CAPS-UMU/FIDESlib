@@ -135,7 +135,7 @@ static void train_iteration(fideslib::Ciphertext<fideslib::DCRTPoly>& data,
 
 	cc->EvalSubInPlace(ct, results);
 	row_propagate(ct, cols);
-	auto scale = (lr / batch_size);
+	auto scale			 = (lr / batch_size);
 	auto prescale_factor = cc->GetPreScaleFactor(cols);
 	if (boot_every_iter || (do_boot && !boot_every_iter)) {
 		scale *= prescale_factor;
@@ -182,7 +182,7 @@ std::vector<iteration_time_t> logistic_regression_train(const std::vector<std::v
 	}
 
 	auto data_depth = boot_every_iter ? (depth - 5) : (depth - 9);
-	auto res_depth  = boot_every_iter ? (depth - 3) : (depth - 7);
+	auto res_depth	= boot_every_iter ? (depth - 3) : (depth - 7);
 
 	const size_t sample_count = std::min(enc_data.size(), enc_results.size());
 	for (size_t i = 0; i < sample_count; ++i) {
@@ -224,7 +224,7 @@ std::vector<iteration_time_t> logistic_regression_train(const std::vector<std::v
 	cc->Synchronize();
 	auto end_total = std::chrono::high_resolution_clock::now();
 
-	return { { std::chrono::duration_cast<time_unit_t>(end_total - start_total), time_unit_t::zero()} };
+	return { { std::chrono::duration_cast<time_unit_t>(end_total - start_total), time_unit_t::zero() } };
 }
 
 std::vector<iteration_time_t> logistic_regression_inference(std::vector<std::vector<double>>& data,
@@ -237,7 +237,6 @@ std::vector<iteration_time_t> logistic_regression_inference(std::vector<std::vec
 	for (size_t i = 0; i < data.size(); ++i)
 		enc_data[i] = encrypt_data(data[i], k.publicKey, 1, data_depth);
 
-
 	cc->Synchronize();
 	auto start_total = std::chrono::high_resolution_clock::now();
 	for (size_t it = 0; it < data.size(); ++it) {
@@ -249,7 +248,7 @@ std::vector<iteration_time_t> logistic_regression_inference(std::vector<std::vec
 	for (size_t i = 0; i < data.size(); ++i) {
 		data[i] = decrypt_data(enc_data[i], k.secretKey, numSlots);
 	}
-	return { {std::chrono::duration_cast<time_unit_t>(end_total - start_total), time_unit_t::zero()} };
+	return { { std::chrono::duration_cast<time_unit_t>(end_total - start_total), time_unit_t::zero() } };
 }
 
 std::vector<iteration_time_t>
@@ -267,7 +266,7 @@ fideslib_training(const std::vector<std::vector<double>>& data, const std::vecto
 
 	weights_fhe.resize(cols);
 	auto weights_depth = boot_every_iter ? (depth - 5) : (depth - 9);
-	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 2, weights_depth);
+	auto enc_weights   = encrypt_data(weights_fhe, keys.publicKey, 2, weights_depth);
 
 	auto times = logistic_regression_train(data_fhe, results_fhe, enc_weights, rows, cols, last, iterations, keys.publicKey);
 
@@ -290,8 +289,8 @@ fideslib_inference(const std::vector<std::vector<double>>& data, const std::vect
 	prepare_context(keys, cols, rows);
 
 	auto weights_depth = depth - 4;
-	auto enc_weights = encrypt_data(weights_fhe, keys.publicKey, 1, weights_depth);
-	auto times		 = logistic_regression_inference(data_fhe, enc_weights, cols, keys);
+	auto enc_weights   = encrypt_data(weights_fhe, keys.publicKey, 1, weights_depth);
+	auto times		   = logistic_regression_inference(data_fhe, enc_weights, cols, keys);
 
 	std::vector<std::vector<double>> unpacked;
 	unpack_data(data_fhe, unpacked, rows, cols, last, weights.size());

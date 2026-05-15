@@ -136,7 +136,7 @@ void prepare_cpu_context(FIDESlib::CKKS::Context& cc_gpu, const lbcrypto::KeyPai
 	cc->EvalRotateKeyGen(keys.secretKey, rotation_indices);
 
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, num_slots, 0, true, GetMultiplicativeDepthByCoeffVector((*cc_gpu).GetCoeffsChebyshev(), false) + (*cc_gpu).GetDoubleAngleIts());
+	  { 3, 3 }, { 16, 16 }, num_slots, 0, true, false, GetMultiplicativeDepthByCoeffVector((*cc_gpu).GetCoeffsChebyshev(), false) + (*cc_gpu).GetDoubleAngleIts());
 
 	cc->EvalBootstrapKeyGen(keys.secretKey, num_slots);
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, conf.numSlots, cc_gpu);

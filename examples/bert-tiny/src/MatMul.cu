@@ -34,7 +34,8 @@ void CCMMSquare_GPU(FIDESlib::CKKS::Ciphertext& cMat1,
 	assert(precomp.pts_3_1[0]->c0.getLevel() >= linearTransform1.c0.getLevel() - linearTransform1.NoiseLevel);
 
 	LinearTransform(linearTransform1, 2 * rowSize - 1, precomp.bStep, precomp.pts_1_cc, 1, -(int)rowSize + 1);
-
+	// cProduct.copy(linearTransform1);
+	// return;
 	LinearTransform(linearTransform2, rowSize, precomp.bStep, precomp.pts_2, rowSize, 0);
 
 	// Steps 2 and 3: Initial computation
@@ -92,8 +93,9 @@ void PCMMSquare_GPU(FIDESlib::CKKS::Ciphertext& cMat1,
 	assert(precomp.pts_3_1[0]->c0.getLevel() >= cMat1.c0.getLevel() - cMat1.NoiseLevel);
 	linearTransform1.copy(cMat1);
 	LinearTransform(linearTransform1, 2 * rowSize - 1, precomp.bStep, precomp.pts_1, 1, -(int)rowSize + 1);
-
-	// Steps 2 and 3: Initial computation
+	// cProduct.copy(linearTransform1);
+	// return;
+	//   Steps 2 and 3: Initial computation
 	Ciphertext aux(cc);
 	aux.rotate(linearTransform1, -(int)rowSize /*+ 1*/);
 	LinearTransformSpecialPt(linearTransform1,

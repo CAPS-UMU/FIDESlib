@@ -5,7 +5,8 @@
 #ifndef FIDESLIB_CUDAUTILS_CUH
 #define FIDESLIB_CUDAUTILS_CUH
 
-#include <cuda_runtime.h>
+#include <cuda.h>
+#include <driver_types.h>
 #include <execinfo.h>
 #include <functional>
 #include <map>
@@ -14,7 +15,6 @@
 
 namespace FIDESlib {
 
-extern std::vector<cudaDeviceProp> GPUprop;
 void initGPUprop();
 int GetTargetThreads(int id);
 

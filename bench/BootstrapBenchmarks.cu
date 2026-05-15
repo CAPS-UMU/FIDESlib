@@ -325,6 +325,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, HyperParamBootstrapGPU)(benchmark::State& sta
 			  slots,
 			  0,
 			  false,
+			  false,
 			  lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc->GetCoeffsChebyshev(), false) + GPUcc->GetDoubleAngleIts());
 
 			std::cout << "slots=" << slots << ", fftIter=" << fftiter << ", b=" << b << ":" << std::endl;
@@ -379,6 +380,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, PrintRotationsBootstrapGPU)(benchmark::State&
 		  { conf[state.range(3)].dim1, conf[state.range(3)].dim2 },
 		  slots,
 		  0,
+		  false,
 		  false,
 		  lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc->GetCoeffsChebyshev(), false) + GPUcc->GetDoubleAngleIts());
 
@@ -454,6 +456,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, BootstrapGPU)(benchmark::State& state) {
 	  slots,
 	  0,
 	  true,
+	  false,
 	  lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc->GetCoeffsChebyshev(), false) + GPUcc->GetDoubleAngleIts());
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, GPUcc);
@@ -575,6 +578,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, SSEBootstrapGPU)(benchmark::State& state) {
 	  slots,
 	  0,
 	  true,
+	  false,
 	  lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc->GetCoeffsChebyshev(), false) + GPUcc->GetDoubleAngleIts());
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, GPUcc);

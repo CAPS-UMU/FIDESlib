@@ -15,9 +15,9 @@
 #include "ParametrizedTest.cuh"
 #include "cpuNTT.hpp"
 #include "cpuNTT_nega.hpp"
+#include <CKKS/AccumulateBroadcast.cuh>
 #include <gtest/gtest.h>
 #include <iomanip>
-
 // #include "hook.h"
 #include "CKKS/ApproxModEval.cuh"
 #include "CKKS/Bootstrap.cuh"
@@ -612,6 +612,7 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMult) {
 	}
 }
 
+/*
 TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMultSquareScale) {
 	// Enable the features that you wish to use
 	cc->Enable(lbcrypto::PKE);
@@ -757,7 +758,7 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMultSquareScale) {
 		}
 	}
 }
-
+*/
 TEST_P(OpenFHEInterfaceTest, InitializeOpenFHE) {
 
 	// FIDESlib::CKKS::Context GPUcc{fideslibParams, devices};
@@ -1511,7 +1512,7 @@ TEST_P(OpenFHEInterfaceTest, MultAllLevels) {
 		// try {
 		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
 		if (resultGPU->GetLogError() != resultGPU->GetLogError())
-			throw lbcrypto::OpenFHEException("nan after decryption");
+			OPENFHE_THROW("nan after decryption");
 		std::cout << "Result GPU " << resultGPU;
 		ASSERT_EQ_CIPHERTEXT(c1, cResGPU);
 		//} catch (lbcrypto::OpenFHEException& e) {
@@ -1530,7 +1531,7 @@ TEST_P(OpenFHEInterfaceTest, MultAllLevels) {
 		// try {
 		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU2);
 		if (resultGPU->GetLogError() != resultGPU->GetLogError())
-			throw lbcrypto::OpenFHEException("nan after decryption");
+			OPENFHE_THROW("nan after decryption");
 		std::cout << "Result GPU " << resultGPU2;
 		ASSERT_EQ_CIPHERTEXT(c1, cResGPU);
 		//}
@@ -1783,6 +1784,80 @@ TEST_P(OpenFHEInterfaceTest, HoistedRotateAllLevels) {
 		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
 		std::cout << "Result GPU " << resultGPU;
 		ASSERT_ERROR_OK(result4, resultGPU);
+
+		CudaCheckErrorMod;
+	}
+}
+
+TEST_P(OpenFHEInterfaceTest, AccumAllLevels) {
+	// Enable the features that you wish to use
+	cc->Enable(lbcrypto::PKE);
+	cc->Enable(lbcrypto::KEYSWITCH);
+	cc->Enable(lbcrypto::LEVELEDSHE);
+	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
+	// cc->EvalMultKeyGen(keys.secretKey);
+	cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 3, 4 });
+
+	fideslibParams.batch				= 3;
+	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
+	FIDESlib::CKKS::Context& cc_		= GPUcc;
+	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	///// PROBAR /////
+	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+	std::vector<double> x3	  = { 0.0 };
+	lbcrypto::Plaintext ptxt3 = cc->MakeCKKSPackedPlaintext(x3);
+
+	auto rotations = CKKS::GetAccumulateRotationIndices(4, 1, 8);
+
+	CKKS::GenAndAddRotationKeys(cc, keys, cc_, rotations);
+
+	for (int i = 0; i <= GPUcc.L; ++i) {
+		std::cout << "Dropped levels: " << i << std::endl;
+		// Encoding as plaintexts
+		lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, i);
+
+		std::cout << "Input x1: " << ptxt1 << std::endl;
+
+		// Encrypt the encoded vectors
+		auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
+
+		FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
+		FIDESlib::CKKS::Ciphertext GPUct1(cc_, raw1);
+
+		lbcrypto::Plaintext result1;
+
+		auto cpu_tmp = cc->EvalRotate(c1, 1);
+		auto cpu_r1	 = cc->EvalAdd(c1, cpu_tmp);
+		for (int j = 2; j < 8; ++j) {
+			cpu_tmp = cc->EvalRotate(cpu_tmp, 1);
+			cpu_r1	= cc->EvalAdd(cpu_tmp, cpu_r1);
+		}
+
+		std::cout << "Rotate:\n";
+		cc->Decrypt(keys.secretKey, cpu_r1, &result1);
+		std::cout << "Result " << result1;
+
+		CKKS::Accumulate(GPUct1, 4, 1, 8);
+
+		// GPUct1.rotate_hoisted({&kskRot1}, {1}, {&GPUr1});
+		// GPUct1.rotate(2, kskRot2);
+
+		FIDESlib::CKKS::RawCipherText raw_res1;
+
+		auto cResGPU(c1);
+
+		lbcrypto::Plaintext resultGPU;
+
+		GPUct1.store(raw_res1);
+		GetOpenFHECipherText(cResGPU, raw_res1);
+		cResGPU->SetSlots(8);
+		// ASSERT_EQ_CIPHERTEXT(cpu_r1, cResGPU);
+
+		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
+		std::cout << "Result GPU " << resultGPU;
+		ASSERT_ERROR_OK(result1, resultGPU);
 
 		CudaCheckErrorMod;
 	}
@@ -2179,11 +2254,11 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	///// PROBAR /////
-	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1 = { 0.25, 0.5, 0.75, -0.75, -0.50, -0.25, 0.1, -0.1 };
 
 	// Encoding as plaintexts
 	int slots				  = cc->GetRingDimension() / 2;
-	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, fideslibParams.L - 1, nullptr, slots);
+	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
@@ -2205,8 +2280,9 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	kskEval.Initialize(rawKskEval);
 	GPUcc.AddEvalKey(std::move(kskEval));
 	// Encrypt the encoded vectors
-	auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
-	auto c2 = cc->Encrypt(keys.publicKey, ptxt2);
+	auto ctxtEnc  = cc->Encrypt(keys.publicKey, ptxt1);
+	auto ctxtEncI = cc->Encrypt(keys.publicKey, ptxt2);
+	auto c2		  = cc->Encrypt(keys.publicKey, ptxt2);
 
 	// coefficients 0.154214 -0.00376715 0.16032 -0.00345397 0.177115 -0.00276197 0.199498 -0.0015928 0.217569 0.0001073 0.216004 0.00221714 0.176475 0.00428562
 	// 0.0861745 0.00546403 -0.046668 0.00473469 -0.177127 0.00162051 -0.227031 -0.00281458 -0.131231 -0.00563456 0.0788184 -0.00378689 0.232264 0.00211163
@@ -2215,10 +2291,10 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	// 0.0245978 0.000355532 -0.0082485 -0.000111762 0.00243906 3.11804e-05 -0.000643735 -7.8036e-06 0.0001531 1.76708e-06 -3.30668e-05
 	// -3.64609e-07 6.5277e-06 6.89578e-08 -1.18428e-06 -1.20151e-08 1.98393e-07 1.9372e-09 -3.08154e-08 -2.90138e-10 4.45409e-09 4.05051e-11 -6.01049e-10
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
-	std::cout << "Run bootstrap" << std::endl;
-	auto [ctxtEnc, ctxtEnc_unused] = cc->GetScheme()->EvalBootstrapDensePartial(c1);
+	std::cout << "Dense ModEval" << std::endl;
 
-	constexpr bool previous = true;
+	/////////////////////////////////////
+	constexpr bool previous = false;
 	FIDESlib::CKKS::RawCipherText raw1;
 	FIDESlib::CKKS::RawCipherText raw2;
 	FIDESlib::CKKS::Ciphertext GPUct1(cc_);
@@ -2247,25 +2323,28 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 		}
 	}
 
-	auto FHE		= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
-	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-	auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
-	// auto ctxtEncI = ctxtEnc;
-	auto ctxtEncI = cc->EvalSub(ctxtEnc, conj);
-	cc->EvalAddInPlace(ctxtEnc, conj);
+	if (0) {
+		auto FHE		= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+		auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
+		auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
+		// auto ctxtEncI = ctxtEnc;
+		auto ctxtEncI = cc->EvalSub(ctxtEnc, conj);
+		cc->EvalAddInPlace(ctxtEnc, conj);
 
-	cc->GetScheme()->MultByMonomialInPlace(ctxtEncI, 3 * GPUcc.N * 2 / 4);
+		cc->GetScheme()->MultByMonomialInPlace(ctxtEncI, 3 * GPUcc.N * 2 / 4);
 
-	if (ctxtEnc->GetNoiseScaleDeg() > 1) {
-		cc->ModReduceInPlace(ctxtEnc);
-		cc->ModReduceInPlace(ctxtEncI);
+		if (ctxtEnc->GetNoiseScaleDeg() > 1) {
+			cc->ModReduceInPlace(ctxtEnc);
+			cc->ModReduceInPlace(ctxtEncI);
+		}
+	} else {
 	}
-
+	//////////////////////////
 	if constexpr (!previous) {
 		raw1 = FIDESlib::CKKS::GetRawCipherText(cc, ctxtEnc);
 		GPUct1.load(raw1);
 		raw2 = FIDESlib::CKKS::GetRawCipherText(cc, ctxtEncI);
-		GPUct1.load(raw2);
+		GPUct2.load(raw2);
 	}
 
 	{
@@ -2284,7 +2363,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 			GetOpenFHECipherText(cResGPU, raw_res1);
 			lbcrypto::Plaintext resultGPU;
 			cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
-			//    std::cout << "Result GPU after cheby" << resultGPU;
+			// std::cout << "Result GPU before cheby" << resultGPU;
 			CudaCheckErrorMod;
 			ASSERT_ERROR_OK(result, resultGPU);
 			//  ASSERT_EQ_CIPHERTEXT(ctxtEnc, cResGPU);
@@ -2296,7 +2375,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 			GetOpenFHECipherText(cResGPU, raw_res1);
 			lbcrypto::Plaintext resultGPU;
 			cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
-			//    std::cout << "Result GPU after cheby" << resultGPU;
+			// std::cout << "Result GPU before cheby" << resultGPU;
 			CudaCheckErrorMod;
 			ASSERT_ERROR_OK(result2, resultGPU);
 			//  ASSERT_EQ_CIPHERTEXT(ctxtEncI, cResGPU);
@@ -2379,6 +2458,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 
 		{
 			lbcrypto::Plaintext result;
+			// std::cout << "Result GPU after cheby" << resultGPU->GetStringValue().substr(0, 120);
 			cc->Decrypt(keys.secretKey, ctxtEnc, &result);
 
 			FIDESlib::CKKS::RawCipherText raw_res1;
@@ -2418,10 +2498,10 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEvalSparse) {
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
 	///// PROBAR /////
-	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1 = { 0.25 / 2.0, 0.5 / 2.0, 0.75 / 2.0, -0.75 / 2.0, -0.50 / 2.0, -0.25 / 2.0, 0.1 / 2.0, -0.1 / 2.0 };
 
 	// Encoding as plaintexts
-	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, fideslibParams.adaptTo(raw_param).L - 1, nullptr, 8);
+	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, 8);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, 8);
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
@@ -2446,14 +2526,18 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEvalSparse) {
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	// FIDESlib::CKKS::Bootstrap(GPUct1, 8);
 
-	auto raised = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalBootstrapSetupOnly(c1, 1, 0);
+	auto raised = c1; // std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalBootstrapSetupOnly(c1, 1, 0);
 
-	const std::shared_ptr<lbcrypto::CKKSBootstrapPrecom> precom =
-	  std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(8)->second;
-	bool isLTBootstrap = (precom->m_paramsEnc[lbcrypto::CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1) && (precom->m_paramsDec[lbcrypto::CKKS_BOOT_PARAMS::LEVEL_BUDGET] == 1);
-	auto ctxtEnc = (isLTBootstrap) ? std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalLinearTransform(precom->m_U0hatTPre, raised) :
-									 std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalCoeffsToSlots(precom->m_U0hatTPreFFT, raised);
+	// cc->GetScheme()->ModReduceInternalInPlace(c1, 1);
 
+	// const std::shared_ptr<lbcrypto::CKKSBootstrapPrecom> precom =
+	//   std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(8)->second;
+	// bool isLTBootstrap = (precom->m_paramsEnc.lvlb /*[lbcrypto::CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1) &&
+	//   (precom->m_paramsDec.lvlb /*[lbcrypto::CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1);
+	// auto ctxtEnc = (isLTBootstrap) ? std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalLinearTransform(precom->m_U0hatTPre,
+	// raised) : std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalCoeffsToSlots(precom->m_U0hatTPreFFT, raised);
+
+	auto ctxtEnc	= c1->Clone();
 	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
 	auto conj		= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->Conjugate(ctxtEnc, evalKeyMap);
 	cc->EvalAddInPlace(ctxtEnc, conj);
@@ -2610,7 +2694,7 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 
 	const int slots = 32;
 	// Encoding as plaintexts
-	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, slots);
+	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 2 : 1, nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
@@ -2638,8 +2722,8 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	std::cout << "Run bootstrap start" << std::endl;
 	auto FHE	= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
-	auto raised = FHE->EvalBootstrapSetupOnly(c1, 1, 0);
-
+	auto raised = c1->Clone(); // FHE->EvalBootstrapSetupOnly(c1, 1, 0);
+	// cc->GetScheme()->ModReduceInternalInPlace(raised, 1);
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
 	FIDESlib::CKKS::Ciphertext GPUct1_(cc_, raw1);
 	{
@@ -2691,7 +2775,8 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 		*/
 	std::cout << "Run linear transform" << std::endl;
 
-	auto ctxtEnc = FHE->EvalLinearTransform(FHE->m_bootPrecomMap.at(slots)->m_U0hatTPre, raised);
+	auto& plains = FHE->m_bootPrecomMap.at(slots)->m_U0hatTPre;
+	auto ctxtEnc = FHE->EvalLinearTransform(plains, raised);
 
 	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
 	auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
@@ -2718,8 +2803,9 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 		kskEval.Initialize(rawKskEval);
 		*/
 
+		CudaCheckErrorMod;
 		FIDESlib::CKKS::EvalLinearTransform(GPUct1, slots, false);
-
+		CudaCheckErrorMod;
 		{
 			FIDESlib::CKKS::RawCipherText raw_res1;
 			GPUct1.store(raw_res1);
@@ -2775,7 +2861,7 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 
 	// Encoding as plaintexts
 	int slots				  = GPUcc.N / 2; // cc->GetRingDimension() / 2;
-	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, slots);
+	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 2 : 1, nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
@@ -2800,7 +2886,7 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	std::cout << "Run bootstrap start" << std::endl;
 	auto FHE	= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
-	auto raised = FHE->EvalBootstrapSetupOnly(c1, 1, 0);
+	auto raised = c1->Clone(); // FHE->EvalBootstrapSetupOnly(c1, 1, 0);
 
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
 	FIDESlib::CKKS::Ciphertext GPUct1_(cc_, raw1);
@@ -2931,7 +3017,7 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
 
 	// Encoding as plaintexts
 	int slots				  = GPUcc.N / 2;
-	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, slots);
+	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, (GPUcc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 2 : 1) + 3 + (7 + 6), nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
@@ -2955,9 +3041,10 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
 	// -3.64609e-07 6.5277e-06 6.89578e-08 -1.18428e-06 -1.20151e-08 1.98393e-07 1.9372e-09 -3.08154e-08 -2.90138e-10 4.45409e-09 4.05051e-11 -6.01049e-10
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	std::cout << "Run bootstrap start" << std::endl;
-	auto FHE	= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
-	auto raised = FHE->EvalBootstrapNoStC(c1, 1, 0);
-
+	auto FHE = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+	// auto raised = FHE->EvalBootstrapNoStC(c1, 1, 0);
+	// cc->GetScheme()->ModReduceInternalInPlace(c1, 3 + (7 + 6));
+	auto raised						   = c1->Clone();
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
 	FIDESlib::CKKS::Ciphertext GPUct1_(cc_, raw1);
 	{
@@ -3164,7 +3251,7 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrap) {
 
 	int slots = 1 << 4;
 	std::cout << "Setup Bootstrap" << std::endl;
-	cc->EvalBootstrapSetup({ 2, 2 }, { 4, 4 }, slots);
+	cc->EvalBootstrapSetup({ 2, 2 }, { 2, 2 }, slots);
 
 	std::cout << "Generate keys" << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);
@@ -3529,7 +3616,7 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapDense) {
 	// cc->EvalBootstrapSetup({5, 5}, {0, 0}, slots);
 
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, slots, 0, true, lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	  { 3, 3 }, { 16, 16 }, slots, 0, true, false, lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 
 	std::cout << "Generate keys" << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);

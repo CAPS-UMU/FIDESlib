@@ -154,7 +154,8 @@ class ContextData {
 	bool HasBootPrecomputation(int slots);
 	BootstrapPrecomputation& GetBootPrecomputation(int slots);
 	void AddRotationKey(int index, KeySwitchingKey&& ksk);
-	KeySwitchingKey& GetRotationKey(int index, const KeyHash& keyID, int slots = -1);
+	KeySwitchingKey& GetRotationKey(int index, const KeyHash& keyID);
+	KeySwitchingKey& GetRotationKey(int index, const KeyHash& keyID, int slots, int& actual_index);
 	bool HasRotationKey(int index, const KeyHash& keyID);
 	void AddEvalKey(KeySwitchingKey&& ksk);
 	KeySwitchingKey& GetEvalKey(const KeyHash& keyID);
@@ -191,6 +192,8 @@ void AddSecretSwitchingKey(KeySwitchingKey&& ksk_a, KeySwitchingKey&& ksk_b);
 
 bool HasSecretSwitchingKey(const Context& a, const Context& b, const KeyHash& key_b);
 KeySwitchingKey& GetSecretSwitchingKey(const Context& a, const Context& b, const KeyHash& key_b);
+
+int32_t normalyzeIndex(int32_t index, int32_t slots, int32_t N);
 
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_CKKS_CONTEXT_CUH

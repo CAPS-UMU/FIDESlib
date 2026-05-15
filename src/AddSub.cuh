@@ -31,6 +31,9 @@ __global__ void scalar_add_(void** a, uint64_t* b, const int primeid_init);
 /** a = a - b % p*/
 __global__ void scalar_sub_(void** a, uint64_t* b, const int primeid_init);
 
+__global__ void add_scale_p_b_(void** a, void** b, const int primeid_init);
+__global__ void add_scale_p_a_(void** a, void** b, const int primeid_init);
+
 template <typename T> __forceinline__ __device__ T modadd(const T a, const T b, const int primeId) {
 	const T prime_p = C_.primes[primeId];
 	// if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu ", primeId, prime_p);
