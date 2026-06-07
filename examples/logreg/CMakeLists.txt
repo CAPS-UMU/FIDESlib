@@ -35,5 +35,8 @@ add_executable(logreg)
 
 target_sources(logreg PRIVATE ${CXX_SOURCE_FILES})
 
-target_link_libraries(logreg PRIVATE fideslib::fideslib
-        PRIVATE CUDA::cudart)
+find_package(CUDAToolkit QUIET)
+target_link_libraries(logreg PRIVATE fideslib::fideslib)
+if(CUDAToolkit_FOUND)
+    target_link_libraries(logreg PRIVATE CUDA::cudart)
+endif()

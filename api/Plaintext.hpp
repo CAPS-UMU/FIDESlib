@@ -15,7 +15,7 @@ namespace fideslib {
 class PlaintextImpl {
   public:
 	PlaintextImpl()	 = default;
-	~PlaintextImpl();
+	~PlaintextImpl() = default; // device slot frees its backend payload via RAII
 
 	PlaintextImpl(const CryptoContext<DCRTPoly>&& context);
 
@@ -49,11 +49,11 @@ class PlaintextImpl {
 
 	// ---- Internal State ----
 
-	std::any cpu;
-	uint32_t gpu = 0;
-	/// @brief Flag indicating whether the plaintext is loaded to the devices.
-	bool loaded = false;
-	/// @brief Parent context for device management.
+	/// @brief Canonical host value (lbcrypto::Plaintext).
+	std::any host;
+	/// @brief Backend-resident payload (the CUDA backend stores a shared_ptr to its device plaintext); empty == not resident.
+	std::any device;
+	/// @brief Parent context.
 	CryptoContext<DCRTPoly> parent_context;
 };
 

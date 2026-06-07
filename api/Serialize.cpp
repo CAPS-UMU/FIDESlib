@@ -8,11 +8,13 @@
 #include "PrivateKey.hpp"
 #include "PublicKey.hpp"
 #include "Serialize.hpp"
+#include "engine/Backend.hpp"
+#include "engine/Engine.hpp"
 
 namespace fideslib::Serial {
 
 bool SerializeToFile(const std::string& filename, const fideslib::CryptoContext<fideslib::DCRTPoly>& obj, const SerType& sertype) {
-	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(obj->cpu);
+	auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(obj->host);
 
 	bool res = false;
 	switch (sertype) {
@@ -31,7 +33,7 @@ bool SerializeToFile(const std::string& filename, const fideslib::CryptoContext<
 		return false;
 	}
 
-	// Serialize GPU device information.
+	// Serialize device and context metadata.
 	std::string filename_dev = filename + ".dev";
 	std::ofstream devFile(filename_dev, std::ios::binary);
 	if (!devFile.is_open()) {
@@ -39,8 +41,13 @@ bool SerializeToFile(const std::string& filename, const fideslib::CryptoContext<
 		return false;
 	}
 
-	std::string devData = std::to_string(obj->devices.size()) + " { ";
-	for (const auto& dev : obj->devices) {
+	// Persist the backend explicitly (never inferred from the device list on read-back).
+	std::string backendData = "Backend: " + std::to_string(static_cast<int>(obj->engine_->backend())) + "\n";
+	devFile.write(backendData.c_str(), backendData.size());
+	// Device list (meaningful only for the CUDA backend).
+	const std::vector<int> devices = obj->engine_->devices();
+	std::string devData			   = std::to_string(devices.size()) + " { ";
+	for (const auto& dev : devices) {
 		devData += std::to_string(dev) + " ";
 	}
 	devData += "}\n";
@@ -121,12 +128,15 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 	}
 
 	CryptoContextImpl<DCRTPoly> gpu_context;
-	gpu_context.cpu						 = std::make_any<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>>(context);
-	gpu_context.devices					 = std::vector<int>();
-	gpu_context.multiplicative_depth	 = context->GetCryptoParameters()->GetElementParams()->GetParams().size() - 1;
-	auto ptr							 = std::make_shared<CryptoContextImpl<DCRTPoly>>(std::move(gpu_context));
-	ptr->self_reference					 = std::weak_ptr<CryptoContextImpl<DCRTPoly>>(ptr);
-	obj									 = ptr;
+	gpu_context.host				 = std::make_any<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>>(context);
+	gpu_context.multiplicative_depth = context->GetCryptoParameters()->GetElementParams()->GetParams().size() - 1;
+	auto ptr						 = std::make_shared<CryptoContextImpl<DCRTPoly>>(std::move(gpu_context));
+	ptr->self_reference				 = std::weak_ptr<CryptoContextImpl<DCRTPoly>>(ptr);
+	// Install a valid (CPU) engine up front so the context never dispatches through a
+	// null engine_ if an error path below returns early; overwritten with the
+	// serialized backend once the .dev metadata is parsed.
+	ptr->engine_ = MakeEngine(Backend::CPU);
+	obj			 = ptr;
 
 	// Deserialize GPU device information if available.
 	std::ifstream devFile(filename + ".dev", std::ios::binary);
@@ -134,22 +144,34 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 		return false;
 	}
 
-	// First line: device IDs
+	// First line: explicit backend (never inferred from the device list).
 	std::string line;
+	Backend backend = Backend::CPU;
+	if (std::getline(devFile, line)) {
+		std::istringstream iss(line);
+		std::string label;
+		int b;
+		iss >> label >> b; // "Backend:" <int>
+		backend = static_cast<Backend>(b);
+	}
+	// Second line: device IDs.
+	std::vector<int> devices;
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		size_t numDevices;
 		iss >> numDevices;
 		char brace;
 		iss >> brace; // Read '{'
-		ptr->devices.clear();
 		for (size_t i = 0; i < numDevices; ++i) {
 			int devId;
 			iss >> devId;
-			ptr->devices.push_back(devId);
+			devices.push_back(devId);
 		}
 	}
-	// Second line: AutoLoadCiphertexts
+	// Rebuild the engine for the serialized backend and hand it the device list.
+	ptr->engine_ = MakeEngine(backend);
+	ptr->engine_->setDevices(devices);
+	// Third line: AutoLoadCiphertexts
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		std::string label;
@@ -158,7 +180,7 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 		iss >> flag;
 		ptr->auto_load_ciphertexts = (flag != 0);
 	}
-	// Third line: AutoLoadPlaintexts
+	// Fourth line: AutoLoadPlaintexts
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		std::string label;
@@ -167,7 +189,7 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 		iss >> flag;
 		ptr->auto_load_plaintexts = (flag != 0);
 	}
-	// Fourth line: RotationIndexes
+	// Fifth line: RotationIndexes
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		std::string label;
@@ -180,7 +202,7 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 			ptr->rotation_indexes.push_back(index);
 		}
 	}
-	// Fifth line: KeyDist
+	// Sixth line: KeyDist
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		std::string label;
@@ -189,7 +211,7 @@ bool DeserializeFromFile(const std::string& filename, fideslib::CryptoContext<fi
 		iss >> dist;
 		ptr->keyDist = (SecretKeyDist)dist;
 	}
-	// Sixth line: Boostrap slots 
+	// Seventh line: Bootstrap slots
 	if (std::getline(devFile, line)) {
 		std::istringstream iss(line);
 		std::string label;

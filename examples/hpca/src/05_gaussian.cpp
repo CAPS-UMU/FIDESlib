@@ -371,7 +371,7 @@ int main(int argc, char* argv[]) {
 	parameters.SetKeySwitchTechnique(HYBRID);
 	parameters.SetNumLargeDigits(dnum);
 	parameters.SetBatchSize(batchSize);
-	parameters.SetDevices({ 0 });
+	parameters.SetBackend(Backend::CUDA);
 	parameters.SetPlaintextAutoload(false);
 	parameters.SetCiphertextAutoload(true);
 

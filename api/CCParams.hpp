@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "Definitions.hpp"
+#include "engine/Backend.hpp"
 
 namespace fideslib {
 
@@ -44,9 +45,11 @@ template <> class CCParams<CryptoContextCKKSRNS> {
 	void SetSecretKeyDist(SecretKeyDist dist);
 	void SetSecurityLevel(SecurityLevel level);
 
-	// ---- Device Parameters ----
+	// ---- Backend Parameters ----
 
-	void SetDevices(std::vector<int>&& devices);
+	/// @brief Select the execution backend (default CPU). Multi-GPU device selection is done
+	/// later through the facade method CryptoContextImpl::SetCudaDevices, before LoadContext.
+	void SetBackend(Backend backend);
 	void SetPlaintextAutoload(bool autoload);
 	void SetCiphertextAutoload(bool autoload);
 
@@ -57,11 +60,11 @@ template <> class CCParams<CryptoContextCKKSRNS> {
 
 	// ---- Internal State ----
 
-	std::any cpu;
-	std::vector<int> devices = { };
-	SecretKeyDist keyDist	 = UNIFORM_TERNARY;
-	bool plaintextAutoload	 = false;
-	bool ciphertextAutoload	 = true;
+	std::any host;
+	Backend backend			= Backend::CPU;
+	SecretKeyDist keyDist	= UNIFORM_TERNARY;
+	bool plaintextAutoload	= false;
+	bool ciphertextAutoload = true;
 };
 
 } // namespace fideslib

@@ -20,6 +20,8 @@
 
 namespace fideslib {
 
+class Engine;
+
 /// @brief Specialization of CryptoContext for the DCRTPoly representation.
 template <> class CryptoContextImpl<DCRTPoly> {
 
@@ -48,11 +50,15 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	uint32_t GetCyclotomicOrder() const;
 	uint32_t GetRingDimension() const;
 	double GetPreScaleFactor(uint32_t slots);
+	/// @brief Devices this context is configured to use (empty on the CPU backend).
+	std::vector<int> GetCudaDevices() const;
 
 	// ---- Setters ----
 	void SetAutoLoadPlaintexts(bool autoload);
 	void SetAutoLoadCiphertexts(bool autoload);
-	void SetDevices(const std::vector<int>& devices);
+	/// @brief Select the CUDA devices this context loads onto (CUDA backend only).
+	/// Must be called before LoadContext; forwarded to the engine.
+	void SetCudaDevices(const std::vector<int>& devices);
 
 	// ---- Load to devices ----
 
@@ -109,6 +115,11 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	Ciphertext<DCRTPoly> Encrypt(const PrivateKey<DCRTPoly>& sk, Plaintext& pt);
 	DecryptResult Decrypt(Ciphertext<DCRTPoly>& ct, const PrivateKey<DCRTPoly>& sk, Plaintext* pt);
 	DecryptResult Decrypt(const PrivateKey<DCRTPoly>& sk, Ciphertext<DCRTPoly>& ct, Plaintext* pt);
+	// Refresh ct's host shadow (ct->host) with the backend's current value, syncing it back from the
+	// device if resident (without evicting — the device copy stays resident), so the underlying
+	// lbcrypto::Ciphertext can be recovered without decrypting. Used by the api-vs-OpenFHE parity
+	// tests; the readback itself is backend-specific (see Engine).
+	void RecoverHostCiphertext(Ciphertext<DCRTPoly>& ct);
 
 	// ---- Operations ----
 
@@ -204,12 +215,10 @@ template <> class CryptoContextImpl<DCRTPoly> {
   public:
 	// ---- Internal State ----
 
-	std::any cpu;
-	std::any gpu;
-	/// @brief Whether the context has been loaded to the devices.
-	bool loaded = false;
-	/// @brief List of devices the context is loaded on.
-	std::vector<int> devices = { 0 };
+	/// @brief Canonical host value (lbcrypto::CryptoContext); the backend-neutral context.
+	std::any host;
+	/// @brief Backend engine this context dispatches operations to (CPU or CUDA). Owns all backend state.
+	std::unique_ptr<Engine> engine_;
 	/// @brief Whether plaintexts should be automatically loaded to the device upon encryption.
 	bool auto_load_plaintexts = false;
 	/// @brief Whether ciphertexts should be automatically loaded to the device upon creation.
@@ -225,25 +234,13 @@ template <> class CryptoContextImpl<DCRTPoly> {
 	/// @brief Secret key distribution.
 	SecretKeyDist keyDist = UNIFORM_TERNARY;
 
-	// ---- Copy helpers ----
-
-	uint32_t CopyDeviceCiphertext(const CiphertextImpl<DCRTPoly>& ct);
-
-	// --- Map Handling ----
-
-	/// @brief  Registry of plaintexts stored on the GPU (opaque types).
-	std::unordered_map<uint32_t, std::shared_ptr<void>> device_plaintexts;
-	/// @brief  Registry of ciphertexts stored on the GPU (opaque types).
-	std::unordered_map<uint32_t, std::shared_ptr<void>> device_ciphertexts;
-	/// @brief Next available handle for GPU objects. Zero is reserved as a null handle.
-	uint32_t next_gpu_handle = 1;
-
-	uint32_t RegisterDevicePlaintext(std::shared_ptr<void>&& p);
-	uint32_t RegisterDeviceCiphertext(std::shared_ptr<void>&& c);
-	std::shared_ptr<void>& GetDevicePlaintext(uint32_t handle);
-	std::shared_ptr<void>& GetDeviceCiphertext(uint32_t handle);
-	bool EvictDevicePlaintext(uint32_t handle);
-	bool EvictDeviceCiphertext(uint32_t handle);
+	// ---- Ciphertext backend hooks ----
+	// Thin pass-throughs the value type uses to reach its backend without naming any device type.
+	std::any CloneCiphertextBackend(const CiphertextImpl<DCRTPoly>& src);
+	size_t CiphertextLevel(const CiphertextImpl<DCRTPoly>& ct);
+	size_t CiphertextNoiseScaleDeg(const CiphertextImpl<DCRTPoly>& ct);
+	void SetCiphertextSlots(CiphertextImpl<DCRTPoly>& ct, size_t slots);
+	void SetCiphertextLevel(CiphertextImpl<DCRTPoly>& ct, size_t level);
 
 	void Synchronize() const;
 

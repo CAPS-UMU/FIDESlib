@@ -225,6 +225,8 @@ target_sources(fideslib PUBLIC
 
 target_include_directories(fideslib
         PRIVATE nvtx/c/include
+        # api/ is the include root so headers use api-relative paths (e.g. "engine/cuda/CudaEngine.hpp").
+        PUBLIC $<BUILD_INTERFACE:${API_DIR}>
 )
 
 target_link_libraries(fideslib

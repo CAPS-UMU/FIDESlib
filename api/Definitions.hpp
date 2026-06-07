@@ -54,36 +54,36 @@ struct DecryptResult {
 
 /// @brief Enumeration of supported scaling techniques.
 enum ScalingTechnique {
-    FIXEDMANUAL = 0,
-    FIXEDAUTO,
-    FLEXIBLEAUTO,
-    FLEXIBLEAUTOEXT,
+	FIXEDMANUAL = 0,
+	FIXEDAUTO,
+	FLEXIBLEAUTO,
+	FLEXIBLEAUTOEXT,
 };
 
 /// @brief Enumeration of supported key switching techniques.
 enum KeySwitchTechnique {
-    INVALID_KS_TECH = 0,
-    //BV,
-    HYBRID = 2,
+	INVALID_KS_TECH = 0,
+	// BV,
+	HYBRID = 2,
 };
 
 /// @brief Enumeration of supported secret key distributions.
 enum SecretKeyDist {
-    GAUSSIAN            = 0,
-    UNIFORM_TERNARY     = 1,
-    SPARSE_TERNARY      = 2,
-    SPARSE_ENCAPSULATED = 3,  
+	GAUSSIAN			= 0,
+	UNIFORM_TERNARY		= 1,
+	SPARSE_TERNARY		= 2,
+	SPARSE_ENCAPSULATED = 3,
 };
 
 /// @brief Enumeration of supported security levels.
 enum SecurityLevel {
-    HEStd_128_classic,
-    HEStd_192_classic,
-    HEStd_256_classic,
-    HEStd_128_quantum,
-    HEStd_192_quantum,
-    HEStd_256_quantum,
-    HEStd_NotSet,
+	HEStd_128_classic,
+	HEStd_192_classic,
+	HEStd_256_classic,
+	HEStd_128_quantum,
+	HEStd_192_quantum,
+	HEStd_256_quantum,
+	HEStd_NotSet,
 };
 
 } // namespace fideslib

@@ -45,10 +45,13 @@ uint32_t create_context(bool inference) {
 	params.SetKeySwitchTechnique(fideslib::HYBRID);
 	params.SetSecretKeyDist(sparse_encaps ? fideslib::SPARSE_TERNARY : fideslib::UNIFORM_TERNARY);
 	params.SetNumLargeDigits(digits);
-	params.SetDevices(std::vector<int>(devices));
+	params.SetBackend(fideslib::Backend::CUDA);
 	params.SetMultiplicativeDepth(depth);
 
 	cc = GenCryptoContext(params);
+	if (!devices.empty()) {
+		cc->SetCudaDevices(devices);
+	}
 	cc->Enable(fideslib::FHE);
 	cc->Enable(fideslib::PKE);
 	cc->Enable(fideslib::LEVELEDSHE);

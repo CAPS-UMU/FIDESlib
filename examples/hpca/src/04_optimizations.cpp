@@ -126,7 +126,7 @@ void sparse_bootstrap() {
 	std::vector<uint32_t> bsgs		  = { 16, 16 };
 
 	CCParams<CryptoContextCKKSRNS> params;
-	params.SetDevices({ 0 });
+	params.SetBackend(Backend::CUDA);
 	params.SetSecurityLevel(SecurityLevel::HEStd_NotSet);
 	params.SetRingDim(ring_dim);
 	params.SetMultiplicativeDepth(multDepth);
@@ -196,7 +196,7 @@ void uniform_bootstrap() {
 	std::vector<uint32_t> bsgs		  = { 16, 16 };
 
 	CCParams<CryptoContextCKKSRNS> params;
-	params.SetDevices({ 0 });
+	params.SetBackend(Backend::CUDA);
 	params.SetSecurityLevel(SecurityLevel::HEStd_NotSet);
 	params.SetRingDim(ring_dim);
 	params.SetMultiplicativeDepth(multDepth);
@@ -275,7 +275,7 @@ int main() {
 		parameters.SetKeySwitchTechnique(HYBRID);
 		parameters.SetNumLargeDigits(dnum);
 		parameters.SetBatchSize(batchSize);
-		parameters.SetDevices({ 0 });
+		parameters.SetBackend(Backend::CUDA);
 		parameters.SetPlaintextAutoload(false);
 		parameters.SetCiphertextAutoload(true);
 

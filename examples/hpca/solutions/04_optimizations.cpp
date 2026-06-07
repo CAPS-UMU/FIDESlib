@@ -137,7 +137,7 @@ void sparse_bootstrap() {
 	params.SetKeySwitchTechnique(HYBRID);
 	params.SetNumLargeDigits(dnum);
 	params.SetBatchSize(batchSize);
-	params.SetDevices({ 0 });
+	params.SetBackend(Backend::CUDA);
 	params.SetCiphertextAutoload(true);
 
 	// ========
@@ -206,7 +206,7 @@ void uniform_bootstrap() {
 	params.SetKeySwitchTechnique(HYBRID);
 	params.SetNumLargeDigits(dnum);
 	params.SetBatchSize(batchSize);
-	params.SetDevices({ 0 });
+	params.SetBackend(Backend::CUDA);
 	params.SetCiphertextAutoload(true);
 
 	// ========
@@ -276,7 +276,7 @@ int main() {
 		parameters.SetKeySwitchTechnique(HYBRID);
 		parameters.SetNumLargeDigits(dnum);
 		parameters.SetBatchSize(batchSize);
-		parameters.SetDevices({ 0 });
+		parameters.SetBackend(Backend::CUDA);
 		parameters.SetPlaintextAutoload(false);
 		parameters.SetCiphertextAutoload(true);
 

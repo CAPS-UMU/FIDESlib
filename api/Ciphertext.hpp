@@ -4,8 +4,8 @@
 #include <any>
 #include <memory>
 
-#include "Definitions.hpp"
 #include "CryptoContext.hpp"
+#include "Definitions.hpp"
 
 namespace fideslib {
 
@@ -13,7 +13,7 @@ namespace fideslib {
 template <> class CiphertextImpl<DCRTPoly> {
   public:
 	CiphertextImpl()  = delete;
-	~CiphertextImpl();
+	~CiphertextImpl() = default; // device slot frees its backend payload via RAII
 
 	CiphertextImpl(const CryptoContext<DCRTPoly>&& context);
 
@@ -34,27 +34,30 @@ template <> class CiphertextImpl<DCRTPoly> {
 	// ---- Clone ----
 	Ciphertext<DCRTPoly> Clone() const;
 
-	// ---- Getters ----
+	// ---- Getters / setters (delegate to the backend) ----
 
-    size_t GetLevel() const;
+	size_t GetLevel() const;
 	size_t GetNoiseScaleDeg() const;
-
-	// ---- Setters ----
 	void SetSlots(size_t slots);
 	void SetLevel(size_t level);
-	void EnsureLazyCPUCopy();
+
+	// ---- Host primitives (the host computation the engine backends reuse; no backend logic) ----
+
+	size_t GetLevelHost() const;
+	size_t GetNoiseScaleDegHost() const;
+	void SetSlotsHost(size_t slots);
+	void SetLevelHost(size_t level);
+	void EnsureLazyHostCopy();
 
 	// ---- Internal State ----
 
 	bool need_lazy_copy = false;
-	std::any cpu;
-	uint32_t gpu = 0;
-	/// @brief Flag indicating whether the ciphertext is loaded to the devices.
-	bool loaded = false;
+	/// @brief Canonical host value (lbcrypto::Ciphertext); used by host ops and as the CUDA readback shadow.
+	std::any host;
+	/// @brief Backend-resident payload (the CUDA backend stores a shared_ptr to its device ciphertext); empty == not resident.
+	std::any device;
 	/// @brief Parent context.
 	CryptoContext<DCRTPoly> parent_context;
-	/// @brief Original level of the ciphertext when loaded.
-	size_t original_level = 0;
 };
 
 // ---- Override Operators ----

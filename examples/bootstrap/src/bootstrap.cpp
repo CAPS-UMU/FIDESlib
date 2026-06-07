@@ -72,7 +72,7 @@ void SimpleBootstrapExample() {
 	parameters.SetScalingTechnique(rescaleTech);
 	parameters.SetFirstModSize(firstMod);
 	parameters.SetKeySwitchTechnique(HYBRID);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	std::vector<uint32_t> levelBudget	   = { 3, 3 };
 	uint32_t levelsAvailableAfterBootstrap = 10;
@@ -97,7 +97,7 @@ void SimpleBootstrapExample() {
 	cryptoContext->LoadContext(keyPair.publicKey);
 
 	cryptoContext->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0);
-	cryptoContext->EvalBootstrapKeyGen(keyPair, numSlots);
+	cryptoContext->EvalBootstrapKeyGen(keyPair.secretKey, numSlots);
 
 	std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	size_t encodedLength  = x.size();
@@ -130,7 +130,7 @@ void BootstrapExample(uint32_t numSlots) {
 	parameters.SetRingDim(1 << 12);
 	parameters.SetNumLargeDigits(3);
 	parameters.SetKeySwitchTechnique(HYBRID);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 #if NATIVEINT == 128 && !defined(__EMSCRIPTEN__)
 	ScalingTechnique rescaleTech = FIXEDAUTO;
@@ -170,7 +170,7 @@ void BootstrapExample(uint32_t numSlots) {
 	cryptoContext->LoadContext(keyPair.publicKey);
 
 	cryptoContext->EvalBootstrapSetup(levelBudget, bsgsDim, numSlots, 0);
-	cryptoContext->EvalBootstrapKeyGen(keyPair, numSlots);
+	cryptoContext->EvalBootstrapKeyGen(keyPair.secretKey, numSlots);
 
 	std::vector<double> x;
 	std::random_device rd;
@@ -212,7 +212,7 @@ void BootstrapExampleSSE(uint32_t numSlots) {
 	parameters.SetRingDim(1 << 12);
 	parameters.SetNumLargeDigits(3);
 	parameters.SetKeySwitchTechnique(HYBRID);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 #if NATIVEINT == 128 && !defined(__EMSCRIPTEN__)
 	ScalingTechnique rescaleTech = FIXEDAUTO;
@@ -252,7 +252,7 @@ void BootstrapExampleSSE(uint32_t numSlots) {
 	cryptoContext->LoadContext(keyPair.publicKey);
 	
 	cryptoContext->EvalBootstrapSetup(levelBudget, bsgsDim, numSlots, 0);
-	cryptoContext->EvalBootstrapKeyGen(keyPair, numSlots);
+	cryptoContext->EvalBootstrapKeyGen(keyPair.secretKey, numSlots);
 
 	std::vector<double> x;
 	std::random_device rd;

@@ -47,7 +47,7 @@ int main() {
 	parameters.SetMultiplicativeDepth(multDepth);
 	parameters.SetScalingModSize(scaleModSize);
 	parameters.SetBatchSize(batchSize);
-	parameters.SetDevices({ 0 });
+	parameters.SetBackend(Backend::CUDA);
     parameters.SetPlaintextAutoload(false);
     parameters.SetCiphertextAutoload(true);
 

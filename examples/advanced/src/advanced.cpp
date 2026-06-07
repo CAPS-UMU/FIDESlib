@@ -76,7 +76,7 @@ void AutomaticRescaleDemo(ScalingTechnique scalTech) {
 	parameters.SetScalingModSize(50);
 	parameters.SetScalingTechnique(scalTech);
 	parameters.SetBatchSize(batchSize);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 
@@ -125,7 +125,7 @@ void ManualRescaleDemo(ScalingTechnique scalTech) {
 	parameters.SetScalingModSize(50);
 	parameters.SetBatchSize(batchSize);
 	parameters.SetScalingTechnique(scalTech);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 
@@ -189,7 +189,7 @@ void HybridKeySwitchingDemo1() {
 	parameters.SetBatchSize(batchSize);
 	parameters.SetScalingTechnique(FLEXIBLEAUTO);
 	parameters.SetNumLargeDigits(dnum);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 
@@ -244,7 +244,7 @@ void HybridKeySwitchingDemo2() {
 	parameters.SetBatchSize(batchSize);
 	parameters.SetScalingTechnique(FLEXIBLEAUTO);
 	parameters.SetNumLargeDigits(dnum);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 
@@ -299,7 +299,7 @@ void FastRotationsDemo1() {
 	parameters.SetBatchSize(batchSize);
 	parameters.SetScalingTechnique(FLEXIBLEAUTO);
 	parameters.SetNumLargeDigits(dnum);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 
@@ -399,7 +399,7 @@ void FastRotationsDemo2() {
 	// parameters.SetKeySwitchTechnique(BV);
 	parameters.SetFirstModSize(60);
 	parameters.SetDigitSize(digitSize);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 	CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
 

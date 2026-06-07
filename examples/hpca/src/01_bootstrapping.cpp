@@ -36,7 +36,7 @@ int main() {
 	parameters.SetNumLargeDigits(dnum);
 	parameters.SetBatchSize(batchSize);
 	// GPU Settings. Devices and autoload configuration.
-	parameters.SetDevices({ 0 });
+	parameters.SetBackend(Backend::CUDA);
 	parameters.SetPlaintextAutoload(false);
 	parameters.SetCiphertextAutoload(true);
 
