@@ -52,7 +52,7 @@ CCParams<CryptoContextCKKSRNS> parameters;
 	parameters.SetRingDim(1 << 12);
 	parameters.SetNumLargeDigits(3);
 	parameters.SetKeySwitchTechnique(HYBRID);
-	parameters.SetDevices(std::vector(devices));
+	parameters.SetBackend(Backend::CUDA);
 
 #if NATIVEINT == 128 && !defined(__EMSCRIPTEN__)
 	ScalingTechnique rescaleTech = FIXEDAUTO;

@@ -12,56 +12,49 @@ PlaintextImpl::PlaintextImpl(const CryptoContext<DCRTPoly>&& context)
 	}
 }
 
-PlaintextImpl::~PlaintextImpl() {
-	if (this->loaded && this->gpu != 0 && this->parent_context) {
-		this->parent_context->EvictDevicePlaintext(this->gpu);
-		this->gpu = 0;
-	}
-}
-
 // ---- Functions ----
 
 void PlaintextImpl::SetLength(size_t length) {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<lbcrypto::Plaintext&>(this->host);
 		impl->SetLength(length);
 	}
 }
 
 void PlaintextImpl::SetSlots(uint32_t slots) {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<lbcrypto::Plaintext&>(this->host);
 		impl->SetSlots(slots);
 	}
 }
 
 double PlaintextImpl::GetLogPrecision() const {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->host);
 		return impl->GetLogPrecision();
 	}
 	return 0.0;
 }
 
 uint32_t PlaintextImpl::GetLevel() const {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->host);
 		return impl->GetLevel();
 	}
 	return 0;
 }
 
 std::vector<std::complex<double>> PlaintextImpl::GetCKKSPackedValue() const {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->host);
 		return impl->GetCKKSPackedValue();
 	}
 	return {};
 }
 
 std::vector<double> PlaintextImpl::GetRealPackedValue() const {
-	if (this->cpu.has_value()) {
-		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
+	if (this->host.has_value()) {
+		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->host);
 		return impl->GetRealPackedValue();
 	}
 	return {};
@@ -70,8 +63,8 @@ std::vector<double> PlaintextImpl::GetRealPackedValue() const {
 // ---- Friend Operators ----
 
 std::ostream& operator<<(std::ostream& os, const PlaintextImpl& pt) {
-	if (pt.cpu.has_value()) {
-		const auto& impl = std::any_cast<const lbcrypto::Plaintext&>(pt.cpu);
+	if (pt.host.has_value()) {
+		const auto& impl = std::any_cast<const lbcrypto::Plaintext&>(pt.host);
 		os << impl;
 	} else {
 		os << "Empty Plaintext";
@@ -80,8 +73,8 @@ std::ostream& operator<<(std::ostream& os, const PlaintextImpl& pt) {
 }
 
 std::ostream& operator<<(std::ostream& os, const Plaintext& pt) {
-	if (pt && pt->cpu.has_value()) {
-		const auto& impl = std::any_cast<const lbcrypto::Plaintext&>(pt->cpu);
+	if (pt && pt->host.has_value()) {
+		const auto& impl = std::any_cast<const lbcrypto::Plaintext&>(pt->host);
 		os << impl;
 	} else {
 		os << "Empty Plaintext";

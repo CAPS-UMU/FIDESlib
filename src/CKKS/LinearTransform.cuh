@@ -21,8 +21,6 @@ std::vector<int> GetLinearTransformPlaintextRotationIndices(int rowSize, int bSt
 // ConvolutionTransform: Like LinearTransform but with INVERTED order (rotate then sum, forward loop)
 void ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bStep, const std::vector<Plaintext*>& pts, int stride, const std::vector<int>& indexes, uint32_t gStep);
 
-std::vector<int> GetConvolutionTransformRotationIndices(int rowSize, int bStep, int stride, uint32_t gStep);
-
 // SpecialConvolutionTransform: Like ConvolutionTransform but with special masking logic
 // After each gStep's bStep sum: 3 rotations with additions + mask multiplication before accumulation
 void SpecialConvolutionTransform(Ciphertext& ctxt,

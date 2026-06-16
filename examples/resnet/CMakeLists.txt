@@ -40,4 +40,9 @@ add_executable (resnet)
 
 target_sources(resnet PRIVATE ${CXX_SOURCE_FILES})
 
+# resnet uses #include <fideslib/...> style includes.  Derive the include root from the
+# fideslib cmake dir (e.g. <prefix>/share/fideslib/cmake -> <prefix>/include).
+get_filename_component(_fideslib_prefix "${fideslib_DIR}/../../.." ABSOLUTE)
+target_include_directories(resnet PRIVATE "${_fideslib_prefix}/include")
+
 target_link_libraries (resnet PRIVATE fideslib::fideslib)

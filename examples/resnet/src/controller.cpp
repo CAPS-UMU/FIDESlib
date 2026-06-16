@@ -46,7 +46,7 @@ void resnet::generate_context(experiment_settings e) {
 		std::iota(this->devices.begin(), this->devices.end(), 0);
 	}
 
-	parameters.SetDevices(std::vector(this->devices));
+	parameters.SetBackend(fideslib::Backend::CUDA);
 	parameters.SetSecretKeyDist(e.secret_key_dist);
 	parameters.SetPlaintextAutoload(e.autoload);
 
@@ -69,6 +69,9 @@ void resnet::generate_context(experiment_settings e) {
 	parameters.SetMultiplicativeDepth(this->circuit_depth);
 
 	context = GenCryptoContext(parameters);
+	if (!this->devices.empty()) {
+		context->SetCudaDevices(this->devices);
+	}
 
 	std::cout << "Context built, generating keys..." << std::endl;
 
@@ -221,14 +224,15 @@ void resnet::deserialize_context(experiment_settings e) {
 
 	const char* env_devices = std::getenv("FIDESLIB_DEVICES");
 	if (env_devices) {
-		this->context->devices.clear();
+		std::vector<int> dev_override;
 		std::string str_devices(env_devices);
 		std::replace(str_devices.begin(), str_devices.end(), ',', ' ');
 		std::stringstream ss(str_devices);
 		int device_id;
 		while (ss >> device_id) {
-			this->context->devices.push_back(device_id);
+			dev_override.push_back(device_id);
 		}
+		this->context->SetCudaDevices(dev_override);
 	}
 
 	key_pair.publicKey = clientPublicKey;
@@ -265,7 +269,7 @@ void resnet::deserialize_context(experiment_settings e) {
 
 	this->auto_load_ciphertexts = context->auto_load_ciphertexts;
 	this->auto_load_plaintexts	= context->auto_load_plaintexts;
-	this->devices				= std::vector(this->context->devices);
+	this->devices				= this->context->GetCudaDevices();
 	this->prescaled				= e.prescale;
 	this->partial_load			= e.by_layer_loading;
 
