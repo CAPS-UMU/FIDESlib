@@ -167,6 +167,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 		for (size_t i = 0; i < q.size(); ++i) {
 			hC_.primes[i]	   = q[i].p;
 			hC_.N_shoup[i]	   = shoup_precomp(hC_.N, i, host_constants);
+			hC_.one_shoup[i]   = shoup_precomp(1, i, host_constants);
 			hC_.N_inv[i]	   = modinv(hC_.N, q[i].p);
 			hC_.N_inv_shoup[i] = shoup_precomp(hC_.N_inv[i], i, host_constants);
 
@@ -175,12 +176,11 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 		}
 
 		for (size_t i = 0; i < p.size(); ++i) {
-			hC_.primes[hC_.L + i] = p[i].p;
-
+			hC_.primes[hC_.L + i]	   = p[i].p;
 			hC_.N_shoup[hC_.L + i]	   = shoup_precomp(hC_.N, hC_.L + i, host_constants);
+			hC_.one_shoup[i]		   = shoup_precomp(1, i, host_constants);
 			hC_.N_inv[hC_.L + i]	   = modinv(N, hC_.primes[hC_.L + i]);
 			hC_.N_inv_shoup[hC_.L + i] = shoup_precomp(hC_.N_inv[hC_.L + i], hC_.L + i, host_constants);
-			;
 
 			hC_.prime_better_barret_mu[hC_.L + i] = mu_new(hC_.primes[hC_.L + i], p[i].bits);
 			hC_.prime_bits[hC_.L + i]			  = p[i].bits;
@@ -448,6 +448,11 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 					}
 				}
 
+				if (MODRAISE_WITH_P0) {
+					for (size_t j = 0; j < q.size(); ++j) {
+						hG_.QlQlInvModqlDivqlModq[q.size()][j] = param.raw->m_QlQlInvModqlDivqlModq[q.size() - 1][j];
+					}
+				}
 				constexpr int bytes = sizeof(Global::QlQlInvModqlDivqlModq);
 
 				for (uint32_t i = 0; i < GPUid.size(); ++i) {

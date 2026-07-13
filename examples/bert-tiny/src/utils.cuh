@@ -37,6 +37,7 @@ extern FIDESlib::CKKS::Parameters params;
 extern lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc;
 
 extern std::vector<int> devices;
+extern uint32_t ringDim;
 inline const std::string root_dir = "../";
 
 // Initialize devices vector from FIDESLIB_NUM_GPUS environment variable
@@ -54,6 +55,17 @@ inline void init_devices_from_env() {
 			}
 		}
 	}
+}
+
+inline void read_ring_dim() {
+	char* env = getenv("FIDESLIB_RING_DIM");
+	if (env && env[0] != '\0') {
+		ringDim = std::atoi(env);
+	}
+	else {
+		ringDim = 16;
+	}
+	std::cout << "Using ring dimension: " << (1 << ringDim) << std::endl;
 }
 
 void prepare_gpu_context_bert(FIDESlib::CKKS::Context& cc_gpu, const lbcrypto::KeyPair<lbcrypto::DCRTPoly>& keys, FIDESlib::CKKS::EncoderConfiguration& conf);

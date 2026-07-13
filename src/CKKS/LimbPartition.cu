@@ -379,6 +379,11 @@ template <ALGO algo, NTT_MODE mode> void LimbPartition::NTT(int batch, bool sync
 				}
 			}
 		}
+		if (*level == cc.L + 1) {
+			if (SPECIALmeta.size() > 0 && SPECIALmeta.at(0).id == cc.L + 1) {
+				ApplyNTT<algo, mode>(batch, fields, SPECIALlimb, SPECIALlimbptr, SPECIALauxptr, cc, SPECIAL(id, 0), 1);
+			}
+		}
 	} else {
 		assert("Invalid NTT batch configuration!");
 	}
@@ -1515,6 +1520,9 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
 
 size_t LimbPartition::getLimbSize(int level) {
 	size_t size = 0;
+	if (level == cc.L + 1) {
+		level = level - 1 - (cc.rescaleTechnique == FIDESlib::CKKS::FLEXIBLEAUTOEXT);
+	}
 	while (size < meta.size() && meta[size].id <= level) {
 		// assert(limb.size() > size);
 		++size;
@@ -2153,6 +2161,10 @@ void LimbPartition::multScalar(std::vector<uint64_t>& vector) {
 		uint32_t num_limbs = std::min((int)limbsize - i, cc.batch);
 		Scalar_mult_<ALGO_BARRETT><<<dim3{ (uint32_t)cc.N / 128, num_limbs }, 128, 0, STREAM(limb[i]).ptr()>>>(limbptr.data + i, elems, PARTITION(id, i), nullptr);
 	}
+	if (*level == cc.L + 1 && SPECIALmeta.size() > 0 && SPECIALmeta.at(0).id == cc.L + 1) {
+		Scalar_mult_<ALGO_BARRETT><<<dim3{ (uint32_t)cc.N / 128, 1 }, 128, 0, STREAM(SPECIALlimb[0]).ptr()>>>(SPECIALlimbptr.data, elems, SPECIAL(id, 0), nullptr);
+		s.wait(STREAM(SPECIALlimb[0]));
+	}
 	for (int i = 0; i < limbsize; i += cc.batch) {
 		s.wait(STREAM(limb[i]));
 	}
@@ -2318,6 +2330,11 @@ void LimbPartition::broadcastLimb0() {
 	cudaSetDevice(device);
 	assert(limbsize - 1 > 0);
 	broadcastLimb0_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)limbsize - 1 }, 128, 0, s.ptr()>>>(limbptr.data);
+
+	if (MODRAISE_WITH_P0) {
+		// if (I HAVE P0)
+		broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)1 }, 128, 0, s.ptr()>>>(SPECIALlimbptr.data, SPECIAL(id, 0), limbptr.data);
+	}
 }
 
 void LimbPartition::evalLinearWSum(uint32_t n, std::vector<const LimbPartition*> ps, std::vector<uint64_t>& weights) {

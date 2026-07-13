@@ -45,7 +45,7 @@ static bool envGraphCapture(bool def = false) {
 }
 
 bool MEMCPY_PEER   = envMemcopyPeer(true);
-bool GRAPH_CAPTURE = envGraphCapture(true);
+bool GRAPH_CAPTURE = envGraphCapture(false);
 bool PEER_ACCESS   = envPeerAccess(false);
 
 void LimbPartition::rescaleMGPU() {
@@ -210,8 +210,9 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 
 	for (int i = 0; i < 2; ++i) {
 		if (cc.limbGPUid[*part[i]->level].x == static_cast<uint32_t>(id)) {
-			if (part[i]->limb.size() > cc.limbGPUid[*part[i]->level].y && PRIMEID(part[i]->limb[cc.limbGPUid[*part[i]->level].y]) == *part[i]->level) {
-				LimbImpl& top = part[i]->limb.at(limbsize - 1);
+			if (part[i]->limb.size() > cc.limbGPUid[*part[i]->level].y && PRIMEID(part[i]->limb[cc.limbGPUid[*part[i]->level].y]) == *part[i]->level ||
+			  (*part[i]->level == cc.L + 1 && part[i]->SPECIALlimb.size() > 0 && PRIMEID(part[i]->SPECIALlimb.at(cc.limbGPUid[*part[i]->level].y)) == *part[i]->level)) {
+				LimbImpl& top = (*part[i]->level == cc.L + 1) ? part[i]->SPECIALlimb.at(0) : part[i]->limb.at(limbsize - 1);
 				if (1) {
 					stream[i]->wait(part[i]->s);
 					constexpr ALGO algo = ALGO_SHOUP;
@@ -227,10 +228,12 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 						// stream[i]->wait(i ? partition.s : s);
 						uint32_t num_limbs = 1;
 
-						INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(
-						  getGlobals(), part[i]->limbptr.data + start + i_, PARTITION(id, start + i_), ptraux[i]->data);
+						INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(getGlobals(),
+						  *part[i]->level == cc.L + 1 ? part[i]->SPECIALlimbptr.data + 0 : part[i]->limbptr.data + start + i_,
+						  *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_),
+						  ptraux[i]->data);
 						INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, stream[i]->ptr()>>>(
-						  getGlobals(), ptraux[i]->data, PARTITION(id, start + i_), ptr[i]->data);
+						  getGlobals(), ptraux[i]->data, *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_), ptr[i]->data);
 					}
 
 					part[i]->s.wait(stream[i]->ptr());
@@ -343,7 +346,7 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 			const dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
 			const int bytesFirst	  = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
 			const int bytesSecond	  = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-			const int size			  = getLimbSize(*part[j]->level - 1);
+			const int size			  = getLimbSize(*part[j]->level - 1 - (*part[j]->level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT));
 			const int batch			  = cc.batch;
 			const NTT_MODE mode		  = NTT_RESCALE;
 
@@ -2794,8 +2797,11 @@ void LimbPartition::broadcastLimb0_mgpu() {
 	assert(false);
 #endif
 	if (limbsize - skip0 > 0) {
-		CKKS::broadcastLimb0_mgpu<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)limbsize - skip0 }, 128, 0, stream.ptr()>>>(
-		  limbptr.data + skip0, PARTITION(id, skip0), ptr.data);
+		broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)limbsize - skip0 }, 128, 0, stream.ptr()>>>(limbptr.data + skip0, PARTITION(id, skip0), ptr.data);
+		if (MODRAISE_WITH_P0) {
+			if (SPECIALmeta.size() > 0 && SPECIALmeta.at(0).id == cc.L + 1)
+				broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)1 }, 128, 0, s.ptr()>>>(SPECIALlimbptr.data, SPECIAL(id, 0), limbptr.data);
+		}
 	}
 	s.wait(stream);
 }

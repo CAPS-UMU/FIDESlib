@@ -333,11 +333,21 @@ BENCHMARK_DEFINE_F(GeneralFixture, HyperParamBootstrapGPU)(benchmark::State& sta
 			std::set<int32_t> rots_cpu_set(rots_cpu.begin(), rots_cpu.end());
 			min_openfhe = std::min(min_openfhe, rots_cpu_set.size());
 			std::cout << "OpenFHE requests " << rots_cpu_set.size() << " distinct rotation keys." << std::endl;
+			for (auto i : rots_cpu_set) {
+				std::cout << i << " ";
+			}
+			std::cout << std::endl;
 
 			auto rots_gpu = FIDESlib::CKKS::GetBootstrapIndexes(cc, slots, nullptr);
+
 			std::set<int> rots_gpu_set(rots_gpu.begin(), rots_gpu.end());
+			rots_gpu_set.erase(0);
 			min_fides = std::min(min_fides, rots_gpu_set.size());
 			std::cout << "FIDESlib requests " << rots_gpu_set.size() << " distinct rotation keys." << std::endl;
+			for (auto i : rots_gpu_set) {
+				std::cout << i << " ";
+			}
+			std::cout << std::endl;
 		}
 		std::cout << "For fftIter=" << fftiter << ": min openfhe=" << min_openfhe << ", min fides=" << min_fides << std::endl;
 		min_global_openfhe = std::min(min_global_openfhe, min_openfhe);
@@ -520,12 +530,14 @@ BENCHMARK_DEFINE_F(GeneralFixture, BootstrapGPU)(benchmark::State& state) {
 	std::cout << "Result GPU " << resultGPU;
 	*/
 	CudaCheckErrorMod;
+	GPUcc->clearAutomorphismKeys();
+	GPUcc->clearBootPrecomputation();
 }
 
 BENCHMARK_REGISTER_F(GeneralFixture, ApproxModReduction)->ArgsProduct({ PARAMETERS, { 0 }, BATCH_CONFIG, { 0, 1, 2, 3, 4, 5 } })->Iterations(50);
 BENCHMARK_REGISTER_F(GeneralFixture, ApproxModReductionSparse)->ArgsProduct({ PARAMETERS, { 0 }, BATCH_CONFIG, { 0, 1, 2, 3, 4, 5 } })->Iterations(50);
-BENCHMARK_REGISTER_F(GeneralFixture, CoeffsToSlots)->ArgsProduct({ { 5 }, { 0 }, BATCH_CONFIG, { 64 } })->Iterations(50);
-BENCHMARK_REGISTER_F(GeneralFixture, SlotsToCoeffs)->ArgsProduct({ { 5 }, { 0 }, BATCH_CONFIG, { 64 } })->Iterations(50);
+BENCHMARK_REGISTER_F(GeneralFixture, CoeffsToSlots)->ArgsProduct({ { 18 }, { 0 }, BATCH_CONFIG, { 64 } })->Iterations(50);
+BENCHMARK_REGISTER_F(GeneralFixture, SlotsToCoeffs)->ArgsProduct({ { 18 }, { 0 }, BATCH_CONFIG, { 64 } })->Iterations(50);
 
 BENCHMARK_DEFINE_F(GeneralFixture, SSEBootstrapGPU)(benchmark::State& state) {
 	CKKS::DeregisterAllContexts();
@@ -633,6 +645,8 @@ BENCHMARK_DEFINE_F(GeneralFixture, SSEBootstrapGPU)(benchmark::State& state) {
 	std::cout << "Result GPU " << resultGPU;
 	*/
 	CudaCheckErrorMod;
+	GPUcc->clearAutomorphismKeys();
+	GPUcc->clearBootPrecomputation();
 }
 
 BENCHMARK_REGISTER_F(GeneralFixture, SSEBootstrapGPU)->ArgsProduct({ { 18 }, { 0 }, BATCH_CONFIG, { 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23 } })->Iterations(50);

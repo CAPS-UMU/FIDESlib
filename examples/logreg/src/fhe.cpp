@@ -35,6 +35,7 @@ uint32_t create_context(bool inference) {
 	uint32_t digits	   = sparse_encaps ? 3 : 3;
 	depth			   = sparse_encaps ? 22 : 22;
 
+
 	fideslib::CCParams<fideslib::CryptoContextCKKSRNS> params;
 	params.SetScalingModSize(scale_mod);
 	params.SetFirstModSize(first_mod);
@@ -68,10 +69,18 @@ void prepare_context(const fideslib::KeyPair<fideslib::DCRTPoly>& k, size_t cols
 	}
 	for (size_t i = cols; i < cols * rows; i <<= 1)
 		rot_idx.push_back(i);
-	rot_idx.push_back(32765);
-	rot_idx.push_back(32756);
-	rot_idx.push_back(32720);
-	rot_idx.push_back(32576);
+	if (ringDim == 1 << 16) {
+		rot_idx.push_back(32765);
+		rot_idx.push_back(32756);
+		rot_idx.push_back(32720);
+		rot_idx.push_back(32576);
+	}
+	if (ringDim == 1 << 17) {
+		rot_idx.push_back(65533);
+		rot_idx.push_back(65524);
+		rot_idx.push_back(65488);
+		rot_idx.push_back(65344);
+	}
 	cc->EvalRotateKeyGen(k.secretKey, rot_idx);
 	
 	cc->EvalBootstrapSetup(levelBudget, bStep, cols, 0);

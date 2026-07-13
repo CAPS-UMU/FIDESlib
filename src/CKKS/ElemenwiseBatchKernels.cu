@@ -147,7 +147,7 @@ __global__ void broadcastLimb0_(void** a) {
 	}
 }
 
-__global__ void broadcastLimb0_mgpu(void** a, const __grid_constant__ int primeid_init, void** limb0) {
+__global__ void broadcastLimb0_mgpu_(void** a, const __grid_constant__ int primeid_init, void** limb0) {
 	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
 	if (ISU64(primeid) && ISU64(0)) {

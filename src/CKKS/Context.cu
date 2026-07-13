@@ -38,10 +38,10 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
   rescaleTechnique(translateRescalingTechnique(param.scalingTechnique)), L(param.L), logQ(computeLogQ(L, param.primes)), batch(param.batch), GPUid(devs),
   dnum((validateDnum(GPUid, param.dnum) /*, param.dnum*/)), GPUdigits(generateGPUdigits(dnum, GPUid)), prime((param.primes.resize(L + 1), param.primes)),
   meta{ generateMeta(GPUid, dnum, GPUdigits, prime, param) }, logQ_d(computeLogQ_d(dnum, meta, prime)), K(computeK(logQ_d, param.Sprimes, param)),
-  logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)),
-  specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)), splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)),
-  decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)), digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)),
-  gatherMeta(generateGatherMeta(meta, L)), limbGPUid(generateLimbGPUid(meta, L)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
+  logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)), specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)),
+  splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)), decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)),
+  digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)), gatherMeta(generateGatherMeta(meta, L)),
+  limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
 // top_limb(devs.size())
 {
 #ifndef NCCL
@@ -61,7 +61,7 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
 	auto [constants, globals] = SetupConstants<Parameters>(prime, meta, specialPrime, specialMeta.at(0), decompMeta, digitMeta, GPUdigits, GPUid, N, param);
 
 	precom.constants = constants;
-	precom.globals	 = std::move(globals);
+	precom.globals   = std::move(globals);
 
 	PrepareNCCLCommunication();
 
@@ -84,11 +84,18 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
 	CudaNvtxStop();
 }
 
-std::vector<dim3> ContextData::generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta, const int L) {
-	std::vector<dim3> res(L + 1, 0);
+std::vector<dim3>
+ContextData::generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta, const int L, const std::vector<std::vector<LimbRecord>>& SPECIALmeta, const int K) {
+	std::vector<dim3> res(L + 1 + K, 0);
 	for (int i = 0; i < static_cast<int>(meta.size()); ++i) {
 		for (size_t j = 0; j < meta.at(i).size(); ++j) {
 			res.at(meta[i][j].id) = { static_cast<uint32_t>(i), static_cast<uint32_t>(j), 0 };
+		}
+	}
+
+	for (int i = 0; i < static_cast<int>(SPECIALmeta.size()); ++i) {
+		for (size_t j = 0; j < SPECIALmeta.at(i).size(); ++j) {
+			res.at(SPECIALmeta[i][j].id) = { static_cast<uint32_t>(i), static_cast<uint32_t>(j), 0 };
 		}
 	}
 	return res;
@@ -136,7 +143,10 @@ std::vector<std::vector<std::vector<LimbRecord>>> ContextData::generateDigitMeta
 }
 
 std::vector<std::vector<std::vector<LimbRecord>>>
-ContextData::generateDecompMeta(const std::vector<std::vector<LimbRecord>>& meta, const std::vector<std::vector<int>> digitGPUid, const std::vector<int>& GPUid, int L) {
+ContextData::generateDecompMeta(const std::vector<std::vector<LimbRecord>>& meta,
+                                const std::vector<std::vector<int>> digitGPUid,
+                                const std::vector<int>& GPUid,
+                                int L) {
 	std::vector<std::vector<std::vector<LimbRecord>>> decompMeta(meta.size());
 
 	for (size_t i = 0; i < digitGPUid.size(); ++i) {
@@ -188,7 +198,11 @@ int findDigitOnParam(const Parameters& param, uint64_t modulus) {
 }
 
 std::vector<std::vector<LimbRecord>>
-ContextData::generateMeta(const std::vector<int>& GPUid, const int dnum, const std::vector<std::vector<int>> digitGPUid, const std::vector<PrimeRecord>& prime, const Parameters& param) {
+ContextData::generateMeta(const std::vector<int>& GPUid,
+                          const int dnum,
+                          const std::vector<std::vector<int>> digitGPUid,
+                          const std::vector<PrimeRecord>& prime,
+                          const Parameters& param) {
 	int devs = GPUid.size();
 	std::vector<std::vector<LimbRecord>> meta(devs);
 
@@ -200,7 +214,7 @@ ContextData::generateMeta(const std::vector<int>& GPUid, const int dnum, const s
 	if constexpr (0) {
 		int threshhold1 = (prime.size() / 2 + devs - 1) / devs;
 		int threshhold2 = threshhold1 * devs;
-		int dev			= 0;
+		int dev         = 0;
 		for (int i = 0; i < (int)prime.size(); ++i) {
 			int digit_ = !param.raw ? i % dnum : findDigitOnParam(param, prime.at(i).p);
 
@@ -262,9 +276,9 @@ std::vector<int> ContextData::computeLogQ_d(const int dnum, const std::vector<st
 
 const int& ContextData::computeK(const std::vector<int>& logQ_d, std::vector<PrimeRecord>& Sprimes, Parameters& param) {
 
-	size_t res	= 0;
+	size_t res  = 0;
 	int logMaxD = *std::max_element(logQ_d.begin(), logQ_d.end());
-	int bits	= 0;
+	int bits    = 0;
 	for (; bits < logMaxD && res < Sprimes.size(); ++res) {
 		bits += (Sprimes.at(res).bits <= 0) ? (Sprimes.at(res).bits = (int)std::bit_width(Sprimes.at(res).p)) - 1 : Sprimes.at(res).bits - 1;
 	}
@@ -278,14 +292,17 @@ const int& ContextData::computeK(const std::vector<int>& logQ_d, std::vector<Pri
 }
 
 std::vector<std::vector<LimbRecord>>
-ContextData::generateSpecialMeta(const std::vector<std::vector<LimbRecord>>& meta, const std::vector<PrimeRecord>& specialPrime, const int ID0, const std::vector<int>& GPUid) {
+ContextData::generateSpecialMeta(const std::vector<std::vector<LimbRecord>>& meta,
+                                 const std::vector<PrimeRecord>& specialPrime,
+                                 const int ID0,
+                                 const std::vector<int>& GPUid) {
 	std::vector<std::vector<LimbRecord>> specialMeta(GPUid.size());
 
 	for (size_t d = 0; d < GPUid.size(); ++d) {
 		specialMeta.at(d).resize(specialPrime.size());
 		cudaSetDevice(GPUid[d]);
 		for (int i = 0; i < (int)specialPrime.size(); ++i) {
-			specialMeta.at(d).at(i).id	 = ID0 + i;
+			specialMeta.at(d).at(i).id   = ID0 + i;
 			specialMeta.at(d).at(i).type = (specialPrime[i].type ? *(specialPrime[i].type) : (specialPrime[i].bits <= 30 ? U32 : U64));
 			specialMeta.at(d).at(i).stream.init();
 		}
@@ -301,7 +318,7 @@ std::vector<LimbRecord> ContextData::generateGatherMeta(const std::vector<std::v
 		for (size_t j = 0; j < meta.size(); ++j) {
 			for (size_t k = 0; k < meta.at(j).size(); ++k) {
 				if (meta[j][k].id == i) {
-					gatherMeta.at(i).id	   = i;
+					gatherMeta.at(i).id    = i;
 					gatherMeta.at(i).digit = meta[j][k].digit;
 					gatherMeta.at(i).type  = meta[j][k].type;
 				}
@@ -350,20 +367,28 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
 
 	uint32_t numTowers = level + 1;
 	std::vector<lbcrypto::DCRTPoly::Integer> moduli(numTowers);
-	for (usint i = 0; i < numTowers; i++) {
-		moduli[i] = prime[i].p;
+	for (uint32_t i = 0; i < numTowers; i++) {
+		if (i < prime.size()) {
+			moduli[i] = prime[i].p;
+		} else {
+			moduli[i] = specialPrime[i - prime.size()].p;
+		}
 	}
 
 	double scFactor;
 	if (level_in == -1 || level_in == level) {
-		scFactor = param.ScalingFactorReal[level];
+		if (level < param.ScalingFactorReal.size()) {
+			scFactor = param.ScalingFactorReal[level];
+		} else {
+			scFactor = moduli.back().ConvertToDouble();
+		}
 	} else {
 		/** Lets handle scale changes more efficiently!*/
 		assert(level > 0);
-		double scFactorIn	   = param.ScalingFactorReal[level_in];
-		double scFactorOut	   = param.ScalingFactorReal[level - 1];
+		double scFactorIn      = param.ScalingFactorReal[level_in];
+		double scFactorOut     = param.ScalingFactorReal[level - 1];
 		double rescalingFactor = param.ModReduceFactor[level];
-		scFactor			   = scFactorOut * rescalingFactor / scFactorIn;
+		scFactor               = scFactorOut * rescalingFactor / scFactorIn;
 
 		assert(abs(param.ScalingFactorReal[level - 1] * rescalingFactor - param.ScalingFactorReal[level] * param.ScalingFactorReal[level]) < 1e-9);
 		assert(abs(scFactorIn * scFactor / rescalingFactor - scFactorOut) < 1e-9);
@@ -375,27 +400,27 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
 	int32_t logApprox = 0;
 	const double res  = std::fabs(operand * scFactor);
 	if (res > 0) {
-		int32_t logSF	 = static_cast<int32_t>(std::ceil(std::log2(res)));
+		int32_t logSF    = static_cast<int32_t>(std::ceil(std::log2(res)));
 		int32_t logValid = (logSF <= MAX_BITS_IN_WORD_LOCAL) ? logSF : MAX_BITS_IN_WORD_LOCAL;
-		logApprox		 = logSF - logValid;
+		logApprox        = logSF - logValid;
 	}
 	double approxFactor = pow(2, logApprox);
 
-	DoubleInteger large		= static_cast<DoubleInteger>(operand / approxFactor * scFactor + 0.5);
+	DoubleInteger large     = static_cast<DoubleInteger>(operand / approxFactor * scFactor + 0.5);
 	DoubleInteger large_abs = (large < 0 ? -large : large);
-	DoubleInteger bound		= (uint64_t)1 << 63;
+	DoubleInteger bound     = (uint64_t)1 << 63;
 
 	std::vector<lbcrypto::DCRTPoly::Integer> factors(numTowers);
 
 	if (large_abs > bound) {
-		for (usint i = 0; i < numTowers; i++) {
+		for (uint32_t i = 0; i < numTowers; i++) {
 			DoubleInteger reduced = large % moduli[i].ConvertToInt();
 
 			factors[i] = (reduced < 0) ? static_cast<uint64_t>(reduced + moduli[i].ConvertToInt()) : static_cast<uint64_t>(reduced);
 		}
 	} else {
 		int64_t scConstant = static_cast<int64_t>(large);
-		for (usint i = 0; i < numTowers; i++) {
+		for (uint32_t i = 0; i < numTowers; i++) {
 			int64_t reduced = scConstant % static_cast<int64_t>(moduli[i].ConvertToInt());
 
 			factors[i] = (reduced < 0) ? reduced + moduli[i].ConvertToInt() : reduced;
@@ -422,7 +447,11 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
 	std::vector<uint64_t> result(numTowers);
 	for (uint32_t i = 0; i < result.size(); ++i) {
 		result[i] = factors[i].ConvertToInt();
-		result[i] = result[i] % prime[i].p;
+		if (i < prime.size()) {
+			result[i] = result[i] % prime[i].p;
+		} else {
+			result[i] = result[i] % specialPrime[i - prime.size()].p;
+		}
 	}
 
 	return result;
@@ -437,9 +466,9 @@ std::ostream& operator<<(std::ostream& o, const uint128_t& x) {
 }
 
 std::vector<uint64_t> ContextData::ElemForEvalAddOrSub(const int level, const double operand, const int noise_deg) {
-	usint sizeQl = level + 1;
+	uint32_t sizeQl = level + 1;
 	std::vector<lbcrypto::DCRTPoly::Integer> moduli(sizeQl);
-	for (usint i = 0; i < sizeQl; i++) {
+	for (uint32_t i = 0; i < sizeQl; i++) {
 		moduli[i] = prime[i].p;
 	}
 
@@ -454,9 +483,9 @@ std::vector<uint64_t> ContextData::ElemForEvalAddOrSub(const int level, const do
 	int32_t logApprox = 0;
 	const double res  = std::fabs(operand * scFactor);
 	if (res > 0) {
-		int32_t logSF	 = static_cast<int32_t>(std::ceil(std::log2(res)));
+		int32_t logSF    = static_cast<int32_t>(std::ceil(std::log2(res)));
 		int32_t logValid = (logSF <= lbcrypto::LargeScalingFactorConstants::MAX_BITS_IN_WORD) ? logSF : lbcrypto::LargeScalingFactorConstants::MAX_BITS_IN_WORD;
-		logApprox		 = logSF - logValid;
+		logApprox        = logSF - logValid;
 	}
 	double approxFactor = pow(2, logApprox);
 
@@ -503,7 +532,7 @@ std::vector<uint64_t> ContextData::ElemForEvalAddOrSub(const int level, const do
 	lbcrypto::DCRTPoly::Integer intScFactor = static_cast<uint64_t>(scFactor + 0.5);
 	std::vector<lbcrypto::DCRTPoly::Integer> crtScFactor(sizeQl, intScFactor);
 
-	for (usint i = 1; i < static_cast<usint>(noise_deg); i++) {
+	for (uint32_t i = 1; i < static_cast<uint32_t>(noise_deg); i++) {
 		crtConstant = lbcrypto::CKKSPackedEncoding::CRTMult(crtConstant, crtScFactor, moduli);
 	}
 
@@ -560,7 +589,8 @@ KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID) {
 }
 
 KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, int slots, int& actual_index) {
-	if (index != 2 * N - 1) { // Handle conjugate key independently
+	if (index != 2 * N - 1) {
+		// Handle conjugate key independently
 		index = index % (N / 2);
 		if (index < 0)
 			index += this->N / 2;
@@ -609,9 +639,9 @@ bool ContextData::HasRotationKey(int index, const KeyHash& keyID) {
 void ContextData::AddEvalKey(KeySwitchingKey&& ksk) {
 	if (!precom.keys.contains(ksk.keyID))
 		precom.keys[ksk.keyID] = Precomputations::KeyPrecomputations{};
-	std::unique_ptr<KeySwitchingKey> key	   = std::make_unique<KeySwitchingKey>(std::move(ksk));
+	std::unique_ptr<KeySwitchingKey> key       = std::make_unique<KeySwitchingKey>(std::move(ksk));
 	std::unique_ptr<KeySwitchingKey>& dest_key = precom.keys.at(key->keyID).eval_key;
-	dest_key								   = std::move(key);
+	dest_key                                   = std::move(key);
 }
 
 KeySwitchingKey& ContextData::GetEvalKey(const KeyHash& keyID) {
@@ -636,7 +666,7 @@ void ContextData::AddBootPrecomputation(int slots, BootstrapPrecomputation&& pre
 						   precomp.CtS.size() * precomp.CtS.at(0).A.size() *
 							 (1 + precomp.CtS.at(0).A.at(0).c0.getLevel() + precomp.CtS.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()))) *
 			N * 8 / (1 << 20)
-				  << "MB\n";
+			<< "MB\n";
 	}
 
 	precom.boot.emplace(slots, std::move(precomp));
@@ -996,8 +1026,8 @@ void SetCurrentContext(Context& cc) {
 
 void AddSecretSwitchingKey(KeySwitchingKey&& ksk_a, KeySwitchingKey&& ksk_b) {
 
-	KeyHash id_a		= ksk_a.keyID;
-	KeyHash id_b		= ksk_b.keyID;
+	KeyHash id_a        = ksk_a.keyID;
+	KeyHash id_b        = ksk_b.keyID;
 	Parameters& param_a = ksk_a.cc->param;
 	Parameters& param_b = ksk_b.cc->param;
 

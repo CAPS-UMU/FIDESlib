@@ -8,9 +8,7 @@
 #include "CKKS/openfhe-interface/RawCiphertext.cuh"
 #include "ParametrizedTest.cuh"
 
-using namespace std;
 using namespace FIDESlib::CKKS;
-using namespace lbcrypto;
 using namespace std::chrono;
 
 namespace FIDESlib::Testing {
@@ -37,29 +35,30 @@ TEST_P(BtsTimingTests, Regular) {
 
 	std::cout << "Create context" << std::endl;
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc, UNIFORM);
-	FIDESlib::CKKS::Context GPUcc_		= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *GPUcc_;
+	FIDESlib::CKKS::Context GPUcc_      = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *GPUcc_;
 	std::cout << "Num large digits" << GPUcc.dnum << std::endl;
 	// Parameters
-	GPUcc.batch	 = 128;
+	GPUcc.batch  = 128;
 	int numSlots = cc->GetRingDimension() / 2;
 
 	// Keys
 	keys = cc->KeyGen();
 
 	// Bootstrapping Precomputation
+
 	cc->EvalBootstrapSetup({ 3, 3 }, { 16, 16 }, numSlots, 0, true, false);
 
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
-	std::cout << GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
+	std::cout << lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
 	std::cout << GPUcc.GetDoubleAngleIts() << std::endl;
 
 	std::cout << "Add bootstrap precomputation" << std::endl;
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);
 
-	std::vector<double> x1			  = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
-	lbcrypto::Plaintext ptxt1		  = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, numSlots);
-	auto c1							  = cc->Encrypt(keys.publicKey, ptxt1);
+	std::vector<double> x1            = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	lbcrypto::Plaintext ptxt1         = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, numSlots);
+	auto c1                           = cc->Encrypt(keys.publicKey, ptxt1);
 	FIDESlib::CKKS::RawCipherText raw = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 
 	std::cout << "Create ciphertext" << std::endl;
@@ -88,6 +87,10 @@ TEST_P(BtsTimingTests, Regular) {
 	lbcrypto::Plaintext result_pt;
 	cc->Decrypt(keys.secretKey, result, &result_pt);
 	std::cout << result_pt->GetLogPrecision() << std::endl;
+	for (int i = 0; i < 8; ++i) {
+		std::cout << result_pt->GetRealPackedValue().at(i) << " ";
+	}
+	std::cout << std::endl;
 
 	CKKS::DeregisterAllContexts();
 	for (auto& i : cached_cc) {
@@ -117,11 +120,11 @@ TEST_P(BtsTimingTests, SSE) {
 	// const bool sparse_encaps = true;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc, ENCAPS);
-	FIDESlib::CKKS::Context GPUcc_		= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *GPUcc_;
+	FIDESlib::CKKS::Context GPUcc_      = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *GPUcc_;
 
 	// Parameters
-	GPUcc.batch	 = 128;
+	GPUcc.batch  = 128;
 	int numSlots = cc->GetRingDimension() / 2;
 	// int numSlots = 64;
 	//  Keys
@@ -129,16 +132,22 @@ TEST_P(BtsTimingTests, SSE) {
 
 	// Bootstrapping Precomputation
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
-	std::cout << GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
+		{ 3, 3 },
+		{ 16, 16 },
+		numSlots,
+		0,
+		true,
+		false,
+		lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+	std::cout << lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) << std::endl;
 	std::cout << GPUcc.GetDoubleAngleIts() << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);
 
-	std::vector<double> x1	  = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1    = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, numSlots);
-	auto c1					  = cc->Encrypt(keys.publicKey, ptxt1);
+	auto c1                   = cc->Encrypt(keys.publicKey, ptxt1);
 
 	FIDESlib::CKKS::RawCipherText raw = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 	FIDESlib::CKKS::Ciphertext GPUct1(GPUcc_, raw);
@@ -155,7 +164,7 @@ TEST_P(BtsTimingTests, SSE) {
 		std::cout << result_pt->GetLogPrecision() << std::endl;
 	}
 
-	int N = 1;
+	int N = 10;
 
 	auto start_gpu = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; i++) {
@@ -184,6 +193,11 @@ TEST_P(BtsTimingTests, SSE) {
 	lbcrypto::Plaintext result_pt;
 	cc->Decrypt(keys.secretKey, result, &result_pt);
 	std::cout << result_pt->GetLogPrecision() << std::endl;
+	for (int i = 0; i < 8; ++i) {
+		std::cout << result_pt->GetRealPackedValue().at(i) << " ";
+	}
+	std::cout << std::endl;
+
 	CKKS::DeregisterAllContexts();
 	for (auto& i : cached_cc) {
 		i.second.first->ClearEvalAutomorphismKeys();
@@ -212,11 +226,11 @@ TEST_P(BtsTimingTests, REGULAR2) {
 	// const bool sparse_encaps = true;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc, UNIFORM_2);
-	FIDESlib::CKKS::Context GPUcc_		= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *GPUcc_;
+	FIDESlib::CKKS::Context GPUcc_      = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *GPUcc_;
 
 	// Parameters
-	GPUcc.batch	 = 128;
+	GPUcc.batch  = 128;
 	int numSlots = cc->GetRingDimension() / 2;
 
 	// Keys
@@ -229,14 +243,20 @@ TEST_P(BtsTimingTests, REGULAR2) {
 
 	// Bootstrapping Precomputation
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+		{ 3, 3 },
+		{ 16, 16 },
+		numSlots,
+		0,
+		true,
+		false,
+		lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);
 
-	std::vector<double> x1	  = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1    = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, numSlots);
-	auto c1					  = cc->Encrypt(keys.publicKey, ptxt1);
+	auto c1                   = cc->Encrypt(keys.publicKey, ptxt1);
 
 	FIDESlib::CKKS::RawCipherText raw = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 	FIDESlib::CKKS::Ciphertext GPUct1(GPUcc_, raw);
@@ -291,11 +311,11 @@ TEST_P(BtsTimingTests, SPARSE) {
 	// const bool sparse_encaps = true;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc, SPARSE);
-	FIDESlib::CKKS::Context GPUcc_		= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *GPUcc_;
+	FIDESlib::CKKS::Context GPUcc_      = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *GPUcc_;
 
 	// Parameters
-	GPUcc.batch	 = 128;
+	GPUcc.batch  = 128;
 	int numSlots = cc->GetRingDimension() / 2;
 
 	// Keys
@@ -308,14 +328,20 @@ TEST_P(BtsTimingTests, SPARSE) {
 
 	// Bootstrapping Precomputation
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, numSlots, 0, true, false, GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+		{ 3, 3 },
+		{ 0, 0 },
+		numSlots,
+		0,
+		true,
+		false,
+		lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 	cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, numSlots, GPUcc_);
 
-	std::vector<double> x1	  = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1    = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.L - 1, nullptr, numSlots);
-	auto c1					  = cc->Encrypt(keys.publicKey, ptxt1);
+	auto c1                   = cc->Encrypt(keys.publicKey, ptxt1);
 
 	FIDESlib::CKKS::RawCipherText raw = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 	FIDESlib::CKKS::Ciphertext GPUct1(GPUcc_, raw);

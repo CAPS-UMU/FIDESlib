@@ -139,7 +139,8 @@ class ContextData {
 	  const std::vector<std::vector<int>>& digitGPUid,
 	  const std::vector<int>& GPUid);
 
-	static std::vector<dim3> generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta, const int L);
+	static std::vector<dim3>
+	generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta, const int L, const std::vector<std::vector<LimbRecord>>& SPECIALmeta, int K);
 
 	static std::vector<std::vector<int>> generateGPUdigits(const int dnum, const std::vector<int>& devs);
 	static std::vector<std::vector<LimbRecord>> generateSplitSpecialMeta(std::vector<LimbRecord>& specialMeta, const std::vector<int> GPUid);

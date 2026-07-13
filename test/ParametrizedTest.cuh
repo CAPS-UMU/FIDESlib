@@ -512,6 +512,7 @@ class GeneralParametrizedTest : public testing::TestWithParam<std::tuple<std::tu
 			parameters.SetNumLargeDigits(generalTestParams.dnum);
 			parameters.SetScalingTechnique(std::get<1>(params));
 			parameters.SetSecretKeyDist(lbcrypto::UNIFORM_TERNARY);
+			parameters.SetPREMode(lbcrypto::INDCPA);
 
 			cc = GenCryptoContext(parameters);
 			cc->Enable(lbcrypto::PKE);

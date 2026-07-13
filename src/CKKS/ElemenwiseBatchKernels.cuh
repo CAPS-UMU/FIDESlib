@@ -28,7 +28,7 @@ __global__ void binomial_square_fold_(void** c0_res, void** c2_key_switched_0, v
 template <ALGO algo> __global__ void Scalar_mult_(void** a, const uint64_t* b, const __grid_constant__ int primeid, const uint64_t* shoup_mu);
 
 __global__ void broadcastLimb0_(void** a);
-__global__ void broadcastLimb0_mgpu(void** a, const __grid_constant__ int primeid_init, void** limb0);
+__global__ void broadcastLimb0_mgpu_(void** a, const __grid_constant__ int primeid_init, void** limb0);
 __global__ void copy_(void** src, void** dst);
 __global__ void copy1D_(void* a, void* b);
 __global__ void eval_linear_w_sum_(const __grid_constant__ int n, void** a, void*** bs, uint64_t* w, const __grid_constant__ int primeid_init);

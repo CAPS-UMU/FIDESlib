@@ -9,17 +9,17 @@
 #include <omp.h>
 #if defined(__clang__)
 #include <experimental/source_location>
-using sc				  = std::experimental::source_location;
+using sc                  = std::experimental::source_location;
 constexpr int PREFIX_SIZE = 0;
 #else
 #include <source_location>
-using sc				  = std::source_location;
+using sc                  = std::source_location;
 constexpr int PREFIX_SIZE = 23;
 #endif
 
 namespace FIDESlib::CKKS {
 
-bool hoistRotateFused		  = true;
+bool hoistRotateFused         = true;
 constexpr bool RESCALE_DOUBLE = true;
 
 enum OPS {
@@ -44,34 +44,35 @@ enum OPS {
 };
 
 constexpr std::array<const char*, 18> opstr{ "                   Noop: ",
-	"                   HAdd: ",
-	"                  AddPt: ",
-	"                   Mult: ",
-	"                 MultPt: ", // 5
-	"                Rescale: ",
-	"                 Rotate: ",
-	"                   Copy: ",
-	"                 Square: ",
-	"              ScalarAdd: ", // 10
-	"             ScalarMult: ",
-	"              AddMultPt: ",
-	"     AddMultPt (inputs): ",
-	"                   WSum: ",
-	"          WSum (inputs): ", // 15
-	"              Conjugate: ",
-	"          HoistedRotate: ",
-	"HoistedRotate (outputs): " };
+                                             "                   HAdd: ",
+                                             "                  AddPt: ",
+                                             "                   Mult: ",
+                                             "                 MultPt: ", // 5
+                                             "                Rescale: ",
+                                             "                 Rotate: ",
+                                             "                   Copy: ",
+                                             "                 Square: ",
+                                             "              ScalarAdd: ", // 10
+                                             "             ScalarMult: ",
+                                             "              AddMultPt: ",
+                                             "     AddMultPt (inputs): ",
+                                             "                   WSum: ",
+                                             "          WSum (inputs): ", // 15
+                                             "              Conjugate: ",
+                                             "          HoistedRotate: ",
+                                             "HoistedRotate (outputs): " };
 
 std::map<OPS, int> op_count;
 
 Ciphertext::Ciphertext(Ciphertext&& ct_moved) noexcept
-: my_range(std::move(ct_moved.my_range)), keyID(std::move(ct_moved.keyID)), cc_(ct_moved.cc_), cc(*cc_), c0(std::move(ct_moved.c0)), c1(std::move(ct_moved.c1)),
-  NoiseFactor(ct_moved.NoiseFactor), NoiseLevel(ct_moved.NoiseLevel), slots(ct_moved.slots) {
+	: my_range(std::move(ct_moved.my_range)), keyID(std::move(ct_moved.keyID)), cc_(ct_moved.cc_), cc(*cc_), c0(std::move(ct_moved.c0)),
+	  c1(std::move(ct_moved.c1)),
+	  NoiseFactor(ct_moved.NoiseFactor), NoiseLevel(ct_moved.NoiseLevel), slots(ct_moved.slots) {
 }
 
 Ciphertext::Ciphertext(Context& cc)
-: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
-  c0(cc->getAuxilarPoly()), c1(cc->getAuxilarPoly()) {
+	: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
+	  c0(cc->getAuxilarPoly()), c1(cc->getAuxilarPoly()) {
 	c0.dropToLevel(-1);
 	c1.dropToLevel(-1);
 	c0.SetModUp(false);
@@ -79,7 +80,8 @@ Ciphertext::Ciphertext(Context& cc)
 	CudaNvtxStop();
 }
 
-Ciphertext::Ciphertext(Context& cc, const RawCipherText& rawct) : Ciphertext(cc) {
+Ciphertext::Ciphertext(Context& cc, const RawCipherText& rawct)
+	: Ciphertext(cc) {
 	this->load(rawct);
 }
 
@@ -92,8 +94,8 @@ Ciphertext::~Ciphertext() {
 
 void Ciphertext::copyMetadata(const Ciphertext& a) {
 	assert(this->getLevel() == a.getLevel());
-	this->slots		  = a.slots;
-	this->keyID		  = a.keyID;
+	this->slots       = a.slots;
+	this->keyID       = a.keyID;
 	this->NoiseLevel  = a.NoiseLevel;
 	this->NoiseFactor = a.NoiseFactor;
 }
@@ -309,9 +311,9 @@ void Ciphertext::load(const RawCipherText& rawct) {
 	c0.load(rawct.sub_0, rawct.moduli);
 	c1.load(rawct.sub_1, rawct.moduli);
 
-	NoiseLevel	= rawct.NoiseLevel;
+	NoiseLevel  = rawct.NoiseLevel;
 	NoiseFactor = rawct.Noise;
-	slots		= rawct.slots;
+	slots       = rawct.slots;
 }
 
 void Ciphertext::store(RawCipherText& rawct) {
@@ -329,9 +331,9 @@ void Ciphertext::store(RawCipherText& rawct) {
 	c1.sync();
 
 	rawct.NoiseLevel = NoiseLevel;
-	rawct.Noise		 = NoiseFactor;
-	rawct.keyid		 = keyID;
-	rawct.slots		 = slots; // TODO store other interesting metadata
+	rawct.Noise      = NoiseFactor;
+	rawct.keyid      = keyID;
+	rawct.slots      = slots; // TODO store other interesting metadata
 	cudaDeviceSynchronize();
 }
 
@@ -430,6 +432,8 @@ void Ciphertext::rescale() {
 	}
 	op_count[OPS::RESCALE]++;
 
+	NoiseFactor /= (getLevel() == cc.L + 1) ? cc.specialPrime[0].p : cc.param.ModReduceFactor.at(c0.getLevel());
+
 	if constexpr (RESCALE_DOUBLE) {
 		c0.rescaleDouble(c1);
 	} else {
@@ -438,7 +442,6 @@ void Ciphertext::rescale() {
 	}
 
 	// Manage metadata
-	NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
 	NoiseLevel -= 1;
 	assert(NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[this->getLevel()] : cc.param.ScalingFactorRealBig[this->getLevel()]));
 }
@@ -752,7 +755,7 @@ void Ciphertext::multScalarNoPrecheck(const double c, bool rescale) {
 
 	// Manage metadata
 	NoiseLevel += 1;
-	NoiseFactor *= cc.param.ScalingFactorReal.at(c0.getLevel());
+	NoiseFactor *= getLevel() == cc.L + 1 ? cc.specialPrime[0].p : cc.param.ScalingFactorReal.at(c0.getLevel());
 	if (rescale && cc.rescaleTechnique == FIXEDAUTO) {
 		this->rescale();
 	}
@@ -1004,8 +1007,8 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 					// if (!ext)
 					//     results[i]->c0.moddown(true, false);
 
-					results[i]->keyID		= keyID;
-					results[i]->NoiseLevel	= NoiseLevel;
+					results[i]->keyID       = keyID;
+					results[i]->NoiseLevel  = NoiseLevel;
 					results[i]->NoiseFactor = NoiseFactor;
 				}
 			}
@@ -1194,7 +1197,7 @@ void Ciphertext::evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*
 		// double scalingFactor;
 		for (size_t i = 0; i < n; ++i) {
 			auto aux = cc.ElemForEvalMult(c0.getLevel(), weights[i], ctxs[i]->getLevel());
-			for (size_t j = 0; j < aux.size(); ++j)
+			for (size_t j          = 0; j < aux.size(); ++j)
 				elem[i * MAXP + j] = aux[j];
 		}
 
@@ -1342,7 +1345,8 @@ void Ciphertext::reinterpretContext(const Ciphertext& ciphertext) {
 	this->copy(ciphertext);
 
 	assert(ciphertext.NoiseLevel <= 2);
-	{ // This ensures the different computation made for scaling factors in FLEXIBLE modes does not break the code
+	{
+		// This ensures the different computation made for scaling factors in FLEXIBLE modes does not break the code
 		this->NoiseFactor = this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[ciphertext.getLevel()] : cc.param.ScalingFactorRealBig[ciphertext.getLevel()];
 	}
 }
@@ -1371,16 +1375,16 @@ void Ciphertext::sub(const Ciphertext& ciphertext, const Ciphertext& ciphertext1
 
 bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, const double scaling_factor) {
 	assert(scaleDegree == 2 ? std::abs(cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] - cc.param.ScalingFactorRealBig[level]) /
-			(cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] + cc.param.ScalingFactorRealBig[level]) <
-		  1e-11 :
-							  true);
+		(cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] + cc.param.ScalingFactorRealBig[level]) <
+		1e-11 :
+		true);
 	assert(scaleDegree < 3 ? scaling_factor == (scaleDegree == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
 
-	usint c1lvl	  = getLevel();
-	usint c2lvl	  = level;
-	usint c1depth = this->NoiseLevel;
-	usint c2depth = scaleDegree;
-	auto sizeQl1  = c1lvl + 1;
+	uint32_t c1lvl   = getLevel();
+	uint32_t c2lvl   = level;
+	uint32_t c1depth = this->NoiseLevel;
+	uint32_t c2depth = scaleDegree;
+	auto sizeQl1     = c1lvl + 1;
 	// auto sizeQl2 = c2lvl + 1;
 
 	if (c1lvl > c2lvl) {
@@ -1388,8 +1392,8 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 			if (c2depth == 2) {
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf	= cc.param.ScalingFactorReal[c1lvl];   // cryptoParams->GetScalingFactorReal(c1lvl);
-				double q1	= cc.param.ModReduceFactor[c2lvl + 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+				double scf  = cc.param.ScalingFactorReal[c1lvl];   // cryptoParams->GetScalingFactorReal(c1lvl);
+				double q1   = cc.param.ModReduceFactor[c2lvl + 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 				multScalarNoPrecheck(scf2 * q1 / scf1 / scf);
 				if (getLevel() > static_cast<int32_t>(c2lvl + 1)) {
 					this->dropToLevel(c2lvl + 1, true);
@@ -1404,15 +1408,17 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 				} else {
 					double scf1 = NoiseFactor;
 					double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-					double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
-					double q1	= cc.param.ModReduceFactor[sizeQl1 - 1];	// cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+					double scf  = cc.param.ScalingFactorReal[c1lvl];        // cryptoParams->GetScalingFactorReal(c1lvl);
+					double q1   = cc.param.ModReduceFactor[sizeQl1 - 1];    // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 					multScalarNoPrecheck(scf2 / scf1 * q1 / scf);
+					NoiseFactor = cc.param.ScalingFactorRealBig[this->getLevel() - 1] * cc.param.ModReduceFactor[c1lvl];
 					rescale();
 					if (getLevel() - 1 > static_cast<int32_t>(c2lvl)) {
 						this->dropToLevel(c2lvl + 1, true);
 						// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 2);
 					}
-					NoiseFactor *= scf2 / scf1 * q1 / scf;
+					NoiseFactor = cc.param.ScalingFactorRealBig[this->getLevel()];
+					// NoiseFactor *= scf2 / scf1 * q1 / scf;
 					rescale();
 					// assert(std::abs((NoiseFactor * scf2 / scf1 * q1 / scf - scaling_factor) / scaling_factor) < 0.001);
 
@@ -1423,7 +1429,7 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 			if (c2depth == 2) {
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf	= cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
+				double scf  = cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
 				multScalarNoPrecheck(scf2 / scf1 / scf);
 				this->dropToLevel(c2lvl, true);
 				// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl);
@@ -1432,7 +1438,7 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 			} else {
 				double scf1 = NoiseFactor;
 				double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-				double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
+				double scf  = cc.param.ScalingFactorReal[c1lvl];        // cryptoParams->GetScalingFactorReal(c1lvl);
 				multScalarNoPrecheck(scf2 / scf1 / scf);
 				if (c1lvl - 1 > c2lvl) {
 					this->dropToLevel(c2lvl + 1, true);
@@ -1688,20 +1694,20 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
 std::vector<DCRTPoly>& cv = ciphertext->GetElements();
 const auto elemParams     = cv[0].GetParams();
 auto paramsNative         = elemParams->GetParams()[0];
-usint N                   = elemParams->GetRingDimension();
-usint M                   = 2 * N;
+uint32_t N                   = elemParams->GetRingDimension();
+uint32_t M                   = 2 * N;
 
 	NativePoly monomial(paramsNative, Format::COEFFICIENT, true);
 
-	usint powerReduced = power % M;
-	usint index        = power % N;
+	uint32_t powerReduced = power % M;
+	uint32_t index        = power % N;
 	monomial[index]    = powerReduced < N ? NativeInteger(1) : paramsNative->GetModulus() - NativeInteger(1);
 
 	DCRTPoly monomialDCRT(elemParams, Format::COEFFICIENT, true);
 	monomialDCRT = monomial;
 	monomialDCRT.SetFormat(Format::EVALUATION);
 
-	for (usint i = 0; i < ciphertext->NumberCiphertextElements(); i++) {
+	for (uint32_t i = 0; i < ciphertext->NumberCiphertextElements(); i++) {
 		cv[i] *= monomialDCRT;
 	}
 	*/

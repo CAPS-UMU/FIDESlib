@@ -19,7 +19,7 @@ namespace FIDESlib::CKKS {
 
 void Plaintext::copyMetadata(const Plaintext& a) {
 	assert(this->c0.getLevel() == a.c0.getLevel());
-	this->slots		  = a.slots;
+	this->slots       = a.slots;
 	this->NoiseLevel  = a.NoiseLevel;
 	this->NoiseFactor = a.NoiseFactor;
 }
@@ -78,8 +78,8 @@ void Plaintext::load(const RawPlainText& raw) {
 	*/
 
 	NoiseFactor = raw.Noise;
-	NoiseLevel	= raw.NoiseLevel;
-	slots		= raw.slots;
+	NoiseLevel  = raw.NoiseLevel;
+	slots       = raw.slots;
 }
 
 void Plaintext::store(RawPlainText& raw) {
@@ -93,9 +93,9 @@ void Plaintext::store(RawPlainText& raw) {
 	raw.N = cc.N;
 	c0.sync();
 
-	raw.Noise	   = NoiseFactor;
+	raw.Noise      = NoiseFactor;
 	raw.NoiseLevel = NoiseLevel;
-	raw.slots	   = slots;
+	raw.slots      = slots;
 	cudaDeviceSynchronize();
 }
 
@@ -109,11 +109,11 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
 	assert(scaleDegree == 2 ? cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] == cc.param.ScalingFactorRealBig[level] : true);
 	//	assert(scaleDegree < 3 ? scaling_factor == (scaleDegree == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
 
-	usint c1lvl	  = c0.getLevel();
-	usint c2lvl	  = level;
-	usint c1depth = this->NoiseLevel;
-	usint c2depth = scaleDegree;
-	auto sizeQl1  = c1lvl + 1;
+	uint32_t c1lvl   = c0.getLevel();
+	uint32_t c2lvl   = level;
+	uint32_t c1depth = this->NoiseLevel;
+	uint32_t c2depth = scaleDegree;
+	auto sizeQl1     = c1lvl + 1;
 	// auto sizeQl2 = c2lvl + 1;
 
 	if (c1lvl > c2lvl) {
@@ -121,8 +121,8 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
 			if (c2depth == 2) {
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf	= cc.param.ScalingFactorReal[c1lvl];	 // cryptoParams->GetScalingFactorReal(c1lvl);
-				double q1	= cc.param.ModReduceFactor[sizeQl1 - 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+				double scf  = cc.param.ScalingFactorReal[c1lvl];     // cryptoParams->GetScalingFactorReal(c1lvl);
+				double q1   = cc.param.ModReduceFactor[sizeQl1 - 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 
 				multScalar(scf2 / scf1 * q1 / scf);
 				rescale();
@@ -138,8 +138,8 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
 				} else {
 					double scf1 = NoiseFactor;
 					double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-					double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
-					double q1	= cc.param.ModReduceFactor[sizeQl1 - 1];	// cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+					double scf  = cc.param.ScalingFactorReal[c1lvl];        // cryptoParams->GetScalingFactorReal(c1lvl);
+					double q1   = cc.param.ModReduceFactor[sizeQl1 - 1];    // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 					multScalar(scf2 / scf1 * q1 / scf);
 					// NoiseFactor *= scf2 / scf1 * q1 / scf;
 					// NoiseFactor /= cc.param.ScalingFactorReal[this->c0.getLevel()];
@@ -159,7 +159,7 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
 			if (c2depth == 2) {
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf	= cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
+				double scf  = cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
 				multScalar(scf2 / scf1 / scf);
 				this->dropToLevel(c2lvl, true);
 				// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl);
@@ -168,7 +168,7 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
 			} else {
 				double scf1 = NoiseFactor;
 				double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-				double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
+				double scf  = cc.param.ScalingFactorReal[c1lvl];        // cryptoParams->GetScalingFactorReal(c1lvl);
 				multScalar(scf2 / scf1 / scf);
 				if (c1lvl - 1 > c2lvl) {
 					this->dropToLevel(c2lvl + 1, true);
@@ -225,10 +225,10 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 		this->copy(p);
 		return adjustScaleAndLevel(c.NoiseLevel, c.getLevel(), c.NoiseFactor);
 		/* TODO remove if above code verified
-		usint c1lvl	  = p.c0.getLevel();
-		usint c2lvl	  = c.getLevel();
-		usint c1depth = p.NoiseLevel;
-		usint c2depth = c.NoiseLevel;
+		uint32_t c1lvl	  = p.c0.getLevel();
+		uint32_t c2lvl	  = c.getLevel();
+		uint32_t c1depth = p.NoiseLevel;
+		uint32_t c2depth = c.NoiseLevel;
 		auto sizeQl1  = c1lvl + 1;
 		auto sizeQl2  = c2lvl + 1;
 
@@ -377,46 +377,46 @@ void Plaintext::rotate_hoisted(const std::vector<int>& indexes, std::vector<Plai
 
 #if false
 void Plaintext::multPt(const Plaintext& b, bool rescale) {
-    CudaNvtxRange r(std::string{sc::current().function_name()}.substr());
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 
-    if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
-        cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
-        if (NoiseLevel == 2)
-            this->rescale();
-    }
+	if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
+		cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
+		if (NoiseLevel == 2)
+			this->rescale();
+	}
 
-    if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
-        cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
-        // if (b.c0.getLevel() != this.getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
-        if (!hasSameScalingFactor(b)) {
-            Plaintext b_(cc);
-            if (NoiseLevel == 2)
-                this->rescale();
-            if (b_.NoiseLevel == 2)
-                b_.rescale();
-            multPt(b_, rescale);
-            return;
-        }
-    }
+	if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
+		cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
+		// if (b.c0.getLevel() != this.getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
+		if (!hasSameScalingFactor(b)) {
+			Plaintext b_(cc);
+			if (NoiseLevel == 2)
+				this->rescale();
+			if (b_.NoiseLevel == 2)
+				b_.rescale();
+			multPt(b_, rescale);
+			return;
+		}
+	}
 
-    assert(NoiseLevel < 2);
-    assert(b.NoiseLevel < 2);
-    c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL);
+	assert(NoiseLevel < 2);
+	assert(b.NoiseLevel < 2);
+	c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL);
 
-    // Manage metadata
-    NoiseLevel += b.NoiseLevel;
-    NoiseFactor *= b.NoiseFactor;
-    if (rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL) {
-        NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
-        NoiseLevel -= 1;
-    }
+	// Manage metadata
+	NoiseLevel += b.NoiseLevel;
+	NoiseFactor *= b.NoiseFactor;
+	if (rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL) {
+		NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
+		NoiseLevel -= 1;
+	}
 }
 
 void Plaintext::addPt(const Plaintext& c) {
-    CudaNvtxRange r(std::string{sc::current().function_name()}.substr());
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 
-    // assert(NoiseLevel == b.NoiseLevel);
-    c0.add(c.c0);
+	// assert(NoiseLevel == b.NoiseLevel);
+	c0.add(c.c0);
 }
 
 #endif

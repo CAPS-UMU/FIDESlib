@@ -12,8 +12,16 @@ bool sparse_encaps				  = true;
 bool boot_every_iter			  = false;
 std::vector<uint32_t> bStep		  = { 16, 16 };
 std::vector<uint32_t> levelBudget = { 2, 2 };
+uint32_t numSlots				  = 1 << 15;
 uint32_t ringDim				  = 1 << 16;
-uint32_t numSlots				  = ringDim / 2;
+
+// Read ring dim from env var if set
+void read_ring_dim() {
+	char* env = getenv("FIDESLIB_RING_DIM");
+	if (env && env[0] != '\0') {
+		ringDim = 1 << std::atoi(env);
+	}
+}
 
 static void print_usage(const char* name) {
 	std::cerr << "Usage:\n"
@@ -54,6 +62,9 @@ int main(int argc, char* argv[]) {
 	std::string mode  = argv[1];
 	dataset_t dataset = parse_dataset(argv[2]);
 	setup_devices();
+
+	read_ring_dim();
+	std::cout << "Using ring dimension: " << ringDim << std::endl;
 
 	if (mode == "train") {
 		if (argc != 6)

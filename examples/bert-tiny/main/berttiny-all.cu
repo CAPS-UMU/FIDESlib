@@ -5,6 +5,7 @@ using namespace FIDESlib::CKKS;
 
 int main(const int argc, char** argv) {
 	init_devices_from_env(); // Read GPU count from FIDESLIB_NUM_GPUS env var
+	read_ring_dim();			// Read ring dimension from FIDESLIB_RING_DIM env var (default to 16 if not set)
 
 	// ----- Dataset + model paths -----
 	const fs::path model_path_fs = fs::path(root_dir) / "weights/weights-bert-tiny-sst2";

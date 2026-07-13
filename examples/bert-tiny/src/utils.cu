@@ -3,6 +3,7 @@
 using namespace FIDESlib::CKKS;
 
 std::vector<int> devices{ 0 };
+uint32_t ringDim;
 
 lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc = nullptr;
 
@@ -92,7 +93,7 @@ void create_cpu_context() {
 	constexpr uint32_t num_large_digits = 3;
 	constexpr uint32_t depth			= 23;
 
-	const uint32_t ring_dim	 = 1u << 16; // logN = 16 -> N = 65536
+	const uint32_t ring_dim	 = 1 << ringDim;
 	const uint32_t num_slots = 1 << 14;
 
 	lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS> parameters;

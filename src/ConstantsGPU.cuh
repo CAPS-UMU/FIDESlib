@@ -36,6 +36,7 @@ struct Constants {
 	uint8_t table[MAXP * MAXP * 8];
 
 	uint64_t N_shoup[MAXP];
+	uint64_t one_shoup[MAXP];
 	uint64_t N_inv[MAXP];
 	uint64_t N_inv_shoup[MAXP];
 	uint64_t root[MAXP];

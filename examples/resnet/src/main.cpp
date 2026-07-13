@@ -9,11 +9,19 @@
 #define RED_TEXT "\033[1;31m"
 #define RESET_COLOR "\033[0m"
 
-
-
 #include "controller.hpp"
 #include "experiments.hpp"
 #include "args.hpp"
+
+uint32_t read_ring_dim() {
+	char* env = getenv("FIDESLIB_RING_DIM");
+	if (env && env[0] != '\0') {
+		return std::atoi(env);
+	}
+	else {
+		return 16;
+	}
+}
 
 int main(int argc, char* argv[]) {
 
@@ -28,7 +36,10 @@ int main(int argc, char* argv[]) {
 	// Get experiment settings.
 	experiment_settings settings = get_experiment_settings(program_args.context_index);
 	settings.verbose = program_args.verbose;
-		
+	settings.log_ring_dim = read_ring_dim();
+
+	std::cout << "Ring dimension set to: " << (1 << settings.log_ring_dim) << std::endl;
+
 	// Generate context for the experiment.
 	resnet_controller.generate_context(settings);
 	// Generate rotation keys and bootstrapping keys.

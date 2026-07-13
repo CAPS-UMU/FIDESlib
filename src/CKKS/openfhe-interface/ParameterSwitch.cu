@@ -69,19 +69,24 @@ createContextSwitchingKeys(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cca,
 		atob = std::dynamic_pointer_cast<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>>(ccb->GetScheme()->KeySwitchGen(a, skNew));
 	} else {
 		lbcrypto::DCRTPoly saNew = a->GetPrivateElement();
-		saNew.SetElementAtIndex(ccb->GetElementParams()->GetParams().size() - 1, saNew.GetAllElements().back());
+		auto& params			 = ccb->GetElementParams()->GetParams();
+		auto& paramsa			 = cca->GetElementParams()->GetParams();
+
+		saNew.SetElementAtIndex(params.size() - 1, saNew.GetAllElements().at(paramsa.size() - 1));
 		saNew.DropLastElements(saNew.GetAllElements().size() - ccb->GetElementParams()->GetParams().size());
+		saNew.SwitchModulusAtIndex(params.size() - 1, params.back()->GetModulus(), params.back()->GetRootOfUnity());
+
 		auto skaNew = std::make_shared<lbcrypto::PrivateKeyImpl<lbcrypto::DCRTPoly>>(cca);
 		skaNew->SetPrivateElement(std::move(saNew));
-
 		skaNew->SetKeyTag(a->GetKeyTag());
 
 		lbcrypto::DCRTPoly sbNew = skNew->GetPrivateElement();
-		sbNew.SetElementAtIndex(ccb->GetElementParams()->GetParams().size() - 1, sbNew.GetAllElements().back());
+		sbNew.SetElementAtIndex(params.size() - 1, sbNew.GetAllElements().at(params.size() - 1));
 		sbNew.DropLastElements(sbNew.GetAllElements().size() - ccb->GetElementParams()->GetParams().size());
+		sbNew.SwitchModulusAtIndex(params.size() - 1, params.back()->GetModulus(), params.back()->GetRootOfUnity());
+
 		auto skbNew = std::make_shared<lbcrypto::PrivateKeyImpl<lbcrypto::DCRTPoly>>(ccb);
 		skbNew->SetPrivateElement(std::move(sbNew));
-
 		skbNew->SetKeyTag(a->GetKeyTag());
 
 		atob = std::dynamic_pointer_cast<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>>(ccb->GetScheme()->KeySwitchGen(skaNew, skbNew));

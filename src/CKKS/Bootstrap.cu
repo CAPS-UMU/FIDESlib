@@ -233,7 +233,11 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		if constexpr (PRINT)
 			std::cout << "mult: " << constantEvalMult << std::endl;
 		ctxt.multScalar(constantEvalMult, false);
-
+		if (MODRAISE_WITH_P0) {
+			ctxt.rescale();
+			// ctxt.multScalar(1.0, false); // TODO remove
+			// ctxt.rescale();
+		}
 		if constexpr (PRINT) {
 			std::cout << "Raise scaled ";
 			for (auto& j : ctxt.c0.GPU) {
@@ -247,6 +251,15 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 
 		////////////////////////////////////////////////////////////////
 
+		if (sparse_encaps) {
+			auto& sparse_context = cc.GetBootPrecomputation(slots).sparse_context;
+
+			auto sparse_context_use = sparse_context.lock();
+
+			auto& btoa = CKKS::GetSecretSwitchingKey(sparse_context_use, ctxt.cc_, ctxt.keyID);
+
+			ctxt.keySwitch(btoa);
+		}
 		Accumulate(ctxt, cc.GetBootPrecomputation(slots).accumulate_bStep, slots, cc.N / 2 / slots);
 	}
 
@@ -426,8 +439,12 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 
 	double targetSF = ctxt.NoiseFactor;
 	if (cc.rescaleTechnique == CKKS::FLEXIBLEAUTO || cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT) {
-		uint32_t lvl	   = cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT;
-		targetSF		   = cc.param.ScalingFactorReal[cc.L - lvl];
+		uint32_t lvl = cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT;
+		if (MODRAISE_WITH_P0) {
+			targetSF = cc.param.ScalingFactorReal[cc.L - lvl]; // Will multiply with scalar scaled by P_0 and rescaled down by P_0.
+		} else {
+			targetSF = cc.param.ScalingFactorReal[cc.L - lvl];
+		}
 		double sourceSF	   = ctxt.NoiseFactor;	  // ciphertext->GetScalingFactor();
 		uint32_t numTowers = ctxt.getLevel() + 1; // ciphertext->GetElements()[0].GetNumOfElements();
 		double modToDrop   = static_cast<double>(cc.prime.at(numTowers - 1).p);
@@ -613,6 +630,10 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 	}
 	//   std::cout << "Grow" << std::endl;
 	ctxt.c0.grow(cc.L - (cc.rescaleTechnique == FLEXIBLEAUTOEXT));
+	if (MODRAISE_WITH_P0) {
+		ctxt.c0.generateSpecialLimbs(false, true);
+		ctxt.c0.setLevel(cc.L + 1);
+	}
 	//   std::cout << "Broadcast" << std::endl;
 	if constexpr (PRINT) {
 		CudaCheckErrorMod;
@@ -662,6 +683,10 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 	}
 	//  std::cout << "Grow" << std::endl;
 	ctxt.c1.grow(cc.L - (cc.rescaleTechnique == FLEXIBLEAUTOEXT));
+	if (MODRAISE_WITH_P0) {
+		ctxt.c1.generateSpecialLimbs(false, true);
+		ctxt.c1.setLevel(cc.L + 1);
+	}
 	//  std::cout << "Broadcast" << std::endl;
 	if constexpr (PRINT) {
 		std::cout << "Adjustment c1  ";
@@ -694,16 +719,6 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 			}
 		}
 		std::cout << std::endl;
-	}
-
-	if (sparse_encaps) {
-		auto& sparse_context = cc.GetBootPrecomputation(slots).sparse_context;
-
-		auto sparse_context_use = sparse_context.lock();
-
-		auto& btoa = CKKS::GetSecretSwitchingKey(sparse_context_use, ctxt.cc_, ctxt.keyID);
-
-		ctxt.keySwitch(btoa);
 	}
 
 	ctxt.slots = cc.N / 2;

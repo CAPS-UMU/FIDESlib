@@ -26,7 +26,8 @@
 #include "CKKS/openfhe-interface/ParameterSwitch.cuh"
 
 namespace FIDESlib::Testing {
-class OpenFHEInterfaceTest : public GeneralParametrizedTest {};
+class OpenFHEInterfaceTest : public GeneralParametrizedTest {
+};
 
 TEST_P(OpenFHEInterfaceTest, ExtractContextShowAdd) {
 	// Enable the features that you wish to use
@@ -36,9 +37,9 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowAdd) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	// FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
 	// FIDESlib::Global& host_global = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
@@ -118,9 +119,9 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextPtAutomorph) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	// FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
 	// FIDESlib::Global& host_global = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
@@ -205,13 +206,13 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextCreateSwitch) {
 	auto [swtch, sk_sparse] = CKKS::createContextSwitchingKeys(cc, cc_switch, keys, 32);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	FIDESlib::CKKS::RawParams raw_param2 = FIDESlib::CKKS::GetRawParams(cc_switch);
-	FIDESlib::CKKS::Context cc_switch_	 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param2), devices);
-	FIDESlib::CKKS::ContextData& GPUcc2	 = *cc_switch_;
+	FIDESlib::CKKS::Context cc_switch_   = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param2), devices);
+	FIDESlib::CKKS::ContextData& GPUcc2  = *cc_switch_;
 
 	FIDESlib::CKKS::RawKeySwitchKey rawKskEval = FIDESlib::CKKS::GetKeySwitchKey(swtch.first);
 	FIDESlib::CKKS::KeySwitchingKey ksk_atob(cc_switch_);
@@ -308,9 +309,9 @@ TEST_P(OpenFHEInterfaceTest, ScalarAdd) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -383,9 +384,9 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextRunNTT) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -481,11 +482,11 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMult) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -761,10 +762,10 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMultSquareScale) {
 */
 TEST_P(OpenFHEInterfaceTest, InitializeOpenFHE) {
 
-	// FIDESlib::CKKS::Context GPUcc{fideslibParams, devices};
-	FIDESlib::CKKS::Context& cc_	   = GPUcc;
-	cc_								   = CKKS::GenCryptoContextGPU(fideslibParams, devices);
-	FIDESlib::CKKS::ContextData& GPUcc = *cc_;
+	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	// Enable the features that you wish to use
 	cc->Enable(lbcrypto::PKE);
@@ -807,6 +808,161 @@ TEST_P(OpenFHEInterfaceTest, InitializeOpenFHE) {
 	std::cout << "Estimated precision in bits: " << result->GetLogPrecision() << std::endl;
 }
 
+#if MODRAISE_WITH_P0
+lbcrypto::Plaintext
+encodeExt(const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc, const std::vector<double>& value, size_t noiseScaleDeg, uint32_t L, uint32_t K, int slots) {
+
+	uint32_t M              = cc->GetCyclotomicOrder();
+	const auto cryptoParams = std::dynamic_pointer_cast<lbcrypto::CryptoParametersCKKSRNS>(cc->GetCryptoParameters());
+
+	lbcrypto::ILDCRTParams<lbcrypto::DCRTPoly::Integer> elementParams = *(cryptoParams->GetElementParams());
+
+	uint32_t towersToDrop = 0;
+
+	if (L != 0) {
+		towersToDrop = elementParams.GetParams().size() - L - 1;
+	}
+	for (uint32_t i = 0; i < towersToDrop; i++) {
+		elementParams.PopLastParam();
+	}
+
+	auto paramsQ   = elementParams.GetParams();
+	uint32_t sizeQ = paramsQ.size();
+	auto paramsP   = cryptoParams->GetParamsP()->GetParams();
+	{
+		uint32_t towersToDrop = 0;
+		if (K != 0) {
+			towersToDrop = paramsP.size() - K;
+		}
+		for (uint32_t i = 0; i < towersToDrop; i++) {
+			paramsP.pop_back();
+		}
+	}
+	uint32_t sizeP = paramsP.size();
+	std::vector<NativeInteger> moduli(sizeQ + sizeP);
+	std::vector<NativeInteger> roots(sizeQ + sizeP);
+	for (size_t i = 0; i < sizeQ; i++) {
+		moduli[i] = paramsQ[i]->GetModulus();
+		roots[i]  = paramsQ[i]->GetRootOfUnity();
+	}
+
+	for (size_t i = 0; i < sizeP; i++) {
+		moduli[sizeQ + i] = paramsP[i]->GetModulus();
+		roots[sizeQ + i]  = paramsP[i]->GetRootOfUnity();
+	}
+
+	auto elementParamsPtr = std::make_shared<lbcrypto::ILDCRTParams<lbcrypto::DCRTPoly::Integer>>(M, moduli, roots);
+
+	// auto res = cc->MakeCKKSPackedPlaintext(value, noiseScaleDeg, L, elementParamsPtr);
+
+	// return res;
+	std::vector<std::complex<double>> v;
+	std::ranges::transform(value, std::back_inserter(v), [](double r) { return std::complex<double>(r, 0); });
+
+	return std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)
+		->MakeAuxPlaintext(*cc,
+		                   elementParamsPtr,
+		                   v,
+		                   noiseScaleDeg,
+		                   towersToDrop,
+		                   slots
+		                   //	,
+		                   //	(noiseScaleDeg == 2 && K > 0) ?
+		                   //	  sqrt(cryptoParams->GetScalingFactorReal(cryptoParams->GetScalingTechnique() == lbcrypto::FLEXIBLEAUTOEXT) * moduli.back().ConvertToDouble()) : 0
+		);
+}
+
+TEST_P(OpenFHEInterfaceTest, Rescale) {
+	// Enable the features that you wish to use
+	cc->Enable(lbcrypto::PKE);
+	cc->Enable(lbcrypto::KEYSWITCH);
+	cc->Enable(lbcrypto::LEVELEDSHE);
+	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
+	cc->EvalMultKeyGen(keys.secretKey);
+
+	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
+	///// PROBAR /////
+	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x3 = { 0.0 };
+
+	if constexpr (MODRAISE_WITH_P0) {
+		// Encoding as plaintexts
+		// lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 2, 1);
+		lbcrypto::Plaintext ptxt1 = encodeExt(cc, x1, 2, 0, 1, 8);
+		lbcrypto::Plaintext ptxt3 = cc->MakeCKKSPackedPlaintext(x3);
+
+		std::cout << "Input x1: " << ptxt1 << std::endl;
+
+		// Encrypt the encoded vectors
+		auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
+		auto c3 = cc->Encrypt(keys.publicKey, ptxt3);
+
+		FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
+		FIDESlib::CKKS::Ciphertext GPUct1(cc_, raw1);
+
+		lbcrypto::Plaintext result;
+		// auto cAdd = cc->Rescale(c1);
+		cc->Decrypt(keys.secretKey, c1, &result);
+		std::cout << "Result " << result;
+
+		GPUct1.rescale();
+
+		FIDESlib::CKKS::RawCipherText raw_res1;
+		GPUct1.store(raw_res1);
+		auto cResGPU(c3);
+
+		GetOpenFHECipherText(cResGPU, raw_res1);
+		lbcrypto::Plaintext resultGPU;
+		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
+
+		std::cout << "Result GPU " << resultGPU;
+
+		// ASSERT_EQ_CIPHERTEXT(c1, cResGPU);
+
+		CudaCheckErrorMod;
+	}
+
+	for (int i = 0; i < GPUcc.L; ++i) {
+		// Encoding as plaintexts
+		lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 2, i);
+		lbcrypto::Plaintext ptxt3 = cc->MakeCKKSPackedPlaintext(x3);
+
+		std::cout << "Input x1: " << ptxt1 << std::endl;
+
+		// Encrypt the encoded vectors
+		auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
+		auto c3 = cc->Encrypt(keys.publicKey, ptxt3);
+
+		FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
+		FIDESlib::CKKS::Ciphertext GPUct1(cc_, raw1);
+
+		lbcrypto::Plaintext result;
+		auto cAdd = cc->Rescale(c1);
+		cc->Decrypt(keys.secretKey, cAdd, &result);
+		std::cout << "Result " << result;
+
+		GPUct1.rescale();
+
+		FIDESlib::CKKS::RawCipherText raw_res1;
+		GPUct1.store(raw_res1);
+		auto cResGPU(c3);
+
+		GetOpenFHECipherText(cResGPU, raw_res1);
+		lbcrypto::Plaintext resultGPU;
+		cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
+
+		std::cout << "Result GPU " << resultGPU;
+
+		ASSERT_EQ_CIPHERTEXT(cAdd, cResGPU);
+
+		CudaCheckErrorMod;
+	}
+}
+#endif
+
 TEST_P(OpenFHEInterfaceTest, MultScalar) {
 	// Enable the features that you wish to use
 	cc->Enable(lbcrypto::PKE);
@@ -815,9 +971,9 @@ TEST_P(OpenFHEInterfaceTest, MultScalar) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
@@ -908,8 +1064,8 @@ TEST_P(OpenFHEInterfaceTest, Mult) {
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
 
-	FIDESlib::CKKS::Context& cc_	   = GPUcc;
-	cc_								   = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::Context& cc_       = GPUcc;
+	cc_                                = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
 	FIDESlib::CKKS::ContextData& GPUcc = *cc_;
 	{
 		FIDESlib::CKKS::KeySwitchingKey kskEval(cc_);
@@ -966,9 +1122,9 @@ TEST_P(OpenFHEInterfaceTest, Square) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 	cc->EvalMultKeyGen(keys.secretKey);
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -1040,9 +1196,9 @@ TEST_P(OpenFHEInterfaceTest, MultRescale) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -1108,9 +1264,9 @@ TEST_P(OpenFHEInterfaceTest, Rotate) {
 	cc->EvalRotateKeyGen(keys.secretKey, { 1 });
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
@@ -1173,16 +1329,16 @@ TEST_P(OpenFHEInterfaceTest, Conjugate) {
 	cc->EvalRotateKeyGen(keys.secretKey, { 1 });
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	std::vector<double> x3 = { 0.0 };
 
-	auto FHE					= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
-	auto conjKey				= FHE->ConjugateKeyGen(keys.secretKey);
-	auto& evalKeyMap			= cc->GetEvalAutomorphismKeyMap(keys.publicKey->GetKeyTag());
+	auto FHE                    = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+	auto conjKey                = FHE->ConjugateKeyGen(keys.secretKey);
+	auto& evalKeyMap            = cc->GetEvalAutomorphismKeyMap(keys.publicKey->GetKeyTag());
 	evalKeyMap[GPUcc.N * 2 - 1] = conjKey;
 
 	FIDESlib::CKKS::KeySwitchingKey kskEval(cc_);
@@ -1243,9 +1399,9 @@ TEST_P(OpenFHEInterfaceTest, HoistedRotate) {
 	cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 3, 4 });
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
@@ -1373,9 +1529,9 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMultAllLevels) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -1463,15 +1619,15 @@ TEST_P(OpenFHEInterfaceTest, MultAllLevels) {
 
 	std::cout << "Input x1: " << ptxt1 << std::endl;
 
-	auto c1	  = cc->Encrypt(keys.publicKey, ptxt1);
+	auto c1   = cc->Encrypt(keys.publicKey, ptxt1);
 	auto c2_1 = cc->Encrypt(keys.publicKey, ptxt1);
 	auto c2_2 = cc->Encrypt(keys.publicKey, ptxt2);
-	auto c3	  = cc->Encrypt(keys.publicKey, ptxt3);
+	auto c3   = cc->Encrypt(keys.publicKey, ptxt3);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 	FIDESlib::CKKS::Ciphertext GPUct1(cc_, raw1);
@@ -1553,9 +1709,9 @@ TEST_P(OpenFHEInterfaceTest, RotateAllLevels) {
 	cc->EvalRotateKeyGen(keys.secretKey, { 1 });
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
@@ -1574,8 +1730,8 @@ TEST_P(OpenFHEInterfaceTest, RotateAllLevels) {
 		std::cout << "Input x1: " << ptxt1 << std::endl;
 
 		// Encrypt the encoded vectors
-		auto c1							   = cc->Encrypt(keys.publicKey, ptxt1);
-		auto c3							   = cc->Encrypt(keys.publicKey, ptxt3);
+		auto c1                            = cc->Encrypt(keys.publicKey, ptxt1);
+		auto c3                            = cc->Encrypt(keys.publicKey, ptxt3);
 		FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
 		FIDESlib::CKKS::Ciphertext GPUct1(cc_, raw1);
 
@@ -1615,9 +1771,9 @@ TEST_P(OpenFHEInterfaceTest, SquareAllLevels) {
 	fideslibParams.batch = 3;
 	std::cout << "Batch " << 3 << std::endl;
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
@@ -1677,15 +1833,15 @@ TEST_P(OpenFHEInterfaceTest, HoistedRotateAllLevels) {
 	// cc->EvalMultKeyGen(keys.secretKey);
 	cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 3, 4 });
 
-	fideslibParams.batch				= 3;
+	fideslibParams.batch                = 3;
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
-	std::vector<double> x3	  = { 0.0 };
+	std::vector<double> x3    = { 0.0 };
 	lbcrypto::Plaintext ptxt3 = cc->MakeCKKSPackedPlaintext(x3);
 
 	FIDESlib::CKKS::KeySwitchingKey kskRot1(cc_);
@@ -1798,15 +1954,15 @@ TEST_P(OpenFHEInterfaceTest, AccumAllLevels) {
 	// cc->EvalMultKeyGen(keys.secretKey);
 	cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 3, 4 });
 
-	fideslibParams.batch				= 3;
+	fideslibParams.batch                = 3;
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
-	std::vector<double> x3	  = { 0.0 };
+	std::vector<double> x3    = { 0.0 };
 	lbcrypto::Plaintext ptxt3 = cc->MakeCKKSPackedPlaintext(x3);
 
 	auto rotations = CKKS::GetAccumulateRotationIndices(4, 1, 8);
@@ -1829,10 +1985,10 @@ TEST_P(OpenFHEInterfaceTest, AccumAllLevels) {
 		lbcrypto::Plaintext result1;
 
 		auto cpu_tmp = cc->EvalRotate(c1, 1);
-		auto cpu_r1	 = cc->EvalAdd(c1, cpu_tmp);
+		auto cpu_r1  = cc->EvalAdd(c1, cpu_tmp);
 		for (int j = 2; j < 8; ++j) {
 			cpu_tmp = cc->EvalRotate(cpu_tmp, 1);
-			cpu_r1	= cc->EvalAdd(cpu_tmp, cpu_r1);
+			cpu_r1  = cc->EvalAdd(cpu_tmp, cpu_r1);
 		}
 
 		std::cout << "Rotate:\n";
@@ -1874,9 +2030,9 @@ TEST_P(OpenFHEInterfaceTest, MatVec) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	FIDESlib::CKKS::KeySwitchingKey kskEval(cc_);
 	FIDESlib::CKKS::RawKeySwitchKey rawKskEval = FIDESlib::CKKS::GetEvalKeySwitchKey(keys);
@@ -1986,9 +2142,9 @@ TEST_P(OpenFHEInterfaceTest, MatVecPt) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
@@ -2071,9 +2227,9 @@ TEST_P(OpenFHEInterfaceTest, MatVecPtScalar) {
 	std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	///// PROBAR /////
 	std::vector<double> x1 = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
@@ -2145,7 +2301,8 @@ TEST_P(OpenFHEInterfaceTest, MatVecPtScalar) {
 // Define the parameter sets
 INSTANTIATE_TEST_SUITE_P(OpenFHEInterfaceTests, OpenFHEInterfaceTest, testing::Values(TTALL64BOOT));
 
-class OpenFHEBootstrapTest : public GeneralParametrizedTest {};
+class OpenFHEBootstrapTest : public GeneralParametrizedTest {
+};
 
 /*
 TEST_P(OpenFHEBootstrapTest, ModRaise) {
@@ -2257,7 +2414,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, -0.75, -0.50, -0.25, 0.1, -0.1 };
 
 	// Encoding as plaintexts
-	int slots				  = cc->GetRingDimension() / 2;
+	int slots                 = cc->GetRingDimension() / 2;
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
@@ -2270,9 +2427,9 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
 	FIDESlib::CKKS::KeySwitchingKey kskEval(cc_);
@@ -2282,7 +2439,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	// Encrypt the encoded vectors
 	auto ctxtEnc  = cc->Encrypt(keys.publicKey, ptxt1);
 	auto ctxtEncI = cc->Encrypt(keys.publicKey, ptxt2);
-	auto c2		  = cc->Encrypt(keys.publicKey, ptxt2);
+	auto c2       = cc->Encrypt(keys.publicKey, ptxt2);
 
 	// coefficients 0.154214 -0.00376715 0.16032 -0.00345397 0.177115 -0.00276197 0.199498 -0.0015928 0.217569 0.0001073 0.216004 0.00221714 0.176475 0.00428562
 	// 0.0861745 0.00546403 -0.046668 0.00473469 -0.177127 0.00162051 -0.227031 -0.00281458 -0.131231 -0.00563456 0.0788184 -0.00378689 0.232264 0.00211163
@@ -2324,9 +2481,9 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 	}
 
 	if (0) {
-		auto FHE		= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+		auto FHE        = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
 		auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-		auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
+		auto conj       = FHE->Conjugate(ctxtEnc, evalKeyMap);
 		// auto ctxtEncI = ctxtEnc;
 		auto ctxtEncI = cc->EvalSub(ctxtEnc, conj);
 		cc->EvalAddInPlace(ctxtEnc, conj);
@@ -2384,7 +2541,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 
 	/////////////////////////////////////////////////////////////////////////////////////////////////
 	// Evaluate Chebyshev series for the sine wave
-	ctxtEnc	 = cc->EvalChebyshevSeries(ctxtEnc, GPUcc.GetCoeffsChebyshev(), -1.0, 1.0);
+	ctxtEnc  = cc->EvalChebyshevSeries(ctxtEnc, GPUcc.GetCoeffsChebyshev(), -1.0, 1.0);
 	ctxtEncI = cc->EvalChebyshevSeries(ctxtEncI, GPUcc.GetCoeffsChebyshev(), -1.0, 1.0);
 
 	/*
@@ -2400,7 +2557,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEval) {
 		*/
 	// Double-angle iterations
 	if (true
-	  //(cryptoParams->GetSecretKeyDist() == UNIFORM_TERNARY) || (cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY)
+		//(cryptoParams->GetSecretKeyDist() == UNIFORM_TERNARY) || (cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY)
 	) {
 		if (false) {
 			// cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
@@ -2537,9 +2694,9 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEvalSparse) {
 	// auto ctxtEnc = (isLTBootstrap) ? std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalLinearTransform(precom->m_U0hatTPre,
 	// raised) : std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->EvalCoeffsToSlots(precom->m_U0hatTPreFFT, raised);
 
-	auto ctxtEnc	= c1->Clone();
+	auto ctxtEnc    = c1->Clone();
 	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-	auto conj		= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->Conjugate(ctxtEnc, evalKeyMap);
+	auto conj       = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->Conjugate(ctxtEnc, evalKeyMap);
 	cc->EvalAddInPlace(ctxtEnc, conj);
 
 	const auto cryptoParams = std::dynamic_pointer_cast<lbcrypto::CryptoParametersCKKSRNS>(cc->GetCryptoParameters());
@@ -2563,8 +2720,8 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEvalSparse) {
 	}
 
 	{
-		FIDESlib::CKKS::Context& cc_	   = GPUcc;
-		cc_								   = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+		FIDESlib::CKKS::Context& cc_       = GPUcc;
+		cc_                                = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
 		FIDESlib::CKKS::ContextData& GPUcc = *cc_;
 
 		FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, 8, cc_);
@@ -2614,7 +2771,7 @@ TEST_P(OpenFHEBootstrapTest, ApproxModEvalSparse) {
 
 		// Double-angle iterations
 		if (true //(cryptoParams->GetSecretKeyDist() == UNIFORM_TERNARY) ||
-				 //(cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY)
+			//(cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY)
 		) {
 			if (false // cryptoParams->GetScalingTechnique() != FIXEDMANUAL
 			) {
@@ -2686,11 +2843,11 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
-	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1 = { 0.25, 0.5, 0.75, 0.1, -0.1, -0.75, -0.5, -0.25 };;
 
 	const int slots = 32;
 	// Encoding as plaintexts
@@ -2721,7 +2878,7 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 	// -3.64609e-07 6.5277e-06 6.89578e-08 -1.18428e-06 -1.20151e-08 1.98393e-07 1.9372e-09 -3.08154e-08 -2.90138e-10 4.45409e-09 4.05051e-11 -6.01049e-10
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	std::cout << "Run bootstrap start" << std::endl;
-	auto FHE	= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+	auto FHE    = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
 	auto raised = c1->Clone(); // FHE->EvalBootstrapSetupOnly(c1, 1, 0);
 	// cc->GetScheme()->ModReduceInternalInPlace(raised, 1);
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
@@ -2779,7 +2936,7 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 	auto ctxtEnc = FHE->EvalLinearTransform(plains, raised);
 
 	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-	auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
+	auto conj       = FHE->Conjugate(ctxtEnc, evalKeyMap);
 	cc->EvalAddInPlace(ctxtEnc, conj);
 
 	//    lbcrypto::Plaintext result;
@@ -2814,7 +2971,7 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
 
 			{
 				auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(cResGPU->GetKeyTag());
-				auto conj		= FHE->Conjugate(cResGPU, evalKeyMap);
+				auto conj       = FHE->Conjugate(cResGPU, evalKeyMap);
 				cc->EvalAddInPlace(cResGPU, conj);
 			}
 
@@ -2853,14 +3010,14 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
-	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+	std::vector<double> x1 = { 0.25, 0.5, 0.75, 0.1, -0.1, -0.75, -0.5, -0.25 };
 
 	// Encoding as plaintexts
-	int slots				  = GPUcc.N / 2; // cc->GetRingDimension() / 2;
+	int slots                 = GPUcc.N / 2; // cc->GetRingDimension() / 2;
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, GPUcc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 2 : 1, nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
@@ -2885,7 +3042,7 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 	// -3.64609e-07 6.5277e-06 6.89578e-08 -1.18428e-06 -1.20151e-08 1.98393e-07 1.9372e-09 -3.08154e-08 -2.90138e-10 4.45409e-09 4.05051e-11 -6.01049e-10
 	// -5.28733e-12 7.59432e-11 6.46796e-13 -9.00812e-12 -7.43969e-14 1.00574e-12 8.17012e-15 -1.06117e-13 -8.95975e-16 1.14216e-14
 	std::cout << "Run bootstrap start" << std::endl;
-	auto FHE	= std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
+	auto FHE    = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
 	auto raised = c1->Clone(); // FHE->EvalBootstrapSetupOnly(c1, 1, 0);
 
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
@@ -2944,7 +3101,7 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 	cc->RescaleInPlace(ctxtEnc);
 
 	auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-	auto conj		= FHE->Conjugate(ctxtEnc, evalKeyMap);
+	auto conj       = FHE->Conjugate(ctxtEnc, evalKeyMap);
 	cc->EvalAddInPlace(ctxtEnc, conj);
 
 	//    lbcrypto::Plaintext result;
@@ -2976,7 +3133,7 @@ TEST_P(OpenFHEBootstrapTest, CoeffsToSlots) {
 
 			{
 				auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(cResGPU->GetKeyTag());
-				auto conj		= FHE->Conjugate(cResGPU, evalKeyMap);
+				auto conj       = FHE->Conjugate(cResGPU, evalKeyMap);
 				cc->EvalAddInPlace(cResGPU, conj);
 			}
 
@@ -3009,14 +3166,14 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 
 	// Encoding as plaintexts
-	int slots				  = GPUcc.N / 2;
+	int slots                 = GPUcc.N / 2;
 	lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, (GPUcc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 2 : 1) + 3 + (7 + 6), nullptr, slots);
 	lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
 
@@ -3044,7 +3201,7 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
 	auto FHE = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
 	// auto raised = FHE->EvalBootstrapNoStC(c1, 1, 0);
 	// cc->GetScheme()->ModReduceInternalInPlace(c1, 3 + (7 + 6));
-	auto raised						   = c1->Clone();
+	auto raised                        = c1->Clone();
 	FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, raised);
 	FIDESlib::CKKS::Ciphertext GPUct1_(cc_, raw1);
 	{
@@ -3249,9 +3406,9 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrap) {
 
 	cc->EvalMultKeyGen(keys.secretKey);
 
-	int slots = 1 << 4;
+	int slots = 1 << 5;
 	std::cout << "Setup Bootstrap" << std::endl;
-	cc->EvalBootstrapSetup({ 2, 2 }, { 2, 2 }, slots);
+	cc->EvalBootstrapSetup({ 2, 2 }, { 0, 0 }, slots);
 
 	std::cout << "Generate keys" << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);
@@ -3271,7 +3428,8 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrap) {
 	auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
 	auto c2 = cc->Encrypt(keys.publicKey, ptxt2);
 
-	auto cAdd = cc->EvalBootstrap(c1);
+	// auto cAdd = cc->EvalBootstrap(c1);
+	auto cAdd = c1->Clone();
 
 	lbcrypto::Plaintext result;
 	std::cout << cAdd->GetLevel() << "\n";
@@ -3279,8 +3437,8 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrap) {
 
 	std::cout << "Result " << result;
 
-	FIDESlib::CKKS::Context& cc_	   = GPUcc;
-	cc_								   = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::Context& cc_       = GPUcc;
+	cc_                                = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
 	FIDESlib::CKKS::ContextData& GPUcc = *cc_;
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
@@ -3384,8 +3542,8 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapManualPrescale) {
 
 	std::cout << "Result " << result;
 
-	FIDESlib::CKKS::Context& cc_	   = GPUcc;
-	cc_								   = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::Context& cc_       = GPUcc;
+	cc_                                = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
 	FIDESlib::CKKS::ContextData& GPUcc = *cc_;
 
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
@@ -3464,9 +3622,9 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapLT) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -3495,7 +3653,7 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapLT) {
 
 	lbcrypto::Plaintext result;
 	std::cout << "Setup Bootstrap" << std::endl;
-	cc->EvalBootstrapSetup({ 1, 1 }, { 4, 4 }, slots);
+	cc->EvalBootstrapSetup({ 1, 1 }, { 4, 4 }, slots, 0, true, false);
 
 	std::cout << "Generate keys" << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);
@@ -3503,8 +3661,8 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapLT) {
 	FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
 
 	if (1) {
-		auto cAdd = cc->EvalBootstrap(c1);
-		// auto cAdd = c1;
+		// auto cAdd = cc->EvalBootstrap(c1);
+		auto cAdd = c1->Clone();
 		/*{
 			cc->RescaleInPlace(cAdd);
 			auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(cAdd->GetKeyTag());
@@ -3513,7 +3671,6 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapLT) {
 
 		std::cout << cAdd->GetLevel() << "\n";
 		cc->Decrypt(keys.secretKey, cAdd, &result);
-
 		std::cout << "Result " << result;
 	}
 	///////////////////////////////////////////////////////////7777
@@ -3588,10 +3745,10 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapDense) {
 	cc->EvalMultKeyGen(keys.secretKey);
 
 	FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
-	FIDESlib::CKKS::Context& cc_		= GPUcc;
-	cc_									= CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
-	FIDESlib::CKKS::ContextData& GPUcc	= *cc_;
-	GPUcc.batch							= 100;
+	FIDESlib::CKKS::Context& cc_        = GPUcc;
+	cc_                                 = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+	FIDESlib::CKKS::ContextData& GPUcc  = *cc_;
+	GPUcc.batch                         = 100;
 	///// PROBAR /////
 	std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 	std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
@@ -3616,7 +3773,13 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapDense) {
 	// cc->EvalBootstrapSetup({5, 5}, {0, 0}, slots);
 
 	cc->EvalBootstrapSetup(
-	  { 3, 3 }, { 16, 16 }, slots, 0, true, false, lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
+		{ 3, 3 },
+		{ 16, 16 },
+		slots,
+		0,
+		true,
+		false,
+		lbcrypto::GetMultiplicativeDepthByCoeffVector(GPUcc.GetCoeffsChebyshev(), false) + GPUcc.GetDoubleAngleIts());
 
 	std::cout << "Generate keys" << std::endl;
 	cc->EvalBootstrapKeyGen(keys.secretKey, slots);

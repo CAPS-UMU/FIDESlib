@@ -36,6 +36,10 @@ enum ALGO { ALGO_NATIVE = 0, ALGO_NONE = 1, ALGO_SHOUP = 3, ALGO_BARRETT = 4, AL
 constexpr ALGO DEFAULT_ALGO = ALGO_BARRETT;
 
 enum BOOT_CONFIG { UNIFORM = 0, UNIFORM_2 = 1, SPARSE = 2, ENCAPS = 3, ENCAPS_2 = 4 };
+
+constexpr bool MODRAISE_WITH_P0 = false;
+constexpr int MAXG				= 8;
+
 } // namespace FIDESlib
 
 // namespace FIDESlib::CKKS

@@ -281,6 +281,117 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 				dest[i][j] = src[i][j].ConvertToInt<uint64_t>();
 			}
 		}
+
+		if (MODRAISE_WITH_P0) {
+			size_t k_ = cryptoParams->GetElementParams()->GetParams().size();
+			std::vector<NativeInteger> moduliQ(k_ + 1);
+			std::vector<NativeInteger> rootsQ(k_ + 1);
+			for (size_t i = 0; i < k_; i++) {
+				moduliQ[i] = cc->GetElementParams()->GetParams()[i]->GetModulus();
+				rootsQ[i]  = cc->GetElementParams()->GetParams()[i]->GetRootOfUnity();
+			}
+			moduliQ[k_] = cryptoParams->GetParamsP()->GetParams().at(0)->GetModulus();
+			rootsQ[k_]	= cryptoParams->GetParamsP()->GetParams().at(0)->GetRootOfUnity();
+
+			dest.resize(dest.size() + 1);
+			dest[k_ - 1].resize(k_);
+
+			for (int k = 1; k <= cryptoParams->GetElementParams()->GetParams().size(); ++k) {
+
+				lbcrypto::BigInteger modulusQ = cryptoParams->GetElementParams()->GetModulus();
+
+				int curr_l = cryptoParams->GetElementParams()->GetParams().size();
+				while (curr_l > (k - (cryptoParams->GetElementParams()->GetParams().size() == k && lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()))) {
+					// divide modulus q by the small last limb
+					modulusQ = modulusQ / lbcrypto::BigInteger(moduliQ.at(curr_l - 1));
+					// k -= 1;
+					curr_l--;
+				}
+				/*
+				m_QlQlInvModqlDivqlModq.resize(sizeQ - 1);
+				m_QlQlInvModqlDivqlModqPrecon.resize(sizeQ - 1);
+				m_qlInvModq.resize(sizeQ - 1);
+				m_qlInvModqPrecon.resize(sizeQ - 1);
+				for (size_t k = 0; k < sizeQ - 1; k++) {
+					size_t l = sizeQ - (k + 1);
+					modulusQ = modulusQ / BigInteger(moduliQ[l]);
+					m_QlQlInvModqlDivqlModq[k].resize(l);
+					m_QlQlInvModqlDivqlModqPrecon[k].resize(l);
+					m_qlInvModq[k].resize(l);
+					m_qlInvModqPrecon[k].resize(l);
+					BigInteger QlInvModql = modulusQ.ModInverse(moduliQ[l]);
+					BigInteger result     = (QlInvModql * modulusQ) / BigInteger(moduliQ[l]);
+					for (uint32_t i = 0; i < l; i++) {
+						m_QlQlInvModqlDivqlModq[k][i]       = result.Mod(moduliQ[i]).ConvertToInt();
+						m_QlQlInvModqlDivqlModqPrecon[k][i] = m_QlQlInvModqlDivqlModq[k][i].PrepModMulConst(moduliQ[i]);
+						m_qlInvModq[k][i]                   = moduliQ[l].ModInverse(moduliQ[i]);
+						m_qlInvModqPrecon[k][i]             = m_qlInvModq[k][i].PrepModMulConst(moduliQ[i]);
+					}
+				}
+				*/
+				lbcrypto::NativeInteger moduliP0 = moduliQ[k];
+				lbcrypto::BigInteger QlInvModp0	 = modulusQ.ModInverse(moduliP0);
+				lbcrypto::BigInteger result		 = (QlInvModp0 * modulusQ) / lbcrypto::BigInteger(moduliP0);
+				for (int i = 0; i < k; i++) {
+					if (k < cryptoParams->GetElementParams()->GetParams().size()) {
+						uint64_t res = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
+						assert(dest[cryptoParams->GetElementParams()->GetParams().size() - k - 1][i] == res);
+					} else {
+						dest[k - 1][i] = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
+					}
+					// hG_.QlQlInvModqlDivqlModq[q.size()][i] = result.Mod(moduliQ[i]).ConvertToInt();
+				}
+			}
+		}
+
+		if (MODRAISE_WITH_P0) {
+			dest.resize(dest.size() + 1);
+			size_t k = cryptoParams->GetElementParams()->GetParams().size();
+			dest[k - 1].resize(k);
+			lbcrypto::BigInteger modulusQ = cryptoParams->GetElementParams()->GetModulus();
+			std::vector<NativeInteger> moduliQ(k);
+			std::vector<NativeInteger> rootsQ(k);
+
+			for (size_t i = 0; i < k; i++) {
+				moduliQ[i] = cc->GetElementParams()->GetParams()[i]->GetModulus();
+				rootsQ[i]  = cc->GetElementParams()->GetParams()[i]->GetRootOfUnity();
+			}
+			if (lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()) {
+				// divide modulus q by the small last limb
+				modulusQ = modulusQ / lbcrypto::BigInteger(moduliQ.back());
+				// k -= 1;
+			}
+			/*
+			m_QlQlInvModqlDivqlModq.resize(sizeQ - 1);
+			m_QlQlInvModqlDivqlModqPrecon.resize(sizeQ - 1);
+			m_qlInvModq.resize(sizeQ - 1);
+			m_qlInvModqPrecon.resize(sizeQ - 1);
+			for (size_t k = 0; k < sizeQ - 1; k++) {
+				size_t l = sizeQ - (k + 1);
+				modulusQ = modulusQ / BigInteger(moduliQ[l]);
+				m_QlQlInvModqlDivqlModq[k].resize(l);
+				m_QlQlInvModqlDivqlModqPrecon[k].resize(l);
+				m_qlInvModq[k].resize(l);
+				m_qlInvModqPrecon[k].resize(l);
+				BigInteger QlInvModql = modulusQ.ModInverse(moduliQ[l]);
+				BigInteger result     = (QlInvModql * modulusQ) / BigInteger(moduliQ[l]);
+				for (uint32_t i = 0; i < l; i++) {
+					m_QlQlInvModqlDivqlModq[k][i]       = result.Mod(moduliQ[i]).ConvertToInt();
+					m_QlQlInvModqlDivqlModqPrecon[k][i] = m_QlQlInvModqlDivqlModq[k][i].PrepModMulConst(moduliQ[i]);
+					m_qlInvModq[k][i]                   = moduliQ[l].ModInverse(moduliQ[i]);
+					m_qlInvModqPrecon[k][i]             = m_qlInvModq[k][i].PrepModMulConst(moduliQ[i]);
+				}
+			}
+			*/
+			lbcrypto::NativeInteger moduliP0 = cryptoParams->GetParamsP()->GetParams().at(0)->GetModulus();
+			lbcrypto::BigInteger QlInvModp0	 = modulusQ.ModInverse(moduliP0);
+			lbcrypto::BigInteger result		 = (QlInvModp0 * modulusQ) / lbcrypto::BigInteger(moduliP0);
+			for (uint32_t i = 0; i < k; i++) {
+				assert(dest[k - 1][i] == result.Mod(moduliQ[i]).ConvertToInt<uint64_t>());
+				//  dest[k - 1][i] = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
+				//  hG_.QlQlInvModqlDivqlModq[q.size()][i] = result.Mod(moduliQ[i]).ConvertToInt();
+			}
+		}
 	}
 
 	/// Key Switching precomputations !!!
@@ -455,17 +566,19 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 		} else if (boot_conf == FIDESlib::SPARSE) {
 			result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsSparse;
 			// k = K_SPARSE;
-			result.bootK		  = cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY ?
+			result.bootK		  = cryptoParams->GetSecretKeyDist() == lbcrypto::SPARSE_TERNARY ?
 					   1.0 :
 					   std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->K_SPARSE; // do not divide by k as we already did it during precomputation
 			result.doubleAngleIts = lbcrypto::FHECKKSRNS::R_SPARSE;
-			result.sparse_encaps  = cryptoParams->GetSecretKeyDist() == SPARSE_TERNARY ? false : true;
+			auto dist			  = cryptoParams->GetSecretKeyDist();
+			result.sparse_encaps  = dist == lbcrypto::SPARSE_TERNARY ? false : true;
 			// } else if (cryptoParams->GetSecretKeyDist() == SPARSE_ENCAPSULATED) {    // Switch to this with OpenFHE v1.4, remove the flag
 		} else if (boot_conf == FIDESlib::UNIFORM) {
 			// result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsUniform;
 			result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsUniform;
 			result.bootK			 = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->K_UNIFORM; // lbcrypto::FHECKKSRNS::K_UNIFORM;
 			result.doubleAngleIts	 = lbcrypto::FHECKKSRNS::R_UNIFORM;
+			result.sparse_encaps	 = false;
 		} else if (boot_conf == FIDESlib::UNIFORM_2) {
 			result.coefficientsCheby = { 2.207266599864877165693144e-01,
 				-2.682587999577537660883531e-03,
@@ -518,6 +631,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 				3.507103856919978252042301e-10 };
 			result.bootK			 = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->K_UNIFORM; // lbcrypto::FHECKKSRNS::K_UNIFORM;
 			result.doubleAngleIts	 = 7;
+			result.sparse_encaps	 = false;
 		}
 
 		;
@@ -718,17 +832,22 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 	BootstrapPrecomputation result;
 	auto precom = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
 
+	uint32_t M = cc->GetCyclotomicOrder();
+	uint32_t N = cc->GetRingDimension();
+
+	int slots_red = std::min((int)M / 4, slots * 2);
+
 	if (precom->m_paramsEnc.lvlb /* [CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1 && precom->m_paramsDec.lvlb /*[CKKS_BOOT_PARAMS::LEVEL_BUDGET]*/ == 1) {
 
 		result.LT.slots = slots;
 		result.LT.bStep = (precom->m_paramsEnc.g /*m_dim1*/ == 0) ? ceil(sqrt(slots)) : precom->m_paramsEnc.g /*m_dim1*/;
 
 		for (int i = 1; i < result.LT.bStep; ++i) {
-			indexes.push_back(i);
+			indexes.push_back(ReduceRotation(i, slots_red));
 		}
 
 #if AFFINE_LT
-		indexes.push_back(result.LT.bStep);
+		indexes.push_back(ReduceRotation(result.LT.bStep, slots_red));
 #else
 		for (int i = result.LT.bStep; i < result.LT.slots; i += result.LT.bStep) {
 			indexes.push_back(i);
@@ -736,8 +855,6 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 #endif
 	} else {
 		{ // CoeffToSlots metadata
-			uint32_t M = cc->GetCyclotomicOrder();
-			uint32_t N = cc->GetRingDimension();
 
 			int32_t levelBudget		= precom->m_paramsEnc.lvlb;			   // [CKKS_BOOT_PARAMS::LEVEL_BUDGET];
 			int32_t layersCollapse	= precom->m_paramsEnc.layersCollapse;  //[CKKS_BOOT_PARAMS::LAYERS_COLL];
@@ -781,33 +898,21 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 
 				for (int32_t s = levelBudget - 1; s > stop; s--) {
 					for (int32_t j = 0; j < g; j++) {
-						result.CtS[s].rotIn[j] = ReduceRotation((j - int32_t((numRotations + 1) / 2) + 1) * (1 << ((s - flagRem) * layersCollapse + remCollapse)), slots);
+						result.CtS[s].rotIn[j] = ReduceRotation((j) * (1 << ((s - flagRem) * layersCollapse + remCollapse)), slots_red);
 					}
 
 					for (int32_t i = 0; i < b; i++) {
-						result.CtS[s].rotOut[i] = ReduceRotation((g * i) * (1 << ((s - flagRem) * layersCollapse + remCollapse)), M / 4);
+						result.CtS[s].rotOut[i] = ReduceRotation((g * i) * (1 << ((s - flagRem) * layersCollapse + remCollapse)), slots_red);
 					}
 				}
 
 				if (flagRem) {
 					for (int32_t j = 0; j < gRem; j++) {
-						result.CtS[stop].rotIn[j] = ReduceRotation((j - int32_t((numRotationsRem + 1) / 2) + 1), slots);
+						result.CtS[stop].rotIn[j] = ReduceRotation((j), slots_red);
 					}
 
 					for (int32_t i = 0; i < bRem; i++) {
-						result.CtS[stop].rotOut[i] = ReduceRotation((gRem * i), M / 4);
-					}
-				}
-
-				if constexpr (AFFINE_LT && MAKE_CTS_LT_FRIENDLY) {
-					for (int32_t s = 0; s < levelBudget; s++) {
-						int offset = result.CtS.at(s).rotIn[0];
-						for (auto& i : result.CtS.at(s).rotIn) {
-							i = (i - offset);
-						}
-						for (auto& i : result.CtS.at(s).rotOut) {
-							i = (i + offset);
-						}
+						result.CtS[stop].rotOut[i] = ReduceRotation((gRem * i), slots_red);
 					}
 				}
 			}
@@ -859,46 +964,23 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 
 				for (int32_t s = 0; s < levelBudget - flagRem; s++) {
 					for (int32_t j = 0; j < g; j++) {
-						result.StC.at(s).rotIn.at(j) = ReduceRotation((j - int32_t((numRotations + 1) / 2) + 1) * (1 << (s * layersCollapse)), M / 4);
+						result.StC.at(s).rotIn.at(j) = ReduceRotation((j) * (1 << (s * layersCollapse)), slots_red);
 					}
 
 					for (int32_t i = 0; i < b; i++) {
-						result.StC.at(s).rotOut.at(i) = ReduceRotation((g * i) * (1 << (s * layersCollapse)), M / 4);
+						result.StC.at(s).rotOut.at(i) = ReduceRotation((g * i) * (1 << (s * layersCollapse)), slots_red);
 					}
 				}
 
 				if (flagRem) {
 					int32_t s = levelBudget - flagRem;
 					for (int32_t j = 0; j < gRem; j++) {
-						result.StC.at(s).rotIn.at(j) = ReduceRotation((j - int32_t((numRotationsRem + 1) / 2) + 1) * (1 << (s * layersCollapse)), M / 4);
+						result.StC.at(s).rotIn.at(j) = ReduceRotation((j) * (1 << (s * layersCollapse)), slots_red);
 					}
 
 					for (int32_t i = 0; i < bRem; i++) {
-						result.StC.at(s).rotOut.at(i) = ReduceRotation((gRem * i) * (1 << (s * layersCollapse)), M / 4);
+						result.StC.at(s).rotOut.at(i) = ReduceRotation((gRem * i) * (1 << (s * layersCollapse)), slots_red);
 					}
-				}
-
-				if constexpr (AFFINE_LT && MAKE_STC_LT_FRIENDLY) {
-					for (int32_t s = 0; s < levelBudget; s++) {
-						int offset = result.StC.at(s).rotIn[0];
-						for (auto& i : result.StC.at(s).rotIn) {
-							i = (i - offset);
-						}
-						for (auto& i : result.StC.at(s).rotOut) {
-							i = (i + offset);
-						}
-					}
-					/*
-							for (int32_t s = 0; s < levelBudget; s++) {
-								int offset = result.StC.at(s).rotIn[0];
-								for (auto& i : result.StC.at(s).rotIn) {
-									i = (i - offset);
-								}
-								for (auto& i : result.StC.at(s).rotOut) {
-									i = (i + offset);
-								}
-							}
-							*/
 				}
 			}
 
@@ -907,76 +989,37 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 
 		std::reverse(result.CtS.begin(), result.CtS.end());
 
-		int acc_offset = 0;
-		if constexpr (AFFINE_LT && MAKE_CTS_LT_FRIENDLY) {
-			for (uint32_t s = 0; s < result.CtS.size(); s++) {
-				int offset = result.CtS.at(s).rotOut[0];
-				acc_offset += result.CtS.at(s).rotOut[0];
-				for (int i = 1; i < result.CtS.at(s).gStep; ++i) {
-					result.CtS.at(s).rotOut[i] -= offset;
-					result.CtS.at(s).rotOut[i] %= std::min(2 * slots, (int)cc->GetRingDimension() / 2);
-				}
-				// offset = result.CtS.at(s).rotOut[0];
-
-				for (int i = 0; i < result.CtS.at(s).gStep; ++i) {
-					for (int j = 0; j < result.CtS.at(s).bStep; ++j) {
-						if (i * result.CtS.at(s).bStep + j < result.CtS.at(s).slots) {
-							if (j > 0) {
-								if (result.CtS.at(s).rotIn[j] - result.CtS.at(s).rotIn[j - 1] != result.CtS.at(s).rotIn[1] - result.CtS.at(s).rotIn[0]) {
-									int new_in = result.CtS.at(s).rotIn[j - 1] + result.CtS.at(s).rotIn[1] - result.CtS.at(s).rotIn[0];
-									/*
-											result.CtS.at(s).A[i * result.CtS.at(s).bStep + j].automorph(
-												ReduceRotation(new_in - result.CtS.at(s).rotIn[j], M / 4));
-											*/
-									result.CtS.at(s).rotIn[j] = new_in;
-								}
-							}
-						}
-					}
-				}
+		{
+			int acc_offset = 0;
+			for (int i = 0; i < result.CtS.size(); i++) {
+				acc_offset += (result.CtS[i].slots / 2) * (result.CtS[i].bStep > 1 ? result.CtS[i].rotIn[1] : (result.CtS[i].gStep > 1 ? result.CtS[i].rotOut[1] : 0));
 			}
+			indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
+
+			auto& j = result.CtS.back().rotOut[0];
+			j		= ReduceRotation(-acc_offset, slots_red);
 		}
 
-		if constexpr (AFFINE_LT && MAKE_STC_LT_FRIENDLY) {
-			for (uint32_t s = 0; s < result.StC.size(); s++) {
-				int offset = result.StC.at(s).rotOut[0];
-				acc_offset += result.StC.at(s).rotOut[0];
-				for (int i = 1; i < result.StC.at(s).gStep; ++i) {
-					result.StC.at(s).rotOut[i] -= offset;
-					result.StC.at(s).rotOut[i] %= std::min(2 * slots, (int)cc->GetRingDimension() / 2);
-				}
-
-				for (int i = 0; i < result.StC.at(s).gStep; ++i) {
-					for (int j = 0; j < result.StC.at(s).bStep; ++j) {
-						if (i * result.StC.at(s).bStep + j < result.StC.at(s).slots) {
-							if (j > 0) {
-
-								if (result.StC.at(s).rotIn[j] - result.StC.at(s).rotIn[j - 1] != result.StC.at(s).rotIn[1] - result.StC.at(s).rotIn[0]) {
-									int new_in = result.StC.at(s).rotIn[j - 1] + result.StC.at(s).rotIn[1] - result.StC.at(s).rotIn[0];
-									/*
-											result.StC.at(s).A[i * result.StC.at(s).bStep + j].automorph(
-												ReduceRotation(new_in - result.StC.at(s).rotIn[j], M / 4));
-												*/
-									result.StC.at(s).rotIn[j] = new_in;
-								}
-							}
-						}
-					}
-				}
+		{
+			int acc_offset = 0;
+			for (int i = 0; i < result.StC.size(); i++) {
+				acc_offset += (result.StC[i].slots / 2) * (result.StC[i].bStep > 1 ? result.StC[i].rotIn[1] : (result.StC[i].gStep > 1 ? result.StC[i].rotOut[1] : 0));
 			}
-		}
+			indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
 
-		indexes.emplace_back(acc_offset);
+			auto& j = result.StC.back().rotOut[0];
+			j		= ReduceRotation(-acc_offset, slots_red);
+		}
 
 		for (auto& v : { &result.CtS, &result.StC }) {
 			for (auto& i : *v) {
 				for (auto& j : i.rotIn) {
-					indexes.push_back(j);
+					indexes.push_back(ReduceRotation(j, slots_red));
 				}
 #if AFFINE_LT
 				// We do not include rotOut[0], it is later set to 0 but the last that is set to acc_offset
 				for (auto& j : { /*i.rotOut[0],*/ i.rotOut.size() > 1 ? i.rotOut[1] /*- i.rotOut[0]*/ : 0 }) {
-					indexes.push_back(j);
+					indexes.push_back(ReduceRotation(j, slots_red));
 				}
 #else
 				for (auto& j : i.rotOut) {
@@ -989,6 +1032,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 		}
 	}
 
+	/*
 	int slots_transform = std::min((int)slots * 2, (int)cc->GetCyclotomicOrder() / 4);
 	for (auto& i : indexes) {
 		auto j_ = i % slots_transform;
@@ -998,9 +1042,10 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 			j_ += cc->GetCyclotomicOrder() / 4 - slots_transform;
 		i = j_;
 	}
+	*/
 
 	if (cc->GetRingDimension() / 2 != static_cast<uint32_t>(slots)) {
-		int bStep				   = 4;
+		int bStep				   = 2;
 		result.accumulate_bStep	   = bStep;
 		std::vector<int> rotations = GetAccumulateRotationIndices(bStep, slots, cc->GetRingDimension() / 2 / slots);
 		for (auto idx : rotations) {
@@ -1156,49 +1201,6 @@ void FIDESlib::CKKS::AddBootstrapPlaintexts(lbcrypto::CryptoContext<lbcrypto::DC
 					result.StC.at(i).A.emplace_back(GPUcc_, raw);
 					if constexpr (remove_extension)
 						result.StC.at(i).A.back().c0.freeSpecialLimbs();
-				}
-			}
-
-			int acc_offset = 0;
-			if constexpr (MAKE_CTS_LT_FRIENDLY) {
-				for (uint32_t s = 0; s < result.CtS.size(); s++) {
-					int offset = result.CtS.at(s).rotOut[0];
-					acc_offset += result.CtS.at(s).rotOut[0];
-					result.CtS.at(s).rotOut[0] = 0;
-
-					for (int i = 0; i < result.CtS.at(s).gStep; ++i) {
-						for (int j = 0; j < result.CtS.at(s).bStep; ++j) {
-							if (i * result.CtS.at(s).bStep + j < result.CtS.at(s).slots) {
-								result.CtS.at(s).A[i * result.CtS.at(s).bStep + j].automorph(ReduceRotation(-acc_offset, M / 4));
-							}
-						}
-					}
-				}
-			}
-
-			if constexpr (MAKE_STC_LT_FRIENDLY) {
-				for (uint32_t s = 0; s < result.StC.size(); s++) {
-					int offset = result.StC.at(s).rotOut[0];
-					acc_offset += result.StC.at(s).rotOut[0];
-
-					result.StC.at(s).rotOut[0] = 0;
-
-					for (int i = 0; i < result.StC.at(s).gStep; ++i) {
-						for (int j = 0; j < result.StC.at(s).bStep; ++j) {
-							if (i * result.StC.at(s).bStep + j < result.StC.at(s).slots) {
-								result.StC.at(s).A[i * result.StC.at(s).bStep + j].automorph(ReduceRotation(-acc_offset, M / 4));
-							}
-						}
-					}
-
-					if (s == result.StC.size() - 1) {
-						result.StC.at(s).rotOut[0] = acc_offset;
-						result.StC.at(s).rotOut[0] %= std::min(2 * slots, (int)cc->GetRingDimension() / 2);
-						for (int i = 1; i < result.StC.at(s).gStep; ++i) {
-							result.StC.at(s).rotOut[i] += acc_offset;
-							result.StC.at(s).rotOut[i] %= std::min(2 * slots, (int)cc->GetRingDimension() / 2);
-						}
-					}
 				}
 			}
 		}

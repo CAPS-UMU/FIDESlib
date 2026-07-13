@@ -53,12 +53,12 @@ template <typename T> __device__ __forceinline__ void SwitchModulus(T& a, const 
 			a = a + diff;
 	} else {
 		// auto diff{nm - (om % nm)};
-		T diff{ nm - modmult<ALGO_BARRETT>(om, 1, nm_pid) }; // TODO: change to modular reduction routine
+		T diff{ nm - modmult<ALGO_SHOUP>(om, 1, nm_pid, (T)C_.one_shoup[nm_pid]) }; // TODO: change to modular reduction routine
 		if (a > halfQ)
 			a = a + diff;
 		if (a >= nm) {
 			// a = a % nm;
-			a = modmult<ALGO_BARRETT>(a, 1, nm_pid);
+			a = modmult<ALGO_SHOUP>(a, 1, nm_pid, (T)C_.one_shoup[nm_pid]);
 		}
 	}
 }

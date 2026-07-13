@@ -34,22 +34,24 @@ void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat, int val) {
 		using namespace nvtx3;
 		int size = msg.size();
 		const event_attributes attr{ msg,
-			rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
-			payload{ val },
-			category{ static_cast<unsigned int>(cat) } };
+		                             rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]),
+		                                  (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
+		                             payload{ val },
+		                             category{ static_cast<unsigned int>(cat) } };
 
 		nvtxDomainRangePushEx_impl_init_v3(D, reinterpret_cast<const nvtxEventAttributes_t*>(&attr));
 		// nvtxRangePushEx(reinterpret_cast<const nvtxEventAttributes_t*>(&attr));
 	} else if (cat == LIFETIME) {
 
 		using namespace nvtx3;
-		int size	  = msg.size();
+		int size      = msg.size();
 		auto& [r, i]  = lifetimes_map[msg];
 		std::string m = std::to_string(i + 1) + std::string(" x ") + msg;
 		const event_attributes attr{ m,
-			rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
-			payload{ i + 1 },
-			category{ static_cast<unsigned int>(cat) } };
+		                             rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]),
+		                                  (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
+		                             payload{ i + 1 },
+		                             category{ static_cast<unsigned int>(cat) } };
 		i = i + 1;
 		if (!r) {
 			r = std::make_unique<unique_range_in<my_domain>>(attr);
@@ -70,9 +72,10 @@ void CudaNvtxStop(const std::string msg, NVTX_CATEGORIES cat) {
 		auto& [r, i]  = lifetimes_map[msg];
 		std::string m = std::to_string(i - 1) + std::string(" x ") + msg;
 		const event_attributes attr{ m,
-			rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
-			payload{ i - 1 },
-			category{ static_cast<unsigned int>(cat) } };
+		                             rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]),
+		                                  (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
+		                             payload{ i - 1 },
+		                             category{ static_cast<unsigned int>(cat) } };
 
 		i = i - 1;
 		if (i <= 0) {
@@ -170,8 +173,8 @@ void Stream::capture_end() {
 }
 
 void Stream::record(bool external) {
-	if (ptr_ == 0)
-		return;
+	//if (ptr_ == 0)
+	//	return;
 	CudaCheckErrorModNoSync;
 #if !DISABLE_STREAMS
 	// cudaEventDestroy(ev);
@@ -197,13 +200,13 @@ void Stream::wait(Stream& s, bool external) {
 
 #if !DISABLE_STREAMS
 	// CudaCheckErrorModNoSync;
-	if (ptr_ == 0 || s.ptr_ == 0 || ptr_ == s.ptr_) {
+	if (/*ptr_ == 0 ||*/ s.ptr_ == 0 || ptr_ == s.ptr_) {
 		updated = false;
 		return;
 	}
-	assert(ptr_ != nullptr);
-	assert(s.ptr_ != nullptr);
-	assert(ev != nullptr);
+	//assert(ptr_ != nullptr);
+	//assert(s.ptr_ != nullptr);
+	assert(s.ev != nullptr);
 	if (!s.updated) {
 		assert(!external); // Has to be recorded in the origin graph
 		CudaCheckErrorModNoSync;
@@ -222,8 +225,10 @@ void Stream::wait(cudaStream_t s) {
 
 #if !DISABLE_STREAMS
 	// CudaCheckErrorModNoSync;
-	if (s == 0 || ptr_ == 0)
+	if (s == 0 || s == ptr_) {
+		updated = false;
 		return;
+	}
 	assert(ptr_ != nullptr);
 	assert(ev != nullptr);
 	CudaCheckErrorModNoSync;
@@ -237,11 +242,11 @@ void Stream::wait(cudaStream_t s) {
 	CudaCheckErrorModNoSync;
 }
 
-int low	 = -1;
+int low  = -1;
 int high = -1;
 
 constexpr int POOL_SIZE = 37;
-cudaStream_t stream_pool[MAXD][POOL_SIZE];
+cudaStream_t stream_pool[MAXG][POOL_SIZE];
 
 bool initPool() {
 	int devs;
@@ -255,7 +260,12 @@ bool initPool() {
 	return true;
 }
 
+#define USEPOOL true
+#if USEPOOL
 bool initialized = initPool();
+#else
+bool initialized = false;
+#endif
 
 void Stream::init(int priority) {
 	static int assigner_idx[MAXD] = { 0 };
@@ -264,7 +274,7 @@ void Stream::init(int priority) {
 		cudaEventDestroy(ev);
 		// cudaStreamDestroy(ptr_);
 		ptr_ = nullptr;
-		ev	 = nullptr;
+		ev   = nullptr;
 	}
 
 #if !DISABLE_STREAMS
@@ -274,28 +284,30 @@ void Stream::init(int priority) {
 
 	// int prio = low + priority * ((high - low - 1)) / 100;
 
+#if USEPOOL
 	int dev;
 	cudaGetDevice(&dev);
-
 	ptr_ = stream_pool[dev][assigner_idx[dev]];
 	assigner_idx[dev] += 1;
 	if (assigner_idx[dev] >= POOL_SIZE)
 		assigner_idx[dev] -= POOL_SIZE;
-	// cudaStreamCreateWithPriority(&ptr_, 0 /*cudaStreamNonBlocking*/, prio);
-	//   cudaStreamCreateWithFlags(&ptr, cudaStreamNonBlocking);
+#else
+	cudaStreamCreateWithPriority(&ptr_, 0 /*cudaStreamNonBlocking*/, priority);
+	// cudaStreamCreateWithFlags(&ptr, cudaStreamNonBlocking);
+#endif
 
 	cudaEventCreateWithFlags(&ev, cudaEventDisableTiming);
 	cudaEventCreate(&ev, cudaEventDisableTiming);
 #else
 	ptr_ = nullptr;
-	ev	 = nullptr;
+	ev   = nullptr;
 #endif
 	// free[ptr] = 0;
 }
 
 void Stream::initDefault() {
-	ptr_	= 0;
-	ev		= nullptr;
+	ptr_    = 0;
+	ev      = nullptr;
 	updated = true;
 }
 
@@ -315,7 +327,8 @@ Stream::~Stream() {
 
 Stream::Stream() = default;
 
-Stream::Stream(Stream&& s) noexcept : ptr_(s.ptr_), ev(s.ev) {
+Stream::Stream(Stream&& s) noexcept
+	: ptr_(s.ptr_), ev(s.ev) {
 	s.ptr_ = nullptr;
 	s.ev   = nullptr;
 }
@@ -331,21 +344,22 @@ void initGPUprop() {
 			cudaGetDeviceProperties(&GPUprop.back(), i);
 
 			std::cout << "GPU " << i << ": " << GPUprop[i].name << "\n SMs: " << GPUprop[i].multiProcessorCount
-					  << ", SharedMem: " << GPUprop[i].sharedMemPerMultiprocessor / 1024l << " KB, Blocks/SM: " << GPUprop[i].maxBlocksPerMultiProcessor
-					  << ", Threads/SM: " << GPUprop[i].maxThreadsPerMultiProcessor << ", L2 size: " << GPUprop[i].l2CacheSize / (1024l * 1024l)
-					  << " MB, Bus: " << (long long)GPUprop[i].memoryBusWidth
+				<< ", SharedMem: " << GPUprop[i].sharedMemPerMultiprocessor / 1024l << " KB, Blocks/SM: " << GPUprop[i].maxBlocksPerMultiProcessor
+				<< ", Threads/SM: " << GPUprop[i].maxThreadsPerMultiProcessor << ", L2 size: " << GPUprop[i].l2CacheSize / (1024l * 1024l)
+				<< " MB, Bus: " << (long long)GPUprop[i].memoryBusWidth
 
-					  << "-bit" << std::endl;
+				<< "-bit" << std::endl;
 		}
 	}
 }
 
-std::mutex mempool_lock[8];
+std::mutex mempool_lock[MAXG];
 
-std::map<int, std::vector<void*>> size_to_memory[8];
+std::map<int, std::vector<void*>> size_to_memory[MAXG];
 
-FIDESlib::Stream s[8];
+FIDESlib::Stream s[MAXG];
 
+#define MEMPOOL true
 // void* GPUmalloc(int id, int bytes, cudaStream_t stream, FIDESlib::CKKS::Context& cc) {
 void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache) {
 	void* ptr = nullptr;
@@ -359,14 +373,18 @@ void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache) {
 		}
 		bytes = next_pow2;
 		cache = true;
-		MBs	  = bytes / 1024;
+		MBs   = bytes / 1024;
 	}
-
+#if MEMPOOL
 	if (cache && (bytes & (bytes - 1)) == 0) {
 		std::vector<void*>& free_limb = size_to_memory[id][bytes];
 
 		if (s[id].ptr() == nullptr) {
-			s[id].init();
+			mempool_lock[id].lock();
+			if (s[id].ptr() == nullptr) {
+				s[id].init();
+			}
+			mempool_lock[id].unlock();
 		}
 		CudaCheckErrorModNoSync;
 		if (free_limb.empty()) {
@@ -381,11 +399,11 @@ void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache) {
 		}
 		CudaCheckErrorModNoSync;
 
-		if (stream != nullptr) {
-			s[id].record();
-			CudaCheckErrorModNoSync;
-			cudaStreamWaitEvent(stream, s[id].ev);
-		}
+		//if (stream != nullptr) {
+		s[id].record();
+		CudaCheckErrorModNoSync;
+		cudaStreamWaitEvent(stream, s[id].ev);
+		//}
 
 		CudaCheckErrorModNoSync;
 		mempool_lock[id].lock();
@@ -398,6 +416,7 @@ void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache) {
 		return ptr;
 	}
 
+#endif
 	// std::cout << bytes << std::endl;
 	if (0) {
 		cudaMalloc(&ptr, bytes);
@@ -442,8 +461,6 @@ void CUDART_CB streamCallback(void* userData) {
 
 void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
 
-	// uint64_t MBs;
-
 	if (bytes < 64 * 1024) {
 		int next_pow2 = 1024;
 		while (next_pow2 < bytes) {
@@ -451,20 +468,21 @@ void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
 		}
 		bytes = next_pow2;
 		cache = true;
-		// MBs	  = bytes / 1024;
 	}
 
-	if (s[id].ptr() == nullptr) {
-		s[id].init();
-	}
+#if MEMPOOL
 	if (cache && (bytes & (bytes - 1)) == 0) {
 		std::vector<void*>& free_limb = size_to_memory[id][bytes];
-
+		if (s[id].ptr() == nullptr) {
+			mempool_lock[id].lock();
+			s[id].init();
+			mempool_lock[id].unlock();
+		}
 		CudaCheckErrorModNoSync;
 		// cudaDeviceSynchronize();
-		if (stream != nullptr) {
-			s[id].wait(stream);
-		}
+		//if (stream != nullptr) {
+		s[id].wait(stream);
+		//}
 		CudaCheckErrorModNoSync;
 		mempool_lock[id].lock();
 		free_limb.emplace_back(ptr);
@@ -472,14 +490,15 @@ void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
 		// std::cout << "free " << ptr << std::endl;
 		return;
 	}
+#endif
 
 	if (0) {
 		cudaFree(ptr);
 	} else if (1) {
-		cudaFreeAsync(ptr, stream);
+		cudaFreeAsync(ptr, 0);
 	} else {
-		auto* p	   = new pointerdata;
-		p->id	   = id;
+		auto* p    = new pointerdata;
+		p->id      = id;
 		p->bytes   = bytes;
 		p->pointer = ptr;
 		cudaLaunchHostFunc(stream, streamCallback, p);

@@ -11,12 +11,12 @@
 #include <fideslib/Definitions.hpp>
 #include <functional>
 #include <iostream>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
-#include <numeric>
 
 void resnet::generate_context(experiment_settings e) {
 
@@ -50,11 +50,11 @@ void resnet::generate_context(experiment_settings e) {
 	parameters.SetSecretKeyDist(e.secret_key_dist);
 	parameters.SetPlaintextAutoload(e.autoload);
 
-	this->relu_degree		= e.relu_degree;
-	this->parameters_folder = e.parameters_folder;
-	this->circuit_depth		= e.depth;
-	this->prescaled			= e.prescale;
-	this->partial_load		= e.by_layer_loading;
+	this->relu_degree			= e.relu_degree;
+	this->parameters_folder		= e.parameters_folder;
+	this->circuit_depth			= e.depth;
+	this->prescaled				= e.prescale;
+	this->partial_load			= e.by_layer_loading;
 	this->auto_load_ciphertexts = e.autoload;
 	this->auto_load_plaintexts	= e.autoload;
 	this->verbose				= e.verbose;
@@ -289,7 +289,7 @@ void resnet::load_weights_layer0() {
 	if (!this->devices.empty() && this->prescaled) {
 		this->prescale = this->context->GetPreScaleFactor(this->num_slots);
 
-		std::cout << "Prescale optimization enabled: using a prescale factor of " << this->prescale << "." << std::endl;	
+		std::cout << "Prescale optimization enabled: using a prescale factor of " << this->prescale << "." << std::endl;
 	}
 
 	const uint32_t convbn_l0_levels_weights = this->prescaled ? this->circuit_depth - 2 : this->circuit_depth - 3;
@@ -1164,462 +1164,462 @@ size_t resnet::execute_resnet_inference(const std::string& input_image) {
 
 	for (size_t i = 0; i < 10; ++i) {
 
-	auto intial_level										 = this->prescaled ? this->circuit_depth - 2 : this->circuit_depth - 3;
-	encrypted_image = this->encrypt(input_image_data, intial_level, this->num_slots);
+		auto intial_level = this->prescaled ? this->circuit_depth - 2 : this->circuit_depth - 3;
+		encrypted_image	  = this->encrypt(input_image_data, intial_level, this->num_slots);
 
-	if (this->verbose) {
-		this->measure_bootstrap_precision();
-	}
+		if (this->verbose) {
+			this->measure_bootstrap_precision();
+		}
 
-	if (!this->partial_load && !loaded) {
-		this->load_weights();
-		loaded = true;
-	}
+		if (!this->partial_load && !loaded) {
+			this->load_weights();
+			loaded = true;
+		}
 
-	// Block 0. Layer 0
-	if (this->partial_load && !loaded)
-		this->load_funcs[0]();
-	starts[0] = std::chrono::high_resolution_clock::now();
-	this->print(encrypted_image, "L0 Input");
-	this->convbn(0, encrypted_image);
-	this->print(encrypted_image, "L0 ConvBN");
-	this->bootstrap(encrypted_image);
-	this->print(encrypted_image, "L0 Bootstrap");
-	if (this->prescaled) {
-		encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-	}
-	this->relu(encrypted_image, scales[0]);
-	this->print(encrypted_image, "L0 ReLU");
-	ends[0] = std::chrono::high_resolution_clock::now();
-	// Block 1.
-	{
+		// Block 0. Layer 0
 		if (this->partial_load && !loaded)
-			this->load_funcs[1]();
-		starts[1] = std::chrono::high_resolution_clock::now();
-		auto in	  = encrypted_image->Clone();
-
-		// Layer 1.
-		this->print(encrypted_image, "L1 Input");
-		this->convbn(1, encrypted_image);
-		this->print(encrypted_image, "L1 ConvBN");
+			this->load_funcs[0]();
+		starts[0] = std::chrono::high_resolution_clock::now();
+		this->print(encrypted_image, "L0 Input");
+		this->convbn(0, encrypted_image);
+		this->print(encrypted_image, "L0 ConvBN");
 		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L1 Bootstrap");
+		this->print(encrypted_image, "L0 Bootstrap");
 		if (this->prescaled) {
 			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
 		}
-		this->relu(encrypted_image, scales[1]);
-		this->print(encrypted_image, "L1 ReLU");
-		ends[1] = std::chrono::high_resolution_clock::now();
+		this->relu(encrypted_image, scales[0]);
+		this->print(encrypted_image, "L0 ReLU");
+		ends[0] = std::chrono::high_resolution_clock::now();
+		// Block 1.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[1]();
+			starts[1] = std::chrono::high_resolution_clock::now();
+			auto in	  = encrypted_image->Clone();
 
-		// Layer 2.
-		if (this->partial_load && !loaded)
-			this->load_funcs[2]();
-		starts[2] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L2 Input");
-		this->convbn(2, encrypted_image);
-		this->print(encrypted_image, "L2 ConvBN");
-		this->context->EvalMultInPlace(in, scales[2] * this->prescale);
-		this->print(in, "L2 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L2 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L2 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			// Layer 1.
+			this->print(encrypted_image, "L1 Input");
+			this->convbn(1, encrypted_image);
+			this->print(encrypted_image, "L1 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L1 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[1]);
+			this->print(encrypted_image, "L1 ReLU");
+			ends[1] = std::chrono::high_resolution_clock::now();
+
+			// Layer 2.
+			if (this->partial_load && !loaded)
+				this->load_funcs[2]();
+			starts[2] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L2 Input");
+			this->convbn(2, encrypted_image);
+			this->print(encrypted_image, "L2 ConvBN");
+			this->context->EvalMultInPlace(in, scales[2] * this->prescale);
+			this->print(in, "L2 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L2 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L2 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[2]);
+			this->print(encrypted_image, "L2 ReLU");
+			ends[2] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[2]);
-		this->print(encrypted_image, "L2 ReLU");
-		ends[2] = std::chrono::high_resolution_clock::now();
-	}
 
-	// Block 2.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[3]();
-		starts[3] = std::chrono::high_resolution_clock::now();
-		auto in	  = encrypted_image->Clone();
+		// Block 2.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[3]();
+			starts[3] = std::chrono::high_resolution_clock::now();
+			auto in	  = encrypted_image->Clone();
 
-		// Layer 3.
-		this->print(encrypted_image, "L3 Input");
-		this->convbn(3, encrypted_image);
-		this->print(encrypted_image, "L3 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L3 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			// Layer 3.
+			this->print(encrypted_image, "L3 Input");
+			this->convbn(3, encrypted_image);
+			this->print(encrypted_image, "L3 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L3 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[3]);
+			this->print(encrypted_image, "L3 ReLU");
+			ends[3] = std::chrono::high_resolution_clock::now();
+
+			// Layer 4.
+			if (this->partial_load && !loaded)
+				this->load_funcs[4]();
+			starts[4] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L4 Input");
+			this->convbn(4, encrypted_image);
+			this->print(encrypted_image, "L4 ConvBN");
+			this->context->EvalMultInPlace(in, scales[4] * this->prescale);
+			this->print(in, "L4 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L4 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L4 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[4]);
+			this->print(encrypted_image, "L4 ReLU");
+			ends[4] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[3]);
-		this->print(encrypted_image, "L3 ReLU");
-		ends[3] = std::chrono::high_resolution_clock::now();
 
-		// Layer 4.
-		if (this->partial_load && !loaded)
-			this->load_funcs[4]();
-		starts[4] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L4 Input");
-		this->convbn(4, encrypted_image);
-		this->print(encrypted_image, "L4 ConvBN");
-		this->context->EvalMultInPlace(in, scales[4] * this->prescale);
-		this->print(in, "L4 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L4 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L4 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+		// Block 3.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[5]();
+			starts[5] = std::chrono::high_resolution_clock::now();
+			auto in	  = encrypted_image->Clone();
+
+			// Layer 5.
+			this->print(encrypted_image, "L5 Input");
+			this->convbn(5, encrypted_image);
+			this->print(encrypted_image, "L5 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L5 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[5]);
+			this->print(encrypted_image, "L5 ReLU");
+			ends[5] = std::chrono::high_resolution_clock::now();
+
+			// Layer 6.
+			if (this->partial_load && !loaded)
+				this->load_funcs[6]();
+			starts[6] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L6 Input");
+			this->convbn(6, encrypted_image);
+			this->print(encrypted_image, "L6 ConvBN");
+			this->context->EvalMultInPlace(in, scales[6] * this->prescale);
+			this->print(in, "L6 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L6 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L6 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[6]);
+			this->print(encrypted_image, "L6 ReLU");
+			ends[6] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[4]);
-		this->print(encrypted_image, "L4 ReLU");
-		ends[4] = std::chrono::high_resolution_clock::now();
-	}
 
-	// Block 3.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[5]();
-		starts[5] = std::chrono::high_resolution_clock::now();
-		auto in	  = encrypted_image->Clone();
+		// Block 4.
+		{
+			// Layer 7. SX.
+			if (this->partial_load && !loaded)
+				this->load_funcs[7]();
+			starts[7] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L7 Input");
+			auto sx = this->convbnsx(7, encrypted_image);
+			this->bootstrap(sx[0]);
+			this->bootstrap(sx[1]);
+			this->print(sx[0], "L7 SX 0 Bootstrap");
+			this->print(sx[1], "L7 SX 1 Bootstrap");
+			auto sxd = this->downsample(0, std::move(sx));
+			if (this->prescaled)
+				sxd->SetLevel(this->circuit_depth - 1);
+			this->print(sxd, "L7 SX Downsample");
+			this->bootstrap(sxd);
+			this->print(sxd, "L7 SX After Bootstrap");
+			if (this->prescaled) {
+				sxd->SetLevel(sxd->GetLevel() + 1);
+			}
+			this->relu(sxd, scales[7]);
+			this->print(sxd, "L7 SX ReLU");
+			ends[7] = std::chrono::high_resolution_clock::now();
 
-		// Layer 5.
-		this->print(encrypted_image, "L5 Input");
-		this->convbn(5, encrypted_image);
-		this->print(encrypted_image, "L5 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L5 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			// Layer 8. DX.
+			if (this->partial_load && !loaded)
+				this->load_funcs[8]();
+			starts[8] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L8 Input");
+			auto dx = this->convbndx(8, std::move(encrypted_image));
+			this->bootstrap(dx[0]);
+			this->bootstrap(dx[1]);
+			this->print(dx[0], "L8 DX 0 Bootstrap");
+			this->print(dx[1], "L8 DX 1 Bootstrap");
+			auto dxd = this->downsample(0, std::move(dx));
+			this->print(dxd, "L8 DX Downsample");
+			ends[8] = std::chrono::high_resolution_clock::now();
+
+			// Move back to main flow.
+			encrypted_image = std::move(sxd);
+
+			// Layer 9.
+			if (this->partial_load && !loaded)
+				this->load_funcs[9]();
+			starts[9] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L9 Input");
+			this->convbn(9, encrypted_image);
+			this->print(encrypted_image, "L9 ConvBN");
+			this->context->EvalAddInPlace(encrypted_image, dxd);
+			this->print(encrypted_image, "L9 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L9 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[9]);
+			this->print(encrypted_image, "L9 ReLU");
+			ends[9] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[5]);
-		this->print(encrypted_image, "L5 ReLU");
-		ends[5] = std::chrono::high_resolution_clock::now();
 
-		// Layer 6.
-		if (this->partial_load && !loaded)
-			this->load_funcs[6]();
-		starts[6] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L6 Input");
-		this->convbn(6, encrypted_image);
-		this->print(encrypted_image, "L6 ConvBN");
-		this->context->EvalMultInPlace(in, scales[6] * this->prescale);
-		this->print(in, "L6 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L6 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L6 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+		// Block 5.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[10]();
+			starts[10] = std::chrono::high_resolution_clock::now();
+			auto in	   = encrypted_image->Clone();
+
+			// Layer 10.
+			this->print(encrypted_image, "L10 Input");
+			this->convbn(10, encrypted_image);
+			this->print(encrypted_image, "L10 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L10 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[10]);
+			this->print(encrypted_image, "L10 ReLU");
+			ends[10] = std::chrono::high_resolution_clock::now();
+
+			// Layer 11.
+			if (this->partial_load && !loaded)
+				this->load_funcs[11]();
+			starts[11] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L11 Input");
+			this->convbn(11, encrypted_image);
+			this->print(encrypted_image, "L11 ConvBN");
+			this->context->EvalMultInPlace(in, scales[11] * this->prescale);
+			this->print(in, "L11 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L11 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L11 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[11]);
+			this->print(encrypted_image, "L11 ReLU");
+			ends[11] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[6]);
-		this->print(encrypted_image, "L6 ReLU");
-		ends[6] = std::chrono::high_resolution_clock::now();
-	}
 
-	// Block 4.
-	{
-		// Layer 7. SX.
-		if (this->partial_load && !loaded)
-			this->load_funcs[7]();
-		starts[7] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L7 Input");
-		auto sx = this->convbnsx(7, encrypted_image);
-		this->bootstrap(sx[0]);
-		this->bootstrap(sx[1]);
-		this->print(sx[0], "L7 SX 0 Bootstrap");
-		this->print(sx[1], "L7 SX 1 Bootstrap");
-		auto sxd = this->downsample(0, std::move(sx));
-		if (this->prescaled)
-			sxd->SetLevel(this->circuit_depth - 1);
-		this->print(sxd, "L7 SX Downsample");
-		this->bootstrap(sxd);
-		this->print(sxd, "L7 SX After Bootstrap");
-		if (this->prescaled) {
-			sxd->SetLevel(sxd->GetLevel() + 1);
+		// Block 6.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[12]();
+			starts[12] = std::chrono::high_resolution_clock::now();
+			auto in	   = encrypted_image->Clone();
+
+			// Layer 12.
+			this->print(encrypted_image, "L12 Input");
+			this->convbn(12, encrypted_image);
+			this->print(encrypted_image, "L12 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L12 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[12]);
+			this->print(encrypted_image, "L12 ReLU");
+			ends[12] = std::chrono::high_resolution_clock::now();
+
+			// Layer 13.
+			if (this->partial_load && !loaded)
+				this->load_funcs[13]();
+			starts[13] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L13 Input");
+			this->convbn(13, encrypted_image);
+			this->print(encrypted_image, "L13 ConvBN");
+			this->context->EvalMultInPlace(in, scales[13] * this->prescale);
+			this->print(in, "L13 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L13 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L13 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[13]);
+			this->print(encrypted_image, "L13 ReLU");
+			ends[13] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(sxd, scales[7]);
-		this->print(sxd, "L7 SX ReLU");
-		ends[7] = std::chrono::high_resolution_clock::now();
 
-		// Layer 8. DX.
-		if (this->partial_load && !loaded)
-			this->load_funcs[8]();
-		starts[8] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L8 Input");
-		auto dx = this->convbndx(8, std::move(encrypted_image));
-		this->bootstrap(dx[0]);
-		this->bootstrap(dx[1]);
-		this->print(dx[0], "L8 DX 0 Bootstrap");
-		this->print(dx[1], "L8 DX 1 Bootstrap");
-		auto dxd = this->downsample(0, std::move(dx));
-		this->print(dxd, "L8 DX Downsample");
-		ends[8] = std::chrono::high_resolution_clock::now();
+		// Block 7.
+		{
+			// Layer 14. SX.
+			if (this->partial_load && !loaded)
+				this->load_funcs[14]();
+			starts[14] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L14 SX Input");
+			auto sx = this->convbnsx(14, encrypted_image);
+			this->bootstrap(sx[0]);
+			this->bootstrap(sx[1]);
+			this->context->SetLevel(sx[0], this->circuit_depth - 7);
+			this->context->SetLevel(sx[1], this->circuit_depth - 7);
+			this->print(sx[0], "L14 SX 0 Bootstrap");
+			this->print(sx[1], "L14 SX 1 Bootstrap");
+			auto sxd = this->downsample(1, std::move(sx));
+			this->print(sxd, "L14 SX Downsample");
+			if (this->prescaled)
+				sxd->SetLevel(this->circuit_depth - 1);
+			this->bootstrap(sxd);
+			this->print(sxd, "L14 SX After Bootstrap");
+			if (this->prescaled) {
+				sxd->SetLevel(sxd->GetLevel() + 1);
+			}
+			this->relu(sxd, scales[14]);
+			this->print(sxd, "L14 SX ReLU");
+			ends[14] = std::chrono::high_resolution_clock::now();
 
-		// Move back to main flow.
-		encrypted_image = std::move(sxd);
+			// Layer 15. DX.
+			if (this->partial_load && !loaded)
+				this->load_funcs[15]();
+			starts[15] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L15 DX Input");
+			auto dx = this->convbndx(15, std::move(encrypted_image));
+			this->bootstrap(dx[0]);
+			this->bootstrap(dx[1]);
+			this->context->SetLevel(dx[0], this->circuit_depth - 7);
+			this->context->SetLevel(dx[1], this->circuit_depth - 7);
+			this->print(dx[0], "L15 DX 0 Bootstrap");
+			this->print(dx[1], "L15 DX 1 Bootstrap");
+			auto dxd = this->downsample(1, std::move(dx));
+			this->print(dxd, "L15 DX Downsample");
+			ends[15] = std::chrono::high_resolution_clock::now();
 
-		// Layer 9.
-		if (this->partial_load && !loaded)
-			this->load_funcs[9]();
-		starts[9] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L9 Input");
-		this->convbn(9, encrypted_image);
-		this->print(encrypted_image, "L9 ConvBN");
-		this->context->EvalAddInPlace(encrypted_image, dxd);
-		this->print(encrypted_image, "L9 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L9 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			// Move back to main flow.
+			encrypted_image = std::move(sxd);
+
+			// Layer 16.
+			if (this->partial_load && !loaded)
+				this->load_funcs[16]();
+			starts[16] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L16 Input");
+			this->convbn(16, encrypted_image);
+			this->print(encrypted_image, "L16 ConvBN");
+			this->context->EvalAddInPlace(encrypted_image, dxd);
+			this->print(encrypted_image, "L16 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L16 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[16]);
+			this->print(encrypted_image, "L16 ReLU");
+			ends[16] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[9]);
-		this->print(encrypted_image, "L9 ReLU");
-		ends[9] = std::chrono::high_resolution_clock::now();
-	}
 
-	// Block 5.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[10]();
-		starts[10] = std::chrono::high_resolution_clock::now();
-		auto in	   = encrypted_image->Clone();
+		// Block 8.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[17]();
+			starts[17] = std::chrono::high_resolution_clock::now();
+			auto in	   = encrypted_image->Clone();
 
-		// Layer 10.
-		this->print(encrypted_image, "L10 Input");
-		this->convbn(10, encrypted_image);
-		this->print(encrypted_image, "L10 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L10 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			// Layer 17.
+			this->print(encrypted_image, "L17 Input");
+			this->convbn(17, encrypted_image);
+			this->print(encrypted_image, "L17 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L17 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[17]);
+			this->print(encrypted_image, "L17 ReLU");
+			ends[17] = std::chrono::high_resolution_clock::now();
+
+			// Layer 18.
+			if (this->partial_load && !loaded)
+				this->load_funcs[18]();
+			starts[18] = std::chrono::high_resolution_clock::now();
+			this->print(encrypted_image, "L18 Input");
+			this->convbn(18, encrypted_image);
+			this->print(encrypted_image, "L18 ConvBN");
+			this->context->EvalMultInPlace(in, scales[18] * this->prescale);
+			this->print(in, "L18 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L18 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L18 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[18]);
+			this->print(encrypted_image, "L18 ReLU");
+			ends[18] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[10]);
-		this->print(encrypted_image, "L10 ReLU");
-		ends[10] = std::chrono::high_resolution_clock::now();
 
-		// Layer 11.
-		if (this->partial_load && !loaded)
-			this->load_funcs[11]();
-		starts[11] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L11 Input");
-		this->convbn(11, encrypted_image);
-		this->print(encrypted_image, "L11 ConvBN");
-		this->context->EvalMultInPlace(in, scales[11] * this->prescale);
-		this->print(in, "L11 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L11 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L11 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+		// Block 9.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[19]();
+			starts[19] = std::chrono::high_resolution_clock::now();
+			auto in	   = encrypted_image->Clone();
+
+			// Layer 19.
+			this->print(encrypted_image, "L19 Input");
+			this->convbn(19, encrypted_image);
+			this->print(encrypted_image, "L19 ConvBN");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L19 Bootstrap");
+			if (this->prescaled) {
+				encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+			}
+			this->relu(encrypted_image, scales[19]);
+			this->print(encrypted_image, "L19 ReLU");
+			ends[19] = std::chrono::high_resolution_clock::now();
+
+			// Layer 20.
+			if (this->partial_load && !loaded)
+				this->load_funcs[20]();
+			starts[20] = std::chrono::high_resolution_clock::now();
+			this->convbn(20, encrypted_image);
+			this->print(encrypted_image, "L20 ConvBN");
+			this->context->EvalMultInPlace(in, scales[20] * this->prescale);
+			this->print(in, "L20 Input Multiplied");
+			this->context->EvalAddInPlace(encrypted_image, in);
+			this->print(encrypted_image, "L20 Added");
+			this->bootstrap(encrypted_image);
+			this->print(encrypted_image, "L20 Bootstrap");
+			this->relu(encrypted_image, scales[20]);
+			this->print(encrypted_image, "L20 ReLU");
+			ends[20] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[11]);
-		this->print(encrypted_image, "L11 ReLU");
-		ends[11] = std::chrono::high_resolution_clock::now();
-	}
 
-	// Block 6.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[12]();
-		starts[12] = std::chrono::high_resolution_clock::now();
-		auto in	   = encrypted_image->Clone();
-
-		// Layer 12.
-		this->print(encrypted_image, "L12 Input");
-		this->convbn(12, encrypted_image);
-		this->print(encrypted_image, "L12 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L12 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
+		// Block 10.
+		{
+			if (this->partial_load && !loaded)
+				this->load_funcs[21]();
+			starts[21] = std::chrono::high_resolution_clock::now();
+			this->context->AccumulateSumInPlace(encrypted_image, 64, 1);
+			this->print(encrypted_image, "L21 After first AccumulateSum");
+			this->context->EvalMultInPlace(encrypted_image, this->final_mask);
+			this->print(encrypted_image, "L21 After final mask Mult");
+			this->context->AccumulateSumInPlace(encrypted_image, 16, 1);
+			this->print(encrypted_image, "L21 After second AccumulateSum");
+			this->context->EvalRotateInPlace(encrypted_image, -16 + 1);
+			this->print(encrypted_image, "L21 After Rotate");
+			this->context->EvalMultInPlace(encrypted_image, this->weight_final);
+			this->print(encrypted_image, "L21 After final weight Mult");
+			this->context->AccumulateSumInPlace(encrypted_image, 64, 64);
+			ends[21] = std::chrono::high_resolution_clock::now();
 		}
-		this->relu(encrypted_image, scales[12]);
-		this->print(encrypted_image, "L12 ReLU");
-		ends[12] = std::chrono::high_resolution_clock::now();
 
-		// Layer 13.
-		if (this->partial_load && !loaded)
-			this->load_funcs[13]();
-		starts[13] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L13 Input");
-		this->convbn(13, encrypted_image);
-		this->print(encrypted_image, "L13 ConvBN");
-		this->context->EvalMultInPlace(in, scales[13] * this->prescale);
-		this->print(in, "L13 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L13 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L13 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-		}
-		this->relu(encrypted_image, scales[13]);
-		this->print(encrypted_image, "L13 ReLU");
-		ends[13] = std::chrono::high_resolution_clock::now();
-	}
-
-	// Block 7.
-	{
-		// Layer 14. SX.
-		if (this->partial_load && !loaded)
-			this->load_funcs[14]();
-		starts[14] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L14 SX Input");
-		auto sx = this->convbnsx(14, encrypted_image);
-		this->bootstrap(sx[0]);
-		this->bootstrap(sx[1]);
-		this->context->SetLevel(sx[0], this->circuit_depth - 7);
-		this->context->SetLevel(sx[1], this->circuit_depth - 7);
-		this->print(sx[0], "L14 SX 0 Bootstrap");
-		this->print(sx[1], "L14 SX 1 Bootstrap");
-		auto sxd = this->downsample(1, std::move(sx));
-		this->print(sxd, "L14 SX Downsample");
-		if (this->prescaled)
-			sxd->SetLevel(this->circuit_depth - 1);
-		this->bootstrap(sxd);
-		this->print(sxd, "L14 SX After Bootstrap");
-		if (this->prescaled) {
-			sxd->SetLevel(sxd->GetLevel() + 1);
-		}
-		this->relu(sxd, scales[14]);
-		this->print(sxd, "L14 SX ReLU");
-		ends[14] = std::chrono::high_resolution_clock::now();
-
-		// Layer 15. DX.
-		if (this->partial_load && !loaded)
-			this->load_funcs[15]();
-		starts[15] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L15 DX Input");
-		auto dx = this->convbndx(15, std::move(encrypted_image));
-		this->bootstrap(dx[0]);
-		this->bootstrap(dx[1]);
-		this->context->SetLevel(dx[0], this->circuit_depth - 7);
-		this->context->SetLevel(dx[1], this->circuit_depth - 7);
-		this->print(dx[0], "L15 DX 0 Bootstrap");
-		this->print(dx[1], "L15 DX 1 Bootstrap");
-		auto dxd = this->downsample(1, std::move(dx));
-		this->print(dxd, "L15 DX Downsample");
-		ends[15] = std::chrono::high_resolution_clock::now();
-
-		// Move back to main flow.
-		encrypted_image = std::move(sxd);
-
-		// Layer 16.
-		if (this->partial_load && !loaded)
-			this->load_funcs[16]();
-		starts[16] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L16 Input");
-		this->convbn(16, encrypted_image);
-		this->print(encrypted_image, "L16 ConvBN");
-		this->context->EvalAddInPlace(encrypted_image, dxd);
-		this->print(encrypted_image, "L16 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L16 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-		}
-		this->relu(encrypted_image, scales[16]);
-		this->print(encrypted_image, "L16 ReLU");
-		ends[16] = std::chrono::high_resolution_clock::now();
-	}
-
-	// Block 8.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[17]();
-		starts[17] = std::chrono::high_resolution_clock::now();
-		auto in	   = encrypted_image->Clone();
-
-		// Layer 17.
-		this->print(encrypted_image, "L17 Input");
-		this->convbn(17, encrypted_image);
-		this->print(encrypted_image, "L17 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L17 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-		}
-		this->relu(encrypted_image, scales[17]);
-		this->print(encrypted_image, "L17 ReLU");
-		ends[17] = std::chrono::high_resolution_clock::now();
-
-		// Layer 18.
-		if (this->partial_load && !loaded)
-			this->load_funcs[18]();
-		starts[18] = std::chrono::high_resolution_clock::now();
-		this->print(encrypted_image, "L18 Input");
-		this->convbn(18, encrypted_image);
-		this->print(encrypted_image, "L18 ConvBN");
-		this->context->EvalMultInPlace(in, scales[18] * this->prescale);
-		this->print(in, "L18 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L18 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L18 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-		}
-		this->relu(encrypted_image, scales[18]);
-		this->print(encrypted_image, "L18 ReLU");
-		ends[18] = std::chrono::high_resolution_clock::now();
-	}
-
-	// Block 9.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[19]();
-		starts[19] = std::chrono::high_resolution_clock::now();
-		auto in	   = encrypted_image->Clone();
-
-		// Layer 19.
-		this->print(encrypted_image, "L19 Input");
-		this->convbn(19, encrypted_image);
-		this->print(encrypted_image, "L19 ConvBN");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L19 Bootstrap");
-		if (this->prescaled) {
-			encrypted_image->SetLevel(encrypted_image->GetLevel() + 1);
-		}
-		this->relu(encrypted_image, scales[19]);
-		this->print(encrypted_image, "L19 ReLU");
-		ends[19] = std::chrono::high_resolution_clock::now();
-
-		// Layer 20.
-		if (this->partial_load && !loaded)
-			this->load_funcs[20]();
-		starts[20] = std::chrono::high_resolution_clock::now();
-		this->convbn(20, encrypted_image);
-		this->print(encrypted_image, "L20 ConvBN");
-		this->context->EvalMultInPlace(in, scales[20] * this->prescale);
-		this->print(in, "L20 Input Multiplied");
-		this->context->EvalAddInPlace(encrypted_image, in);
-		this->print(encrypted_image, "L20 Added");
-		this->bootstrap(encrypted_image);
-		this->print(encrypted_image, "L20 Bootstrap");
-		this->relu(encrypted_image, scales[20]);
-		this->print(encrypted_image, "L20 ReLU");
-		ends[20] = std::chrono::high_resolution_clock::now();
-	}
-
-	// Block 10.
-	{
-		if (this->partial_load && !loaded)
-			this->load_funcs[21]();
-		starts[21] = std::chrono::high_resolution_clock::now();
-		this->context->AccumulateSumInPlace(encrypted_image, 64, 1);
-		this->print(encrypted_image, "L21 After first AccumulateSum");
-		this->context->EvalMultInPlace(encrypted_image, this->final_mask);
-		this->print(encrypted_image, "L21 After final mask Mult");
-		this->context->AccumulateSumInPlace(encrypted_image, 16, 1);
-		this->print(encrypted_image, "L21 After second AccumulateSum");
-		this->context->EvalRotateInPlace(encrypted_image, -16 + 1);
-		this->print(encrypted_image, "L21 After Rotate");
-		this->context->EvalMultInPlace(encrypted_image, this->weight_final);
-		this->print(encrypted_image, "L21 After final weight Mult");
-		this->context->AccumulateSumInPlace(encrypted_image, 64, 64);
-		ends[21] = std::chrono::high_resolution_clock::now();
-	}
-
-	loaded = this->partial_load ? false : true;
+		loaded = this->partial_load ? false : true;
 	}
 
 	// Elapsed time in milliseconds
@@ -1657,11 +1657,9 @@ void resnet::measure_bootstrap_precision() {
 	auto clone_initial = initial->Clone();
 	auto a			   = decrypt(clone_initial);
 
-	//this->context->LoadCiphertext(initial);
+	// this->context->LoadCiphertext(initial);
 
-
-
-	//this->context->EvalBootstrapInPlace(initial, 1, 0, false);
+	// this->context->EvalBootstrapInPlace(initial, 1, 0, false);
 
 	auto b = decrypt(initial);
 
@@ -1845,7 +1843,7 @@ fideslib::Ciphertext<fideslib::DCRTPoly> resnet::downsample(size_t downsample_la
 }
 
 void resnet::relu(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, double scale) {
-	auto prescaled = this->prescaled ? this->prescale : 1.0;
+	auto prescaled					   = this->prescaled ? this->prescale : 1.0;
 	std::function<double(double)> relu = [scale](double x) -> double {
 		if (x < 0)
 			return 0;
@@ -2014,5 +2012,5 @@ void resnet::print(fideslib::Ciphertext<fideslib::DCRTPoly>& ct, std::string msg
 	std::cout << msg << std::endl;
 	std::cout << "\tLevel " << ct->GetLevel() << " , Scale " << ct->GetNoiseScaleDeg() << std::endl;
 	fideslib::Plaintext result = this->decrypt(ct);
-	//std::cout << "\t" << result << std::endl;
+	// std::cout << "\t" << result << std::endl;
 }
