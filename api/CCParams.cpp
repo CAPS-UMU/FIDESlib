@@ -65,17 +65,19 @@ void CCParams<CryptoContextCKKSRNS>::SetKeySwitchTechnique(KeySwitchTechnique te
 
 void CCParams<CryptoContextCKKSRNS>::SetSecretKeyDist(SecretKeyDist dist) {
 	auto& params = std::any_cast<lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(cpu);
-	
+
 	if (this->devices.empty()) {
 		if (dist == SecretKeyDist::SPARSE_TERNARY) {
 			params.SetSecretKeyDist(lbcrypto::SPARSE_TERNARY);
-		}
-		else {
+		} else {
 			params.SetSecretKeyDist(lbcrypto::UNIFORM_TERNARY);
 		}
-	}
-	else {
-		params.SetSecretKeyDist(lbcrypto::UNIFORM_TERNARY);
+	} else {
+		if (dist == SecretKeyDist::SPARSE_TERNARY) {
+			params.SetSecretKeyDist(lbcrypto::SPARSE_TERNARY);
+		} else {
+			params.SetSecretKeyDist(lbcrypto::UNIFORM_TERNARY);
+		}
 	}
 	keyDist = dist;
 }
