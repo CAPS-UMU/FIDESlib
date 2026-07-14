@@ -17,7 +17,6 @@ git checkout fideslib-ref-v1.5.1.1
 #git checkout v1.5.1
 #git config user.email "FIDESlib"
 #git config user.name "FIDESlib"
-#git apply ../openfhe-1.5.1.1-fideslib.patch
 git apply ../fideslib-ref-1.5.1.1.patch
 #git apply ../openfhe-1.5.1.patch
 

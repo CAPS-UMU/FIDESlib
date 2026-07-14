@@ -1,22 +1,3 @@
-From 786293a6607bf846982ffad1cd422518d4409abd Mon Sep 17 00:00:00 2001
-From: carlosad <carlos0105ad@gmail.com>
-Date: Wed, 8 Jul 2026 11:56:39 +0200
-Subject: [PATCH] patch
-
----
- CMakeLists.txt                                      | 11 +++++++----
- src/core/include/lattice/hal/default/dcrtpoly.h     |  1 +
- src/core/include/lattice/hal/default/ildcrtparams.h |  3 ++-
- src/core/include/lattice/hal/default/poly.h         |  2 ++
- src/pke/include/cryptocontext.h                     |  4 ++--
- src/pke/include/scheme/ckksrns/ckksrns-fhe.h        | 12 +++++++-----
- src/pke/include/schemebase/base-cryptoparameters.h  |  3 ++-
- src/pke/include/schemebase/base-fhe.h               |  2 +-
- src/pke/include/schemebase/base-scheme.h            |  6 ++++--
- src/pke/include/schemerns/rns-cryptoparameters.h    |  2 +-
- src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp          |  5 +++--
- 11 files changed, 32 insertions(+), 19 deletions(-)
-
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 3a3d5e4d..76625e5d 100644
 --- a/CMakeLists.txt
@@ -47,7 +28,7 @@ index 3a3d5e4d..76625e5d 100644
  endif()
  
 diff --git a/src/core/include/lattice/hal/default/dcrtpoly.h b/src/core/include/lattice/hal/default/dcrtpoly.h
-index 2c5229fc..d207be8d 100644
+index ca8138a1..1ff345a5 100644
 --- a/src/core/include/lattice/hal/default/dcrtpoly.h
 +++ b/src/core/include/lattice/hal/default/dcrtpoly.h
 @@ -392,6 +392,7 @@ public:
@@ -73,7 +54,7 @@ index cc15bc08..2ea846c3 100644
      std::vector<std::shared_ptr<ILNativeParams>> m_params;
  };
 diff --git a/src/core/include/lattice/hal/default/poly.h b/src/core/include/lattice/hal/default/poly.h
-index 4a62ebc7..f58a9697 100644
+index 629481b2..2da44598 100644
 --- a/src/core/include/lattice/hal/default/poly.h
 +++ b/src/core/include/lattice/hal/default/poly.h
 @@ -364,8 +364,10 @@ public:
@@ -88,22 +69,22 @@ index 4a62ebc7..f58a9697 100644
  };
  
 diff --git a/src/pke/include/cryptocontext.h b/src/pke/include/cryptocontext.h
-index 28dfd641..5d670e2e 100644
+index 1831189a..94978778 100644
 --- a/src/pke/include/cryptocontext.h
 +++ b/src/pke/include/cryptocontext.h
-@@ -3512,8 +3512,8 @@ public:
+@@ -3580,8 +3580,8 @@ public:
      */
      void EvalBootstrapSetup(std::vector<uint32_t> levelBudget = {5, 4}, std::vector<uint32_t> dim1 = {0, 0},
                              uint32_t slots = 0, uint32_t correctionFactor = 0, bool precompute = true,
 -                            bool BTSlotsEncoding = false) {
--        GetScheme()->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
+-        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
 +                            bool BTSlotsEncoding = false, int32_t modevallevels = -1) {
-+        GetScheme()->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding, modevallevels);
++        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding, modevallevels);
      }
  
      /**
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index b610e307..50796def 100644
+index acc0af7a..765a33f4 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -125,12 +125,13 @@ using namespace std::literals::complex_literals;
@@ -121,7 +102,7 @@ index b610e307..50796def 100644
      using ParmType = typename DCRTPoly::Params;
      using DugType  = typename DCRTPoly::DugType;
      using DggType  = typename DCRTPoly::DggType;
-@@ -145,7 +146,7 @@ public:
+@@ -149,7 +150,7 @@ public:
  
      void EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
                              std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute,
@@ -130,7 +111,7 @@ index b610e307..50796def 100644
  
      std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
                                                                                 uint32_t slots) override;
-@@ -339,8 +340,9 @@ private:
+@@ -381,8 +382,9 @@ private:
      //------------------------------------------------------------------------------
      // Find Rotation Indices
      //------------------------------------------------------------------------------
@@ -141,7 +122,7 @@ index b610e307..50796def 100644
      // ATTN: The following 3 functions are helper methods to be called in FindBootstrapRotationIndices() only.
      // so they DO NOT remove possible duplicates and automorphisms corresponding to 0 and M/4.
      // These methods completely depend on FindBootstrapRotationIndices() to do that.
-@@ -361,7 +363,7 @@ private:
+@@ -403,7 +405,7 @@ private:
  
      void ExtendCiphertext(std::vector<DCRTPoly>& ciphertext, const CryptoContextImpl<DCRTPoly>& cc,
                            const std::shared_ptr<DCRTPoly::Params> params) const;
@@ -150,7 +131,7 @@ index b610e307..50796def 100644
      void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
  
      /**
-@@ -413,7 +415,7 @@ private:
+@@ -455,7 +457,7 @@ private:
                                                     uint32_t digitBitSize, size_t order = 1);
  
      // upper bound for the number of overflows in the sparse secret case
@@ -175,10 +156,10 @@ index 23db5705..2d0f8632 100644
      EncodingParams m_encodingParams;
  };
 diff --git a/src/pke/include/schemebase/base-fhe.h b/src/pke/include/schemebase/base-fhe.h
-index 0ac85dd8..3ed32431 100644
+index d0a0ad0f..e7bb0366 100644
 --- a/src/pke/include/schemebase/base-fhe.h
 +++ b/src/pke/include/schemebase/base-fhe.h
-@@ -90,7 +90,7 @@ public:
+@@ -102,7 +102,7 @@ public:
     */
      virtual void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, std::vector<uint32_t> levelBudget,
                                      std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor,
@@ -188,10 +169,10 @@ index 0ac85dd8..3ed32431 100644
      }
  
 diff --git a/src/pke/include/schemebase/base-scheme.h b/src/pke/include/schemebase/base-scheme.h
-index c5725dc9..7faa6077 100644
+index 528ac515..f8fff3da 100644
 --- a/src/pke/include/schemebase/base-scheme.h
 +++ b/src/pke/include/schemebase/base-scheme.h
-@@ -1142,9 +1142,9 @@ public:
+@@ -1141,9 +1141,9 @@ public:
  
      void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, const std::vector<uint32_t>& levelBudget = {5, 4},
                              const std::vector<uint32_t>& dim1 = {0, 0}, uint32_t slots = 0,
@@ -202,8 +183,8 @@ index c5725dc9..7faa6077 100644
 +        m_FHE->EvalBootstrapSetup(cc, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding, modevallevels);
      }
  
-     std::shared_ptr<std::map<uint32_t, EvalKey<Element>>> EvalBootstrapKeyGen(const PrivateKey<Element> privateKey,
-@@ -1557,7 +1557,9 @@ protected:
+     void ClearBootstrapPrecom() noexcept {
+@@ -1571,7 +1571,9 @@ protected:
      std::shared_ptr<LeveledSHEBase<Element>> m_LeveledSHE;
      std::shared_ptr<AdvancedSHEBase<Element>> m_AdvancedSHE;
      std::shared_ptr<MultipartyBase<Element>> m_Multiparty;
@@ -214,10 +195,10 @@ index c5725dc9..7faa6077 100644
  
      inline void CheckMultipartyDecryptCompatibility(ConstCiphertext<Element>& ciphertext, CALLER_INFO_ARGS_HDR) const {
 diff --git a/src/pke/include/schemerns/rns-cryptoparameters.h b/src/pke/include/schemerns/rns-cryptoparameters.h
-index cd9ceb41..70bbda0d 100644
+index f7b1e62a..1c59687b 100644
 --- a/src/pke/include/schemerns/rns-cryptoparameters.h
 +++ b/src/pke/include/schemerns/rns-cryptoparameters.h
-@@ -1410,7 +1410,7 @@ protected:
+@@ -1419,7 +1419,7 @@ protected:
      /////////////////////////////////////
      // BGVrns ModReduce
      /////////////////////////////////////
@@ -227,10 +208,10 @@ index cd9ceb41..70bbda0d 100644
      std::vector<NativeInteger> m_tModqPrecon;
  
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index 96c2363e..8e4386ce 100644
+index e2223e8a..060f9b6e 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-@@ -84,7 +84,7 @@ namespace lbcrypto {
+@@ -134,7 +134,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
  
  void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
                                      std::vector<uint32_t> dim1, uint32_t numSlots, uint32_t correctionFactor,
@@ -239,7 +220,7 @@ index 96c2363e..8e4386ce 100644
      const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
  
      if (cryptoParams->GetKeySwitchTechnique() != HYBRID)
-@@ -209,7 +209,8 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
+@@ -260,7 +260,8 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
              lDec = (2 + (st == FLEXIBLEAUTOEXT)) * compositeDegree;
          }
          else {
@@ -249,6 +230,3 @@ index 96c2363e..8e4386ce 100644
                                 precom->m_paramsDec.lvlb;
              lDec = L0 - compositeDegree * depthBT;
          }
--- 
-2.34.1
-
