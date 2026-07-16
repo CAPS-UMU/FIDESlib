@@ -85,24 +85,22 @@ void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int str
 		aux.emplace_back(cc_);
 	}
 
+	// Match OpenFHE's bootstrap PartialSum bit-exactly: each level performs full standalone
+	// rotations (key-switch + moddown per rotation, like EvalFastRotation) and accumulates in
+	// the standard basis. The previous hoisted/extended accumulation with a deferred moddown
+	// computes the same value with a different rounding order, which breaks CPU/GPU
+	// bit-identity of bootstrapping.
 	int logbStep = std::bit_width((uint32_t)bStep) - 1;
 	for (int s = 1; s < size; s <<= logbStep) {
-		std::vector<int> indexes;
-		std::vector<Ciphertext*> auxptr;
+		int n = 0;
 		for (int idx = stride * s; idx < stride * size && idx < bStep * stride * s; idx += stride * s) {
-			// std::cout << idx << std::endl;
-			indexes.push_back(idx);
-			auxptr.emplace_back(&aux[idx / stride / s - 1]);
+			aux[n].rotate(ctxt, idx);
+			++n;
 		}
-		ctxt.rotate_hoisted(indexes, auxptr, true);
-		// ctxt.extend();
-		for (size_t i = 0; i < indexes.size(); ++i) {
-			ctxt.add(*auxptr[i]);
+		for (int i = 0; i < n; ++i) {
+			ctxt.add(aux[i]);
 		}
-		ctxt.c1.moddown();
 	}
-	if (ctxt.c0.isModUp())
-		ctxt.c0.moddown();
 
 	if (size * stride == ctxt.slots)
 		ctxt.slots = stride;

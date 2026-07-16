@@ -1390,17 +1390,19 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 	if (c1lvl > c2lvl) {
 		if (c1depth == 2) {
 			if (c2depth == 2) {
+				// FIDESlib bit-compat: mirror OpenFHE AdjustLevelsAndDepthInPlace exactly --
+				// same floating-point evaluation order for the adjustment factor, the
+				// mod-reduce factor of the CURRENT top level, and rescale before dropping.
 				double scf1 = NoiseFactor;
 				double scf2 = scaling_factor;
-				double scf  = cc.param.ScalingFactorReal[c1lvl];   // cryptoParams->GetScalingFactorReal(c1lvl);
-				double q1   = cc.param.ModReduceFactor[c2lvl + 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
-				multScalarNoPrecheck(scf2 * q1 / scf1 / scf);
-				if (getLevel() > static_cast<int32_t>(c2lvl + 1)) {
-					this->dropToLevel(c2lvl + 1, true);
-				}
-				NoiseFactor = cc.param.ScalingFactorRealBig[c2lvl] * cc.param.ModReduceFactor[c2lvl + 1];
+				double scf  = cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
+				double q1   = cc.param.ModReduceFactor[c1lvl];   // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
+				multScalarNoPrecheck(scf2 / scf1 * q1 / scf);
+				NoiseFactor = cc.param.ScalingFactorRealBig[getLevel() - 1] * cc.param.ModReduceFactor[getLevel()];
 				rescale();
-				assert(std::abs((scf1 * scf * scf2 * q1 / scf1 / scf / q1 - scaling_factor) / scaling_factor) < 1e-9);
+				if (getLevel() > static_cast<int32_t>(c2lvl)) {
+					this->dropToLevel(c2lvl, true);
+				}
 				NoiseFactor = scaling_factor;
 			} else {
 				if (c1lvl - 1 == c2lvl) {

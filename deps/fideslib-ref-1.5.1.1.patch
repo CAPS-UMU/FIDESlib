@@ -208,7 +208,7 @@ index f7b1e62a..1c59687b 100644
      std::vector<NativeInteger> m_tModqPrecon;
  
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index e2223e8a..060f9b6e 100644
+index e2223e8a..fa301548 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 @@ -134,7 +134,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
@@ -230,3 +230,125 @@ index e2223e8a..060f9b6e 100644
                                 precom->m_paramsDec.lvlb;
              lDec = L0 - compositeDegree * depthBT;
          }
+@@ -815,9 +816,15 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalBootstrap(ConstCiphertext<DCRTPoly>& cipher
+         // Running PartialSum
+         //------------------------------------------------------------------------------
+ 
++        // FIDESlib bit-compat: use the hoisted (EvalFastRotation) formulation, which is the
++        // rotation flavor the GPU implements. EvalRotate key-switches first and applies the
++        // automorphism to the result, so its key-switching noise enters differently and the
++        // output never matches the GPU bit for bit.
+         const auto limit = N / (2 * slots);
+-        for (uint32_t j = 1; j < limit; j <<= 1)
+-            cc->EvalAddInPlace(raised, cc->EvalRotate(raised, j * slots));
++        for (uint32_t j = 1; j < limit; j <<= 1) {
++            auto digits = cc->EvalFastRotationPrecompute(raised);
++            cc->EvalAddInPlace(raised, cc->EvalFastRotation(raised, j * slots, 2 * N, digits));
++        }
+ 
+ #ifdef BOOTSTRAPTIMING
+         TIC(t);
+@@ -890,7 +897,12 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalBootstrap(ConstCiphertext<DCRTPoly>& cipher
+ 
+         // linear transform for decoding
+         ctxtDec = (isLTBootstrap) ? EvalLinearTransform(p.m_U0Pre, ctxtEnc) : EvalSlotsToCoeffs(p.m_U0PreFFT, ctxtEnc);
+-        cc->EvalAddInPlaceNoCheck(ctxtDec, cc->EvalRotate(ctxtDec, slots));
++        {
++            // FIDESlib bit-compat: hoisted rotation flavor (see PartialSum note above).
++            auto digitsDec = cc->EvalFastRotationPrecompute(ctxtDec);
++            cc->EvalAddInPlaceNoCheck(ctxtDec, cc->EvalFastRotation(ctxtDec, slots, 2 * N, digitsDec));
++        }
++
+     }
+ 
+ #if NATIVEINT != 128
+@@ -2066,9 +2078,12 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalCoeffsToSlots(const std::vector<std::vector
+     }
+ 
+     // undo the per-level accumulated rotation so the output is in standard slot ordering.
++    // FIDESlib bit-compat: hoisted rotation flavor (matches the GPU's rotation primitive).
+     const int32_t CtSDelta = ReduceRotation(-static_cast<int32_t>(slots - 1), reduceMod);
+-    if (CtSDelta != 0)
+-        result = cc->EvalAtIndex(result, CtSDelta);
++    if (CtSDelta != 0) {
++        auto deltaDigits = cc->EvalFastRotationPrecompute(result);
++        result           = cc->EvalFastRotation(result, CtSDelta, cc->GetCyclotomicOrder(), deltaDigits);
++    }
+ 
+     return result;
+ }
+@@ -2179,9 +2194,12 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalSlotsToCoeffs(const std::vector<std::vector
+     }
+ 
+     // apply StC accumulated correction Aut_{-Delta} where Delta = slots-1
++    // FIDESlib bit-compat: hoisted rotation flavor (matches the GPU's rotation primitive).
+     const int32_t Delta = ReduceRotation(-static_cast<int32_t>(slots - 1), reduceMod);
+-    if (Delta != 0)
+-        result = cc->EvalAtIndex(result, Delta);
++    if (Delta != 0) {
++        auto deltaDigits = cc->EvalFastRotationPrecompute(result);
++        result           = cc->EvalFastRotation(result, Delta, cc->GetCyclotomicOrder(), deltaDigits);
++    }
+ 
+     return result;
+ }
+@@ -2754,18 +2772,49 @@ EvalKey<DCRTPoly> FHECKKSRNS::ConjugateKeyGen(const PrivateKey<DCRTPoly> private
+ 
+ Ciphertext<DCRTPoly> FHECKKSRNS::Conjugate(ConstCiphertext<DCRTPoly> ciphertext,
+                                            const std::map<uint32_t, EvalKey<DCRTPoly>>& evalKeyMap) {
+-    uint32_t N = ciphertext->GetElements()[0].GetRingDimension();
++    uint32_t N               = ciphertext->GetElements()[0].GetRingDimension();
++    const uint32_t autoIndex = 2 * N - 1;
+     std::vector<uint32_t> vec(N);
+-    PrecomputeAutoMap(N, 2 * N - 1, &vec);
+-
+-    auto result = ciphertext->Clone();
+-
+-    auto algo = ciphertext->GetCryptoContext()->GetScheme();
+-    algo->KeySwitchInPlace(result, evalKeyMap.at(2 * N - 1));
++    PrecomputeAutoMap(N, autoIndex, &vec);
++
++    // FIDESlib bit-compat: hoisted (fast-rotation) formulation of the conjugation, mirroring
++    // the HYBRID branch of LeveledSHEBase::EvalFastRotation, which is the formulation the GPU
++    // implements. The previous KeySwitchInPlace-then-automorph form introduces the
++    // key-switching noise differently and never matches the GPU bit for bit.
++    auto cc             = ciphertext->GetCryptoContext();
++    const auto& evalKey = evalKeyMap.at(autoIndex);
++
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersRNS>(evalKey->GetCryptoParameters());
++    const auto& cv0         = ciphertext->GetElements()[0];
++
++    const PlaintextModulus t = (cryptoParams->GetNoiseScale() == 1) ? 0 : cryptoParams->GetPlaintextModulus();
++
++    auto digits = cc->EvalFastRotationPrecompute(ciphertext);
++    auto ba     = cc->GetScheme()->EvalFastKeySwitchCoreExt(digits, evalKey, cv0.GetParams());
++
++    // ba[0] += cv[0] * P;
++    uint32_t sizeQ = cv0.GetNumOfElements();
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQ))
++    for (uint32_t i = 0; i < sizeQ; ++i)
++        ba[0].GetAllElements()[i] += (cv0.GetAllElements()[i] * cryptoParams->GetPModq()[i]);
++
++    ba[0] = ba[0]
++                .AutomorphismTransform(autoIndex, vec)
++                .ApproxModDown(cv0.GetParams(), cryptoParams->GetParamsP(), cryptoParams->GetPInvModq(),
++                               cryptoParams->GetPInvModqPrecon(), cryptoParams->GetPHatInvModp(),
++                               cryptoParams->GetPHatInvModpPrecon(), cryptoParams->GetPHatModq(),
++                               cryptoParams->GetModqBarrettMu(), cryptoParams->GettInvModp(),
++                               cryptoParams->GettInvModpPrecon(), t, cryptoParams->GettModqPrecon());
++    ba[1] = ba[1]
++                .AutomorphismTransform(autoIndex, vec)
++                .ApproxModDown(cv0.GetParams(), cryptoParams->GetParamsP(), cryptoParams->GetPInvModq(),
++                               cryptoParams->GetPInvModqPrecon(), cryptoParams->GetPHatInvModp(),
++                               cryptoParams->GetPHatInvModpPrecon(), cryptoParams->GetPHatModq(),
++                               cryptoParams->GetModqBarrettMu(), cryptoParams->GettInvModp(),
++                               cryptoParams->GettInvModpPrecon(), t, cryptoParams->GettModqPrecon());
+ 
+-    auto& rcv = result->GetElements();
+-    rcv[0]    = rcv[0].AutomorphismTransform(2 * N - 1, vec);
+-    rcv[1]    = rcv[1].AutomorphismTransform(2 * N - 1, vec);
++    auto result = ciphertext->CloneEmpty();
++    result->SetElements(std::move(ba));
+     return result;
+ }
+ 

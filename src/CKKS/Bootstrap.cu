@@ -238,6 +238,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 			// ctxt.multScalar(1.0, false); // TODO remove
 			// ctxt.rescale();
 		}
+
 		if constexpr (PRINT) {
 			std::cout << "Raise scaled ";
 			for (auto& j : ctxt.c0.GPU) {
@@ -261,6 +262,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 			ctxt.keySwitch(btoa);
 		}
 		Accumulate(ctxt, cc.GetBootPrecomputation(slots).accumulate_bStep, slots, cc.N / 2 / slots);
+
 	}
 
 	ctxt.slots = cc.N / 2 == slots ? slots : 2 * slots;
@@ -276,6 +278,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 	} else {
 		EvalCoeffsToSlots(ctxt, slots, false);
 	}
+
 	//  std::cout << "ModRed" << std::endl;
 
 	if (cc.N / 2 == slots) {
@@ -286,16 +289,24 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		ctxtEncI.multMonomial(3 * 2 * cc.N / 4);
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
 			ctxt.rescale();
+		else if (ctxt.NoiseLevel == 2)
+			ctxt.rescale();  // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
 			ctxtEncI.rescale();
+		else if (ctxtEncI.NoiseLevel == 2)
+			ctxtEncI.rescale();  // FIDESlib bit-compat: same for the imaginary component
 		approxModReduction(ctxt, ctxtEncI, cc.GetEvalKey(ctxt.keyID), scalar);
 	} else {
 		aux.conjugate(ctxt);
 		ctxt.add(aux);
+
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
 			ctxt.rescale();
+		else if (ctxt.NoiseLevel == 2)
+			ctxt.rescale();  // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
 		approxModReductionSparse(ctxt, scalar);
 	}
+
 
 	if (ctxt.NoiseLevel == 2) {
 		ctxt.rescale();
@@ -313,6 +324,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		aux.rotate(ctxt, slots);
 		ctxt.add(aux);
 	}
+
 
 	uint64_t corFactor = (uint64_t)1 << std::llround(correction);
 	multIntScalar(ctxt, corFactor);

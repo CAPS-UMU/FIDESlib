@@ -675,7 +675,15 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalNegate(const Ciphertext<DC
 
 	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
 	auto res_gpu                = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
-	res_gpu->multScalar(-1.0);
+
+	// Exact negation (multiply each limb by q_i - 1), matching OpenFHE's EvalNegate:
+	// no noise-degree or scaling-factor change, unlike multScalar(-1.0).
+	auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
+	std::vector<uint64_t> negOne(res_gpu->getLevel() + 1);
+	for (size_t i = 0; i < negOne.size(); ++i)
+		negOne[i] = context_gpu->prime[i].p - 1;
+	res_gpu->c0.multScalar(negOne);
+	res_gpu->c1.multScalar(negOne);
 	return result;
 }
 
@@ -696,7 +704,14 @@ void CryptoContextImpl<DCRTPoly>::EvalNegateInPlace(Ciphertext<DCRTPoly>& ct) {
 	this->LoadCiphertext(ct);
 
 	auto ct_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
-	ct_gpu->multScalar(-1.0);
+
+	// Exact negation (multiply each limb by q_i - 1), matching OpenFHE's EvalNegate.
+	auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
+	std::vector<uint64_t> negOne(ct_gpu->getLevel() + 1);
+	for (size_t i = 0; i < negOne.size(); ++i)
+		negOne[i] = context_gpu->prime[i].p - 1;
+	ct_gpu->c0.multScalar(negOne);
+	ct_gpu->c1.multScalar(negOne);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
@@ -1217,7 +1232,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRT
 
 		auto& context                   = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		auto& ct1Impl                   = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
-		auto& ptImpl                    = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
+		auto& ptImpl                    = std::any_cast<const lbcrypto::Plaintext&>(pt->cpu);
 		auto ct                         = context->EvalMult(ct1Impl, ptImpl);
 		Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
 		ciphertext->cpu                 = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
@@ -1278,7 +1293,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Pla
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
-		auto& ptImpl  = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
+		auto& ptImpl  = std::any_cast<const lbcrypto::Plaintext&>(pt->cpu);
 		auto res      = context->EvalMult(ct1Impl, ptImpl);
 		ct1->cpu      = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
 		return;
