@@ -40,6 +40,7 @@ class PlaintextImpl {
 
 	double GetLogPrecision() const;
 	uint32_t GetLevel() const;
+	uint32_t GetSlots() const;
 	std::vector<std::complex<double>> GetCKKSPackedValue() const;
 	std::vector<double> GetRealPackedValue() const;
 
@@ -60,6 +61,8 @@ class PlaintextImpl {
 // ---- Override Operators ----
 
 std::ostream& operator<<(std::ostream& os, const Plaintext& pt);
+bool operator==(const PlaintextImpl& lhs, const PlaintextImpl& rhs);
+bool operator!=(const PlaintextImpl& lhs, const PlaintextImpl& rhs);
 } // namespace fideslib
 
 #endif // API_PLAINTEXT_HPP

@@ -377,7 +377,7 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
 
 	double scFactor;
 	if (level_in == -1 || level_in == level) {
-		if (level < param.ScalingFactorReal.size()) {
+		if (static_cast<size_t>(level) < param.ScalingFactorReal.size()) {
 			scFactor = param.ScalingFactorReal[level];
 		} else {
 			scFactor = moduli.back().ConvertToDouble();

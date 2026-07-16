@@ -51,6 +51,14 @@ uint32_t PlaintextImpl::GetLevel() const {
 	return 0;
 }
 
+uint32_t PlaintextImpl::GetSlots() const {
+	if (this->cpu.has_value()) {
+		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
+		return impl->GetSlots();
+	}
+	return 0;
+}
+
 std::vector<std::complex<double>> PlaintextImpl::GetCKKSPackedValue() const {
 	if (this->cpu.has_value()) {
 		auto& impl = std::any_cast<const lbcrypto::Plaintext&>(this->cpu);
@@ -87,6 +95,20 @@ std::ostream& operator<<(std::ostream& os, const Plaintext& pt) {
 		os << "Empty Plaintext";
 	}
 	return os;
+}
+
+bool operator==(const PlaintextImpl& lhs, const PlaintextImpl& rhs) {
+	if (!lhs.cpu.has_value() || !rhs.cpu.has_value())
+		return lhs.cpu.has_value() == rhs.cpu.has_value();
+	const auto& l = std::any_cast<const lbcrypto::Plaintext&>(lhs.cpu);
+	const auto& r = std::any_cast<const lbcrypto::Plaintext&>(rhs.cpu);
+	if (!l || !r)
+		return l == r;
+	return *l == *r;
+}
+
+bool operator!=(const PlaintextImpl& lhs, const PlaintextImpl& rhs) {
+	return !(lhs == rhs);
 }
 
 } // namespace fideslib

@@ -296,12 +296,13 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 			dest.resize(dest.size() + 1);
 			dest[k_ - 1].resize(k_);
 
-			for (int k = 1; k <= cryptoParams->GetElementParams()->GetParams().size(); ++k) {
+			const int sizeQ = static_cast<int>(k_);
+			for (int k = 1; k <= sizeQ; ++k) {
 
 				lbcrypto::BigInteger modulusQ = cryptoParams->GetElementParams()->GetModulus();
 
-				int curr_l = cryptoParams->GetElementParams()->GetParams().size();
-				while (curr_l > (k - (cryptoParams->GetElementParams()->GetParams().size() == k && lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()))) {
+				int curr_l = sizeQ;
+				while (curr_l > (k - (sizeQ == k && lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()))) {
 					// divide modulus q by the small last limb
 					modulusQ = modulusQ / lbcrypto::BigInteger(moduliQ.at(curr_l - 1));
 					// k -= 1;
@@ -333,7 +334,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 				lbcrypto::BigInteger QlInvModp0	 = modulusQ.ModInverse(moduliP0);
 				lbcrypto::BigInteger result		 = (QlInvModp0 * modulusQ) / lbcrypto::BigInteger(moduliP0);
 				for (int i = 0; i < k; i++) {
-					if (k < cryptoParams->GetElementParams()->GetParams().size()) {
+					if (k < sizeQ) {
 						uint64_t res = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
 						assert(dest[cryptoParams->GetElementParams()->GetParams().size() - k - 1][i] == res);
 					} else {
@@ -823,8 +824,8 @@ void FIDESlib::CKKS::GenAndAddRotationKeys(lbcrypto::CryptoContext<lbcrypto::DCR
 }
 
 constexpr bool remove_extension		= false;
-constexpr bool MAKE_CTS_LT_FRIENDLY = true;
-constexpr bool MAKE_STC_LT_FRIENDLY = true;
+[[maybe_unused]] constexpr bool MAKE_CTS_LT_FRIENDLY = true;
+[[maybe_unused]] constexpr bool MAKE_STC_LT_FRIENDLY = true;
 
 std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, int slots, FIDESlib::CKKS::BootstrapPrecomputation* result_) {
 	// ContextData& GPUcc = *GPUcc_;
@@ -991,7 +992,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 
 		{
 			int acc_offset = 0;
-			for (int i = 0; i < result.CtS.size(); i++) {
+			for (size_t i = 0; i < result.CtS.size(); i++) {
 				acc_offset += (result.CtS[i].slots / 2) * (result.CtS[i].bStep > 1 ? result.CtS[i].rotIn[1] : (result.CtS[i].gStep > 1 ? result.CtS[i].rotOut[1] : 0));
 			}
 			indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
@@ -1002,7 +1003,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 
 		{
 			int acc_offset = 0;
-			for (int i = 0; i < result.StC.size(); i++) {
+			for (size_t i = 0; i < result.StC.size(); i++) {
 				acc_offset += (result.StC[i].slots / 2) * (result.StC[i].bStep > 1 ? result.StC[i].rotIn[1] : (result.StC[i].gStep > 1 ? result.StC[i].rotOut[1] : 0));
 			}
 			indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
