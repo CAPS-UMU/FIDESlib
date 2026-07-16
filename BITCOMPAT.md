@@ -10,8 +10,8 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 
 1. **OpenFHE dev branch** — algorithmic changes with standalone value (formulation unification,
    optimizations that also help the CPU).
-2. **`deps/fideslib-ref-1.5.1.1.patch`** — kept minimal; ideally only visibility/API shims.
-   Temporary home for changes queued for upstream.
+2. **`deps/fideslib-ref-1.5.1.2.patch`** — kept minimal; now back to visibility/API shims only
+   (applies on tag `fideslib-ref-v1.5.1.2`). Temporary home for changes queued for upstream.
 3. **FIDESlib** — GPU-side fixes and anything that is a FIDESlib bug.
 
 ## Current test status (`test/OpenFheCompatTests.cu`)
@@ -19,7 +19,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | Test | Status | Notes |
 |---|---|---|
 | `EvalFastRotation` | PASS | single-index hoisted rotation |
-| `EvalRotate` | **FAILS by design** | acceptance test for upstream unification (issue O1) |
+| `EvalRotate` | PASS | keyswitch-first path unified onto the hoisted core upstream (O1, `fideslib-ref-v1.5.1.2`) |
 | `EvalBootstrap` | PASS | sparse, N=4096, slots=8, FLEXIBLEAUTO, budget {3,3} |
 | `EvalBootstrapDense` | PASS | fully packed, slots=N/2 |
 | `EvalArithmetic` | PASS | add/sub/negate/mult/square, ct∘ct and ct∘scalar |
@@ -38,14 +38,14 @@ mod-down, add to `c0`, automorph last) produce different-but-equally-valid ciphe
 key-switching noise enters automorphed in one and un-automorphed in the other, so they never
 match bitwise. FIDESlib implements only the hoisted flavor (verified: GPU `rotate` == CPU
 `EvalFastRotation` exactly, incl. at 26 towers).
-**Interim fix (currently in the patch):** the bootstrap's 4 `EvalRotate`/`EvalAtIndex` sites
+**Interim fix (was in the patch):** the bootstrap's 4 `EvalRotate`/`EvalAtIndex` sites
 (PartialSum loop, final sparse doubling, CtS/StC correction rotations) switched to
 `EvalFastRotation`; `FHECKKSRNS::Conjugate` rewritten in the hoisted form with
 `autoIndex = 2N−1`.
-**Superseded by O1/P2a:** once `EvalRotate`/`EvalAtIndex`/`Conjugate` are themselves routed
-through the hoisted core upstream, the original bootstrap call sites become bit-compatible as
-written — these five hunks are then *reverted to stock upstream code* and simply dropped from
-the patch (they are not upstreamed as call-site changes).
+**Superseded by O1:** `EvalRotate`/`EvalAtIndex`/`Conjugate` are now routed through the hoisted
+core upstream (`fideslib-ref-v1.5.1.2`), so the original bootstrap call sites are bit-compatible
+as written — the five interim hunks were reverted to stock upstream code and dropped from the
+patch (they were never upstreamed as call-site changes).
 
 ### R2. `Accumulate` lazy extended-basis accumulation *(deliberate GPU optimization, reverted — restore via P2b)*
 The GPU PartialSum kept `c0` in the Q·P basis across all doubling levels with one deferred
@@ -167,16 +167,20 @@ multiply threw. Fix in `api/CryptoContext.cpp` (both call sites):
 
 This failure mode is inherent to the `std::any` design — see O7.
 
-## Open issues
+### O1. `EvalRotate` unification *(resolved — landed as `fideslib-ref-v1.5.1.2`)*
+The hoisted HYBRID formulation (already used by `EvalFastRotation`, added upstream for the GPU
+backend) is extended to `EvalRotate`/`EvalAtIndex`/`EvalAutomorphism`/`Conjugate`, making
+`EvalRotate(ct, i)` ≡ `EvalFastRotation(ct, i, m, EvalFastRotationPrecompute(ct))` bit-for-bit:
+`EvalAutomorphism` and `EvalFastRotation` both delegate to a new `EvalAutomorphismCore`
+(`base-leveledshe.cpp`) holding the former `EvalFastRotation` body, and `FHECKKSRNS::Conjugate`
+delegates to `EvalAutomorphism(ct, 2N−1)`. Side effect: upstream `EvalRotate` output bit-patterns
+change (same decrypted values and noise magnitude). Landed as commit `eb3e76cf` on branch `gpu`,
+tagged `fideslib-ref-v1.5.1.2`; the patch rebased onto it (R1 hunks dropped).
+`OpenFHECompatTests.EvalRotate` was the acceptance test and is green, and the api
+`AccumulateSum` CPU fallback (an `EvalRotate`+add doubling loop) and `EvalRotateInPlace` are
+bit-compatible with it.
 
-### O1. `EvalRotate` unification (blocks `OpenFHECompatTests.EvalRotate`, `AccumulateSum`, `EvalRotateInPlace`)
-Extend the hoisted HYBRID formulation (already used by `EvalFastRotation`, added upstream for the
-GPU backend) to `EvalRotate`/`EvalAtIndex`/`EvalAutomorphism`, making
-`EvalRotate(ct, i)` ≡ `EvalFastRotation(ct, i, m, EvalFastRotationPrecompute(ct))` bit-for-bit.
-Side effect: upstream `EvalRotate` output bit-patterns change (same decrypted values and noise
-magnitude). `OpenFHECompatTests.EvalRotate` is the acceptance test. The api `AccumulateSum` CPU fallback
-(an `EvalRotate`+add doubling loop) and `EvalRotateInPlace` go green with this, or by switching
-the fallbacks to fast rotations in the interim.
+## Open issues
 
 ### O2. Heap corruption in multi-index `EvalFastRotation` (GPU `rotate_hoisted`, ext=false)
 Pre-existing memory bug, **not** a parity issue: rotation values are bit-exact (each result
@@ -235,15 +239,15 @@ OpenFHE installation. Either way, the centralized-cast hardening is worth doing 
 ## Plan forward
 
 **P1 — Land the current state.** I'll push a branch with the current changes (FIDESlib fixes,
-updated `deps/fideslib-ref-1.5.1.1.patch`, `test/OpenFheCompatTests.cu`, and this document).
-The green suite is the regression wall for everything below.
+`deps/fideslib-ref-1.5.1.2.patch` + `build.sh` bump, `test/OpenFheCompatTests.cu`, and this
+document). The green suite is the regression wall for everything below.
 
 **P2 — Upstream OpenFHE PRs** (shrinks the patch back to visibility shims; each step re-validated
 with the stage harness):
-- **a.** `EvalRotate`/`EvalAtIndex`/`EvalAutomorphism` + `Conjugate` unification onto the hoisted
-  core (O1). On merge: the R1 interim fix becomes unnecessary — revert the five bootstrap hunks
-  to stock upstream code and drop them from the patch (the stock calls are now bit-compatible);
-  `OpenFHECompatTests.EvalRotate` goes green.
+- **a.** *(done)* `EvalRotate`/`EvalAtIndex`/`EvalAutomorphism` + `Conjugate` unification onto
+  the hoisted core (O1) — landed as `fideslib-ref-v1.5.1.2`; the R1 interim hunks are dropped
+  from the patch and `OpenFHECompatTests.EvalRotate` is green. Remaining: propose the same
+  change to the upstream OpenFHE dev branch proper.
 - **b.** Lazy extended-basis PartialSum (also a CPU win: same mod-downs saved). On merge: restore
   the lazy `Accumulate` in FIDESlib (reverts R2's perf cost). Subtlety: the initial lift of
   standard `c0` into the extended basis must match FIDESlib's convention — pin with one bisect cycle.
