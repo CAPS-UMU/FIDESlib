@@ -93,7 +93,7 @@ index 1831189a..94978778 100644
  
      /**
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index 32bf4014..c0b654cf 100644
+index a7d4e7dd..23f35241 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -125,12 +125,13 @@ using namespace std::literals::complex_literals;
@@ -120,7 +120,7 @@ index 32bf4014..c0b654cf 100644
  
      std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
                                                                                 uint32_t slots) override;
-@@ -390,8 +391,9 @@ private:
+@@ -413,8 +414,9 @@ private:
      //------------------------------------------------------------------------------
      // Find Rotation Indices
      //------------------------------------------------------------------------------
@@ -131,7 +131,7 @@ index 32bf4014..c0b654cf 100644
      // ATTN: The following 3 functions are helper methods to be called in FindBootstrapRotationIndices() only.
      // so they DO NOT remove possible duplicates and automorphisms corresponding to 0 and M/4.
      // These methods completely depend on FindBootstrapRotationIndices() to do that.
-@@ -412,7 +414,7 @@ private:
+@@ -435,7 +437,7 @@ private:
  
      void ExtendCiphertext(std::vector<DCRTPoly>& ciphertext, const CryptoContextImpl<DCRTPoly>& cc,
                            const std::shared_ptr<DCRTPoly::Params> params) const;
@@ -140,7 +140,7 @@ index 32bf4014..c0b654cf 100644
      void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
  
      /**
-@@ -464,7 +466,7 @@ private:
+@@ -487,7 +489,7 @@ private:
                                                     uint32_t digitBitSize, size_t order = 1);
  
      // upper bound for the number of overflows in the sparse secret case
@@ -217,7 +217,7 @@ index f7b1e62a..1c59687b 100644
      std::vector<NativeInteger> m_tModqPrecon;
  
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index a14d850b..744b9925 100644
+index 5730c0ef..71eb7a82 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 @@ -136,7 +136,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>

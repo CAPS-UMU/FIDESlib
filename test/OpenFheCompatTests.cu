@@ -119,6 +119,60 @@ TEST(OpenFHECompatTests, EvalRotate) {
 }
 
 
+TEST(OpenFHECompatTests, AccumulateSum) {
+    uint32_t multDepth    = 2;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize    = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(128);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+    // Radix-2 (doubling) accumulation for slots=8, stride=1 rotates by the power-of-two set {1, 2, 4}.
+    cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 4 });
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cAcc1 = cc->AccumulateSum(ctxt, batchSize, 1);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cAcc2 = cc->AccumulateSum(ctxt, batchSize, 1);
+
+    ASSERT_EQ_CIPHERTEXT(cAcc1, cAcc2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cAcc1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cAcc2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+
 TEST(OpenFHECompatTests, EvalBootstrap) {
     uint32_t multDepth    = 25;
     uint32_t scaleModSize = 50;

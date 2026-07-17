@@ -13,8 +13,8 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 
 1. **OpenFHE dev branch** — algorithmic changes with standalone value (formulation unification,
    optimizations that also help the CPU).
-2. **`deps/fideslib-ref-1.5.1.3.patch`** — kept minimal; visibility/build-config shims only
-   (applies on tag `fideslib-ref-v1.5.1.3`). Temporary home for changes queued for upstream.
+2. **`deps/fideslib-ref-1.5.1.4.patch`** — kept minimal; visibility/build-config shims only
+   (applies on tag `fideslib-ref-v1.5.1.4`). Temporary home for changes queued for upstream.
 3. **FIDESlib** — GPU-side fixes and anything that is a FIDESlib bug.
 
 ## Current test status (`test/OpenFheCompatTests.cu`)
@@ -30,6 +30,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalAdjust` | PASS | 9 mixed noise-degree / level-gap adjustment cases |
 | `EvalChebyshev` | PASS | standalone degree-12 Paterson–Stockmeyer |
 | `EvalAddMany` | PASS | |
+| `AccumulateSum` | PASS | api rotation fold: CPU fallback ≡ GPU `Accumulate(bStep=2)` (R11) |
 | `DISABLED_EvalFastRotationHoisted` | **disabled** | pre-existing memory bug (issue O2) |
 
 ## Resolved issues
@@ -128,6 +129,29 @@ multiply threw.
 
 This failure mode is inherent to the `std::any` design — see O7.
 
+### R11. api `AccumulateSum` CPU fallback mismatched the GPU accumulation
+The GPU path runs `FIDESlib::CKKS::Accumulate(ct, bStep=4, stride, slots)` — radix-4 levels,
+each sharing one digit decomposition across up to 3 rotations, with the lazy extended-basis
+`c0` accumulation — while the CPU fallback was an eager sequential doubling loop
+(`EvalRotate` + `EvalAddInPlace`): a structurally different accumulation order, so the two
+paths never matched bitwise. Additionally, the GPU path narrows the FIDESlib `slots` field to
+`stride` after a full fold (its broadcast convention), which leaked through api `GetSlots` and
+made the GPU result decode at a different length than the CPU result — a pre-existing
+api-visible inconsistency.
+
+**Resolution (`fideslib-ref-v1.5.1.4`):** `FHECKKSRNS::EvalPartialSumInPlace` provides a static
+`(ct, stride, size)` radix-2 helper (doubling; one rotation per level, folded directly into the
+extended accumulator) plus a general `(ct, stride, size, radix)` form that delegates to the
+radix-2 helper when `radix == 2`; both mirror FIDESlib's `Accumulate` level/index structure
+bit-for-bit. A single api constant `ACCUMULATE_SUM_RADIX = 2` drives both sides: the CPU
+fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMULATE_SUM_RADIX,
+…)` (FIDESlib's existing `bStep` parameter — no new GPU code). The api GPU paths also restore
+the OpenFHE-visible slot count after the fold. Radix-2 keeps the rotation-key footprint at the
+power-of-two set (see O8, radix/key-size tradeoff — key minimization drove this choice).
+Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant
+(`AccumulateCascadeImpl`, which settles both elements per level) still uses `bStep=4` on the GPU
+and keeps its eager doubling fallback — deferred (see O8).
+
 ### O1. `EvalRotate` unification *(resolved — landed as `fideslib-ref-v1.5.1.2`)*
 The hoisted HYBRID formulation (already used by `EvalFastRotation`, added upstream for the GPU
 backend) is extended to `EvalRotate`/`EvalAtIndex`/`EvalAutomorphism`/`Conjugate`, making
@@ -197,10 +221,43 @@ includes two OpenFHE headers. Pick one direction:
 Deciding factor: whether external consumers must compile against `fideslib.hpp` without an
 OpenFHE installation. Either way, the centralized-cast hardening is worth doing immediately.
 
+### O8. Rotation-fold radix — performance vs key-size scaling knob
+Every rotation-accumulation fold (`sum_j Rotate(ct, j·stride)` over `size` summands) can be
+evaluated at any power-of-two **radix** — the accumulation branching factor, exposed as the
+`radix` parameter of `FHECKKSRNS::EvalPartialSumInPlace(ct, stride, size, radix)` (OpenFHE) and
+the `bStep` parameter of FIDESlib's `Accumulate(ct, bStep, stride, size)` (GPU; `bStep` is a
+BSGS-carryover name — for a pure rotation fold it is the radix, not a baby-step count). The
+radix trades digit decompositions against rotation keys:
+
+- **Digit decompositions (mod-ups, the dominant cost):** `log_radix(size)` levels, one
+  decomposition each → `log2(size) / log2(radix)` mod-ups. Radix 4 does half as many as
+  doubling; radix 8, a third.
+- **Rotation keys:** `(radix − 1)` distinct rotations per level →
+  `(radix − 1)·log_radix(size) = (radix − 1)/log2(radix) · log2(size)` keys. Doubling = `log2(size)`;
+  radix-4 = `1.5·log2(size)`; radix-8 ≈ `2.33·log2(size)`.
+
+The catch that makes doubling especially cheap on keys: **radix-2's index set is exactly the
+power-of-two rotations `{stride·2^i}`** — the universal set essentially every CKKS program
+already generates, so its *incremental* key cost is ≈ 0. Higher radices add *dedicated*
+non-power-of-two indexes unlikely to be shared: radix-4 adds `{3·stride·4^j}`
+(`{3, 12, 48, 192, …}` for stride=1), i.e. `floor(log4(size))` extra dedicated keys —
++1 at 8 slots, +5 at 1024, +7 at fully-packed 32768. At bootstrapping parameters a single
+rotation key is tens of MB, so those extra keys are real storage.
+
+**Current choices (key minimization is a priority — see the memory note):** everything uses
+radix-2. Bootstrap PartialSum runs `accumulate_bStep = 2` (FIDESlib's name for the radix); api
+`AccumulateSum` uses radix-2 on both CPU and GPU (R11). The general `(…, radix)` helper is
+retained but unused otherwise, so a future
+mod-up-bound workload that can afford the keys can opt a specific fold into a higher radix
+without new machinery. **Do not raise any radix without surfacing the key delta and getting a
+decision.** Open sub-item: the `start`-offset `AccumulateSum` variant (`AccumulateCascadeImpl`)
+still runs `bStep=4` on the GPU with an unvalidated eager-doubling CPU fallback; bringing it to
+radix-2 (and under the compat test) would close the last AccumulateSum key gap.
+
 ## Plan forward
 
 **P1 — Land the current state.** I'll push a branch with the current changes (FIDESlib fixes,
-`deps/fideslib-ref-1.5.1.2.patch` + `build.sh` bump, `test/OpenFheCompatTests.cu`, and this
+`deps/fideslib-ref-1.5.1.4.patch` + `build.sh` bump, `test/OpenFheCompatTests.cu`, and this
 document). The green suite is the regression wall for everything below.
 
 **P2 — Upstream OpenFHE PRs** (shrinks the patch back to visibility shims; each step re-validated
@@ -209,7 +266,7 @@ with the stage harness):
   the hoisted core (O1) — landed as `fideslib-ref-v1.5.1.2`; the R1 interim hunks are dropped
   from the patch and `OpenFHECompatTests.EvalRotate` is green. Remaining: propose the same
   change to the upstream OpenFHE dev branch proper.
-- **b.** *(done, pending push)* Lazy extended-basis PartialSum, implemented as
+- **b.** *(done)* Lazy extended-basis PartialSum, implemented as
   `FHECKKSRNS::EvalPartialSumInPlace` and used at all three PartialSum sites (`EvalBootstrap`,
   `EvalBootstrapStCFirst`, `EvalHomDecoding`): element 0 accumulates in the extended (QlP)
   basis starting from `P·cv[0]` with a single deferred `ApproxModDown`; element 1 settles per
@@ -220,7 +277,7 @@ with the stage harness):
   `ApproxModDown(P·x + ks) = x + ApproxModDown(ks)` holds exactly, so no bisect cycle was
   needed. The lazy `Accumulate` is restored in FIDESlib (R2 perf recovered); full suite green.
   Landed with P2c as `fideslib-ref-v1.5.1.3` (commit `d31322ac`); remaining: propose upstream.
-- **c.** *(done, pending push)* Lazy Horner giant-step: `EvalHornerGiantRotate` settles only
+- **c.** *(done)* Lazy Horner giant-step: `EvalHornerGiantRotate` settles only
   `c1` (its digit decomposition feeds the key switch) and folds the extended `c0` into the
   key-switch product directly — no per-giant-step `ApproxModDown` + `·PModq` re-lift round-trip.
   Additionally, the final CtS/StC slot-ordering corrections (`EvalAtIndex(result, Delta)`) are
@@ -233,6 +290,14 @@ with the stage harness):
   in `EvalLTRectWithPrecomputeSwitch` accumulate extended and settle once) — CPU-only paths, no
   GPU counterpart, validated with OpenFHE's pke unit tests. Landed with P2b as
   `fideslib-ref-v1.5.1.3` (commit `d31322ac`); remaining: propose upstream.
+- **Considered, not pursued — radix-4 bootstrap PartialSum (`accumulate_bStep = 4`):** the
+  generalized `EvalPartialSumInPlace(ct, stride, size, radix)` (R11) supports raising the
+  PartialSum radix on both sides, which would halve the digit decompositions at the raised
+  level (8 → 4 for slots=8, N=4096) — the widest-tower, most expensive mod-ups of the
+  bootstrap. The cost is ~1.5× more rotation keys for the PartialSum indexes (radix 4 needs
+  keys for `{1,2,3}·stride·4^i` vs doubling's `stride·2^i`). **Minimizing key storage is a
+  priority, so we stay at `accumulate_bStep = 2`.** Revisit only if the raised-level mod-up
+  cost ever dominates profiles badly enough to outweigh the key growth.
 
 **P3 — Fix the `rotate_hoisted` memory bug (O2)** via ASAN host build or gdb watchpoint;
 re-enable `DISABLED_EvalFastRotationHoisted`.

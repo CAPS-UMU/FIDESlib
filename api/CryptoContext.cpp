@@ -1782,20 +1782,17 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& cip
 	FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled);
 }
 
+constexpr int ACCUMULATE_SUM_RADIX = 2;
+
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride) {
 	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
-		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
-		auto& ctImpl  = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+		auto& ctImpl = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
 		lbcrypto::Ciphertext<lbcrypto::DCRTPoly> result_ct = std::make_shared<lbcrypto::CiphertextImpl<lbcrypto::DCRTPoly>>(ctImpl);
 
-		for (int i = 0; i < log2(slots); i++) {
-			int rot_idx = stride * (1 << i);
-			auto tmp    = context->EvalRotate(result_ct, rot_idx);
-			context->EvalAddInPlace(result_ct, tmp);
-		}
+		lbcrypto::FHECKKSRNS::EvalPartialSumInPlace(result_ct, stride, slots, ACCUMULATE_SUM_RADIX);
 
 		Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
 		result->cpu                 = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(result_ct);
@@ -1808,7 +1805,9 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext
 	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
 	auto res_gpu                = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
 
-	FIDESlib::CKKS::Accumulate(*res_gpu, 4, stride, slots);
+	const int inputSlots = res_gpu->slots;
+	FIDESlib::CKKS::Accumulate(*res_gpu, ACCUMULATE_SUM_RADIX, stride, slots);
+	res_gpu->slots = inputSlots;
 
 	return result;
 }
@@ -1817,16 +1816,9 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 	FIDESlib::CudaNvtxRange r("API");
 
 	if (this->devices.empty()) {
-		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct);
 		auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
-
-		for (int i = 0; i < log2(slots); i++) {
-			int rot_idx = stride * (1 << i);
-			auto tmp    = context->EvalRotate(ctImpl, rot_idx);
-			context->EvalAddInPlace(ctImpl, tmp);
-		}
-
+		lbcrypto::FHECKKSRNS::EvalPartialSumInPlace(ctImpl, stride, slots, ACCUMULATE_SUM_RADIX);
 		return;
 	}
 
@@ -1835,7 +1827,9 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 
 	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
 
-	FIDESlib::CKKS::Accumulate(*res_gpu, 4, stride, slots);
+	const int inputSlots = res_gpu->slots;
+	FIDESlib::CKKS::Accumulate(*res_gpu, ACCUMULATE_SUM_RADIX, stride, slots);
+	res_gpu->slots = inputSlots;
 }
 
 void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride, int start) {
