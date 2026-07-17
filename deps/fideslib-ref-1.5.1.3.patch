@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 3a3d5e4d..76625e5d 100644
+index 3a3d5e4d..1e623ffd 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -25,6 +25,9 @@ endif()
@@ -27,6 +27,15 @@ index 3a3d5e4d..76625e5d 100644
      option(WITH_OPENMP "Use OpenMP to enable <omp.h>"                                  ON  )
  endif()
  
+@@ -88,7 +91,7 @@ option(WITH_BE2 "Include MATHBACKEND 2 in build by setting WITH_BE2 to ON"
+ option(WITH_BE4 "Include MATHBACKEND 4 in build by setting WITH_BE4 to ON"             OFF )
+ option(WITH_NTL "Include MATHBACKEND 6 and NTL in build by setting WITH_NTL to ON"     OFF )
+ option(WITH_TCM "Activate tcmalloc by setting WITH_TCM to ON"                          OFF )
+-option(WITH_NATIVEOPT "Use machine-specific optimizations"                             OFF )
++option(WITH_NATIVEOPT "Use machine-specific optimizations"                             ON  )
+ option(WITH_COVTEST "Turn on to enable coverage testing (can be used with g++ only)"   OFF )
+ option(WITH_NOISE_DEBUG "Use only when running lattice estimator; not for production"  OFF )
+ option(WITH_REDUCED_NOISE "Enable reduced noise within HKS and BFV HPSPOVERQ modes"    OFF )
 diff --git a/src/core/include/lattice/hal/default/dcrtpoly.h b/src/core/include/lattice/hal/default/dcrtpoly.h
 index ca8138a1..1ff345a5 100644
 --- a/src/core/include/lattice/hal/default/dcrtpoly.h
@@ -84,7 +93,7 @@ index 1831189a..94978778 100644
  
      /**
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index acc0af7a..765a33f4 100644
+index 32bf4014..c0b654cf 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -125,12 +125,13 @@ using namespace std::literals::complex_literals;
@@ -111,7 +120,7 @@ index acc0af7a..765a33f4 100644
  
      std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
                                                                                 uint32_t slots) override;
-@@ -381,8 +382,9 @@ private:
+@@ -390,8 +391,9 @@ private:
      //------------------------------------------------------------------------------
      // Find Rotation Indices
      //------------------------------------------------------------------------------
@@ -122,7 +131,7 @@ index acc0af7a..765a33f4 100644
      // ATTN: The following 3 functions are helper methods to be called in FindBootstrapRotationIndices() only.
      // so they DO NOT remove possible duplicates and automorphisms corresponding to 0 and M/4.
      // These methods completely depend on FindBootstrapRotationIndices() to do that.
-@@ -403,7 +405,7 @@ private:
+@@ -412,7 +414,7 @@ private:
  
      void ExtendCiphertext(std::vector<DCRTPoly>& ciphertext, const CryptoContextImpl<DCRTPoly>& cc,
                            const std::shared_ptr<DCRTPoly::Params> params) const;
@@ -131,7 +140,7 @@ index acc0af7a..765a33f4 100644
      void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
  
      /**
-@@ -455,7 +457,7 @@ private:
+@@ -464,7 +466,7 @@ private:
                                                     uint32_t digitBitSize, size_t order = 1);
  
      // upper bound for the number of overflows in the sparse secret case
@@ -208,10 +217,10 @@ index f7b1e62a..1c59687b 100644
      std::vector<NativeInteger> m_tModqPrecon;
  
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index 4c4491aa..cd71375c 100644
+index a14d850b..744b9925 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-@@ -134,7 +134,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
+@@ -136,7 +136,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
  
  void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
                                      std::vector<uint32_t> dim1, uint32_t numSlots, uint32_t correctionFactor,
@@ -220,7 +229,7 @@ index 4c4491aa..cd71375c 100644
      const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
  
      if (cryptoParams->GetKeySwitchTechnique() != HYBRID)
-@@ -260,7 +260,8 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
+@@ -262,7 +262,8 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
              lDec = (2 + (st == FLEXIBLEAUTOEXT)) * compositeDegree;
          }
          else {

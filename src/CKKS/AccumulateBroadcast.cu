@@ -78,29 +78,28 @@ std::vector<int> FIDESlib::CKKS::GetbroadcastRotationIndices(const int bStep, co
 
 void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size) {
 	Context& cc_ = ctxt.cc_;
-	// ContextData& cc = ctxt.cc;
 	std::vector<Ciphertext> aux;
 
 	for (int i = 0; i < bStep - 1; ++i) {
 		aux.emplace_back(cc_);
 	}
 
-	// Match OpenFHE's bootstrap PartialSum bit-exactly: each level performs full standalone
-	// rotations (key-switch + moddown per rotation, like EvalFastRotation) and accumulates in
-	// the standard basis. The previous hoisted/extended accumulation with a deferred moddown
-	// computes the same value with a different rounding order, which breaks CPU/GPU
-	// bit-identity of bootstrapping.
 	int logbStep = std::bit_width((uint32_t)bStep) - 1;
 	for (int s = 1; s < size; s <<= logbStep) {
-		int n = 0;
+		std::vector<int> indexes;
+		std::vector<Ciphertext*> auxptr;
 		for (int idx = stride * s; idx < stride * size && idx < bStep * stride * s; idx += stride * s) {
-			aux[n].rotate(ctxt, idx);
-			++n;
+			indexes.push_back(idx);
+			auxptr.emplace_back(&aux[idx / stride / s - 1]);
 		}
-		for (int i = 0; i < n; ++i) {
-			ctxt.add(aux[i]);
+		ctxt.rotate_hoisted(indexes, auxptr, true);
+		for (size_t i = 0; i < indexes.size(); ++i) {
+			ctxt.add(*auxptr[i]);
 		}
+		ctxt.c1.moddown();
 	}
+	if (ctxt.c0.isModUp())
+		ctxt.c0.moddown();
 
 	if (size * stride == ctxt.slots)
 		ctxt.slots = stride;

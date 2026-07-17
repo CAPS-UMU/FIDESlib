@@ -1,5 +1,8 @@
 # CPU/GPU Bit-Compatibility: Issues and Plan
 
+> **Note:** this is a working document tracking the bit-compatibility campaign. It will be
+> removed once everything is ready to merge.
+
 **Goal:** every FIDESlib GPU operation produces ciphertexts that are bit-identical to the
 patched-OpenFHE CPU equivalent, verified by exact ciphertext comparison (`ASSERT_EQ_CIPHERTEXT`),
 not decrypt-level tolerance. Exact plaintext-level comparison is impossible by design: OpenFHE
@@ -10,8 +13,8 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 
 1. **OpenFHE dev branch** — algorithmic changes with standalone value (formulation unification,
    optimizations that also help the CPU).
-2. **`deps/fideslib-ref-1.5.1.2.patch`** — kept minimal; now back to visibility/API shims only
-   (applies on tag `fideslib-ref-v1.5.1.2`). Temporary home for changes queued for upstream.
+2. **`deps/fideslib-ref-1.5.1.3.patch`** — kept minimal; visibility/build-config shims only
+   (applies on tag `fideslib-ref-v1.5.1.3`). Temporary home for changes queued for upstream.
 3. **FIDESlib** — GPU-side fixes and anything that is a FIDESlib bug.
 
 ## Current test status (`test/OpenFheCompatTests.cu`)
@@ -38,98 +41,52 @@ mod-down, add to `c0`, automorph last) produce different-but-equally-valid ciphe
 key-switching noise enters automorphed in one and un-automorphed in the other, so they never
 match bitwise. FIDESlib implements only the hoisted flavor (verified: GPU `rotate` == CPU
 `EvalFastRotation` exactly, incl. at 26 towers).
+
 **Interim fix (was in the patch):** the bootstrap's 4 `EvalRotate`/`EvalAtIndex` sites
 (PartialSum loop, final sparse doubling, CtS/StC correction rotations) switched to
 `EvalFastRotation`; `FHECKKSRNS::Conjugate` rewritten in the hoisted form with
 `autoIndex = 2N−1`.
-**Superseded by O1:** `EvalRotate`/`EvalAtIndex`/`Conjugate` are now routed through the hoisted
-core upstream (`fideslib-ref-v1.5.1.2`), so the original bootstrap call sites are bit-compatible
-as written — the five interim hunks were reverted to stock upstream code and dropped from the
+
+**Resolution (O1, `fideslib-ref-v1.5.1.2`):** `EvalRotate`/`EvalAtIndex`/`Conjugate` are routed
+through the hoisted core upstream, so the original bootstrap call sites are bit-compatible as
+written — the five interim hunks were reverted to stock upstream code and dropped from the
 patch (they were never upstreamed as call-site changes).
 
-### R2. `Accumulate` lazy extended-basis accumulation *(deliberate GPU optimization, reverted — restore via P2b)*
+### R2. `Accumulate` lazy extended-basis accumulation *(deliberate GPU optimization — perf recovered via P2b)*
 The GPU PartialSum kept `c0` in the Q·P basis across all doubling levels with one deferred
 mod-down. `ApproxModDown` rounds, so `moddown(Σx) ≠ Σ moddown(x)`; OpenFHE's per-rotation
-mod-down can never match. **Current fix (FIDESlib `AccumulateBroadcast.cu`):** sequential full
-rotations, per-rotation mod-down. Perf cost ≈ 7 extra `c0` mod-downs per bootstrap at the raised
-level (the hoisting itself was moot: bootstrap uses `accumulate_bStep = 2`, one rotation/level).
+mod-down can never match.
 
-```diff
- 	int logbStep = std::bit_width((uint32_t)bStep) - 1;
- 	for (int s = 1; s < size; s <<= logbStep) {
--		std::vector<int> indexes;
--		std::vector<Ciphertext*> auxptr;
-+		int n = 0;
- 		for (int idx = stride * s; idx < stride * size && idx < bStep * stride * s; idx += stride * s) {
--			indexes.push_back(idx);
--			auxptr.emplace_back(&aux[idx / stride / s - 1]);
-+			aux[n].rotate(ctxt, idx);   // full rotation: key-switch + moddown of both components
-+			++n;
- 		}
--		ctxt.rotate_hoisted(indexes, auxptr, true);  // rotations stay in the extended basis
--		for (size_t i = 0; i < indexes.size(); ++i) {
--			ctxt.add(*auxptr[i]);                    // c0 accumulates extended
-+		for (int i = 0; i < n; ++i) {
-+			ctxt.add(aux[i]);                        // accumulate in the standard basis
- 		}
--		ctxt.c1.moddown();                           // c1 settled per level ...
- 	}
--	if (ctxt.c0.isModUp())
--		ctxt.c0.moddown();                           // ... c0 settled ONCE at the end
-```
+**Interim fix (FIDESlib `AccumulateBroadcast.cu`):** sequential full rotations, per-rotation
+mod-down. Perf cost ≈ 7 extra `c0` mod-downs per bootstrap at the raised level (the hoisting
+itself was moot: bootstrap uses `accumulate_bStep = 2`, one rotation/level).
 
-### R3. `LinearTransform` `ONLY_C1` lazy mod-down *(deliberate GPU optimization, reverted — restore via P2c)*
+**Resolution (P2b, `fideslib-ref-v1.5.1.3`):** the CPU PartialSum is lazy too
+(`FHECKKSRNS::EvalPartialSumInPlace`, see P2b), and the lazy `Accumulate` was restored in
+FIDESlib.
+
+### R3. `LinearTransform` `ONLY_C1` lazy mod-down *(deliberate GPU optimization — perf recovered via P2c)*
 Horner giant-step and correction rotations mod-downed only `c1`, keeping `c0` extended; CPU
 `EvalHornerGiantRotate` does a full `KeySwitchDown` (with exact `·PModq` re-lift) per giant step.
-**Current fix (FIDESlib `LinearTransform.cu`):** `ONLY_C1 = false`. Perf cost ≈ 1 extra `c0`
+
+**Interim fix (FIDESlib `LinearTransform.cu`):** `ONLY_C1 = false`. Perf cost ≈ 1 extra `c0`
 mod-down per giant step per CtS/StC level.
 
-What the OpenFHE-side change (P2c) would look like — illustrative sketch of a lazy
-`EvalHornerGiantRotate` (`ckksrns-fhe.cpp`); on merge, FIDESlib flips `ONLY_C1` back to `true`:
-
-```diff
- Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly> outer, ...) {
-     ...
--    auto outerStd       = cc->KeySwitchDown(outer);   // settles BOTH components (rounds c0)
--    const auto& cvStd   = outerStd->GetElements();
--    const auto paramsQl = cvStd[0].GetParams();
-+    // Lazy: settle only c1 (needed for the digit decomposition); c0 stays in the
-+    // extended basis across the whole Horner accumulation.
-+    const auto& cvExt = outer->GetElements();
-+    DCRTPoly c1Std    = cvExt[1].ApproxModDown(paramsQl, cryptoParams->GetParamsP(), ...);
- 
--    auto digits = algo->EvalKeySwitchPrecomputeCore(cvStd[1], cryptoParams);
-+    auto digits = algo->EvalKeySwitchPrecomputeCore(c1Std, cryptoParams);
-     auto cTilda = algo->EvalFastKeySwitchCoreExt(digits, giantKey, paramsQl);
- 
--    // addFirst: lift element 0 into the extended basis (c0 * P) and fold it in.
--    DCRTPoly psiC0(cTilda[0].GetParams(), Format::EVALUATION, true);
--    auto cMult            = cvStd[0].TimesNoCheck(cryptoParams->GetPModq());
--    const uint32_t sizeQl = paramsQl->GetParams().size();
--    for (uint32_t i = 0; i < sizeQl; ++i)
--        psiC0.SetElementAtIndex(i, std::move(cMult.GetElementAtIndex(i)));
--    cTilda[0] += psiC0;
-+    // c0 is already extended: fold it in directly, skipping the moddown + ·PModq
-+    // re-lift round-trip (that round-trip rounds c0 on every giant step).
-+    cTilda[0] += cvExt[0];
- 
-     cTilda[0] = cTilda[0].AutomorphismTransform(autoIndex, map);
-     cTilda[1] = cTilda[1].AutomorphismTransform(autoIndex, map);
-     ...
- }
-```
-
-The level-end `KeySwitchDown` in `EvalCoeffsToSlots`/`EvalSlotsToCoeffs` is unchanged and settles
-`c0` once per level. Caveat (same class as P2b): `cTilda[0] += cvExt[0]` assumes the incoming
-extended `c0` uses the same ·P-scaled convention as the key-switch product, which must match
-FIDESlib's representation exactly — validate with one stage-harness cycle before trusting it.
+**Resolution (P2c, `fideslib-ref-v1.5.1.3`):** `EvalHornerGiantRotate` settles only `c1` and
+folds the extended `c0` directly into the key-switch product; the CtS/StC slot-ordering
+corrections fold into the last level's extended output; `ONLY_C1` is back to `true` (see P2c).
+The level-end `KeySwitchDown` is unchanged and settles `c0` once per level. FIDESlib's extended
+representation is ·P-scaled exactly like the key-switch product, so the direct fold is
+bit-compatible by construction (validated by the suite, no bisect cycle needed).
 
 ### R4. GPU Chebyshev was a stale port (values wrong, not just slower)
 `evalChebyshevSeries`/inner PS ported an older OpenFHE: mutated shared powers `T[i]` in place
 (sticky adjustments), skipped the `AdjustLevelsAndDepthInPlace` power alignment, and the inner
-recursion didn't match the current qu/su/cu construction. **Fix (FIDESlib `ApproxModEval.cu`):**
-line-for-line transcription of current OpenFHE (clone-based operand adjustment, power alignment,
-transcribed inner PS + `EvalPartialLinearWSum`). Locked in by `EvalChebyshev` + both bootstrap tests.
+recursion didn't match the current qu/su/cu construction.
+
+**Resolution (FIDESlib `ApproxModEval.cu`):** line-for-line transcription of current OpenFHE
+(clone-based operand adjustment, power alignment, transcribed inner PS +
+`EvalPartialLinearWSum`). Locked in by `EvalChebyshev` + both bootstrap tests.
 
 ### R5. `adjustScaleAndLevel` deg2→deg2 branch mismatched `AdjustLevelsAndDepthInPlace`
 Three separate deltas in `Ciphertext.cpp`: floating-point evaluation order of the adjustment
@@ -152,13 +109,17 @@ CPU `EvalBootstrap` runs `ModReduceInternalInPlace` (deg2→deg1) on the ciphert
 
 ### R9. api `EvalNegate` implemented as `multScalar(-1.0)`
 Bumped noise degree to 2 and consumed scale — never equivalent to OpenFHE's exact negation, and
-silently cost callers a level. **Fix (`api/CryptoContext.cpp`):** exact per-limb multiply by
-`q_i − 1`; no metadata change. Applies to `EvalNegate` and `EvalNegateInPlace`.
+silently cost callers a level.
+
+**Resolution (`api/CryptoContext.cpp`):** exact per-limb multiply by `q_i − 1`; no metadata
+change. Applies to `EvalNegate` and `EvalNegateInPlace`.
 
 ### R10. api `bad any_cast` in ct×pt CPU fallbacks
 `EvalMult(ct, pt)` / `EvalMultInPlace(ct, pt)` cast `pt->cpu` to `ConstPlaintext` where it holds
 `Plaintext` — an `std::any` cast must name the stored type exactly, so any CPU-path ct×pt
-multiply threw. Fix in `api/CryptoContext.cpp` (both call sites):
+multiply threw.
+
+**Resolution (`api/CryptoContext.cpp`, both call sites):** cast to the stored type:
 
 ```diff
 -		auto& ptImpl  = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
@@ -248,14 +209,30 @@ with the stage harness):
   the hoisted core (O1) — landed as `fideslib-ref-v1.5.1.2`; the R1 interim hunks are dropped
   from the patch and `OpenFHECompatTests.EvalRotate` is green. Remaining: propose the same
   change to the upstream OpenFHE dev branch proper.
-- **b.** Lazy extended-basis PartialSum (also a CPU win: same mod-downs saved). On merge: restore
-  the lazy `Accumulate` in FIDESlib (reverts R2's perf cost). Subtlety: the initial lift of
-  standard `c0` into the extended basis must match FIDESlib's convention — pin with one bisect cycle.
-- **c.** Lazy Horner giant-step in `EvalHornerGiantRotate` (our own upstream code): carry `c0`
-  extended through the Horner loop, mod-down `c1` only, settle at level end. On merge: flip
-  `ONLY_C1` back to true (reverts R3's perf cost).
-- If upstream declines b/c: either carry them in the patch (grows it) or keep FIDESlib eager
-  (current state, already validated).
+- **b.** *(done, pending push)* Lazy extended-basis PartialSum, implemented as
+  `FHECKKSRNS::EvalPartialSumInPlace` and used at all three PartialSum sites (`EvalBootstrap`,
+  `EvalBootstrapStCFirst`, `EvalHomDecoding`): element 0 accumulates in the extended (QlP)
+  basis starting from `P·cv[0]` with a single deferred `ApproxModDown`; element 1 settles per
+  level (its digit decomposition feeds the next rotation). Also a CPU win: `log2(N/(2·slots))−1`
+  fewer mod-downs per PartialSum (7 for slots=8, N=4096). The initial-lift convention matched
+  FIDESlib directly — FIDESlib's mixed standard/extended adds P-scale the standard operand
+  (`add_scale_p_*` kernels), identical to OpenFHE's `·PModq` lift, and
+  `ApproxModDown(P·x + ks) = x + ApproxModDown(ks)` holds exactly, so no bisect cycle was
+  needed. The lazy `Accumulate` is restored in FIDESlib (R2 perf recovered); full suite green.
+  Landed with P2c as `fideslib-ref-v1.5.1.3` (commit `d31322ac`); remaining: propose upstream.
+- **c.** *(done, pending push)* Lazy Horner giant-step: `EvalHornerGiantRotate` settles only
+  `c1` (its digit decomposition feeds the key switch) and folds the extended `c0` into the
+  key-switch product directly — no per-giant-step `ApproxModDown` + `·PModq` re-lift round-trip.
+  Additionally, the final CtS/StC slot-ordering corrections (`EvalAtIndex(result, Delta)`) are
+  folded into the last level's Horner output while it is still extended, matching the GPU's
+  offset rotation (`LinearTransform`'s `offset` consumes the extended `c0` under `ONLY_C1`).
+  `EvalLinearTransform` inherits the lazy giant steps automatically. FIDESlib `ONLY_C1` is back
+  to `true` (R3 perf recovered); full suite green, dense bootstrap ~11% faster. The same lazy
+  folds were applied to the scheme-switching linear transforms (`EvalLTWithPrecomputeSwitch`
+  gains an extended-output flag; the sparse SlotsToCoeffs doubling and the wide-matrix log-fold
+  in `EvalLTRectWithPrecomputeSwitch` accumulate extended and settle once) — CPU-only paths, no
+  GPU counterpart, validated with OpenFHE's pke unit tests. Landed with P2b as
+  `fideslib-ref-v1.5.1.3` (commit `d31322ac`); remaining: propose upstream.
 
 **P3 — Fix the `rotate_hoisted` memory bug (O2)** via ASAN host build or gdb watchpoint;
 re-enable `DISABLED_EvalFastRotationHoisted`.
@@ -280,8 +257,8 @@ so CPU/GPU test phases must share a single `Encrypt` call.
 
 | Change | Cost of current (eager) form |
 |---|---|
-| R2 `Accumulate` | ~7 extra `c0` `ApproxModDown`s per bootstrap, at raised level |
-| R3 `ONLY_C1=false` | ~1 extra `c0` mod-down per giant step per CtS/StC level |
+| R2 `Accumulate` | *recovered (P2b)* — lazy accumulation restored on both sides |
+| R3 `ONLY_C1=false` | *recovered (P2c)* — lazy Horner restored on both sides |
 | R4 Chebyshev transcription | temp-ciphertext clones + k−1 alignment ops (CPU does these too); optimize buffer reuse only if profiling warrants |
 
 Numbers are op-count based (slots=8, budget {3,3}); profile before prioritizing.

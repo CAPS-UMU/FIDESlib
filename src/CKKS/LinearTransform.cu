@@ -105,10 +105,8 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 			}
 
 			constexpr bool MODDOWN_HOIST = true;
-			// FIDESlib bit-compat: moddown BOTH components before the Horner giant-step and
-			// correction rotations, matching OpenFHE's KeySwitchDown + rotation sequence.
-			constexpr bool ONLY_C1		 = false;
-			constexpr bool FUSED		 = true;
+			constexpr bool ONLY_C1       = true;
+			constexpr bool FUSED         = true;
 			if constexpr (FUSED) {
 				assert(rowSize <= pts.size());
 				std::vector<Plaintext*> Aptr(bStep * gStep, nullptr);
