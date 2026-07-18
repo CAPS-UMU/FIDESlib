@@ -31,7 +31,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalChebyshev` | PASS | standalone degree-12 Paterson–Stockmeyer |
 | `EvalAddMany` | PASS | |
 | `AccumulateSum` | PASS | api rotation fold: CPU fallback ≡ GPU `Accumulate(bStep=2)` (R11) |
-| `DISABLED_EvalFastRotationHoisted` | **disabled** | pre-existing memory bug (issue O2) |
+| `EvalFastRotationHoisted` | PASS | multi-index hoisted rotations; re-enabled after O2 turned out to be a test-macro bug |
 
 ## Resolved issues
 
@@ -165,22 +165,24 @@ tagged `fideslib-ref-v1.5.1.2`; the patch rebased onto it (R1 hunks dropped).
 `AccumulateSum` CPU fallback (an `EvalRotate`+add doubling loop) and `EvalRotateInPlace` are
 bit-compatible with it.
 
+### O2. "Heap corruption" in multi-index `EvalFastRotation` *(resolved — test-harness bug, no memory bug exists)*
+The `DISABLED_EvalFastRotationHoisted` reproducer crashed with what looked like a clobbered
+`CiphertextImpl` (garbage jump through the `std::any` manager pointer), suspected to be a
+pre-existing FIDESlib heap corruption requiring `compute-sanitizer` on native Linux.
+
+**Resolution:** a host ASAN build (per P3) reported a heap-buffer-overflow *read* — not a
+write — and the culprit was the test harness itself: `ASSERT_EQ_CIPHERTEXT`'s inner tower loop
+was named `i`, shadowing the caller's loop variable inside the macro's textual argument
+re-evaluations, so `ASSERT_EQ_CIPHERTEXT(cRots[i], gRots[i])` re-indexed the 2-element vectors
+with the tower index (0..2) and read one `shared_ptr` slot past the buffer — a garbage object
+pointer, hence the "clobbered" any manager, the layout dependence, and the silence of every
+hardware watchpoint placed on real objects. No FIDESlib or api memory bug exists; rotation
+values were bit-exact all along. Fixed by evaluating the macro arguments exactly once into
+locals and renaming the loop variables (`test/ParametrizedTest.cuh`); the test is re-enabled
+and green. Every other test was unaffected because this was the macro's only call site passing
+indexed expressions as arguments.
+
 ## Open issues
-
-### O2. Heap corruption in multi-index `EvalFastRotation` (GPU `rotate_hoisted`, ext=false)
-Pre-existing memory bug, **not** a parity issue: rotation values are bit-exact (each result
-individually passes the exact comparison; decrypt-level comparison of both passes), but running
-the comparison/sync loop over both results crashes with a clobbered `CiphertextImpl` (garbage
-jump through the `std::any` manager pointer; `need_lazy_copy` also corrupted). Layout-dependent.
-Reproducer: `DISABLED_EvalFastRotationHoisted`.
-
-**Debugging constraint:** our dev environment is WSL2, where `compute-sanitizer` does not run
-(WDDM path, "device not supported") — GPU-side memory checking is unavailable to us. Host-side
-tools (gdb backtraces/watchpoints, a host ASAN build) do work under WSL and are worth one attempt,
-but if the corrupting write originates in a device kernel or an async D2H copy, localizing it
-requires native-Linux GPU access. **→ Hand off to the FIDESlib maintainers**: run the reproducer
-under `compute-sanitizer --tool memcheck` on a native Linux box; the disabled test plus the notes
-above should make it a short investigation.
 
 ### O3. api `Rescale` semantic divergence under AUTO scaling techniques
 CPU fallback calls `context->Rescale` (a no-op for FLEXIBLE*/FIXEDAUTO); the GPU path performs a
@@ -254,6 +256,15 @@ decision.** Open sub-item: the `start`-offset `AccumulateSum` variant (`Accumula
 still runs `bStep=4` on the GPU with an unvalidated eager-doubling CPU fallback; bringing it to
 radix-2 (and under the compat test) would close the last AccumulateSum key gap.
 
+### O9. `MODES(name)` macro ignores its parameter
+`test/ParametrizedTest.cuh`'s `MODES(name)` declares identifiers literally named `name_fix`,
+`name_fixauto`, `name_flex`, `name_flexext` — it never token-pastes with `##`, so the `name`
+argument is ignored and every invocation declares the same four externs. Harmless as long as
+nothing depends on per-name declarations (repeated identical externs are legal), but the macro
+doesn't do what its signature advertises. Either fix it to `name##_fix` (and update/verify any
+code relying on the literal names) or delete it if dead. Surfaced during the O2 macro audit;
+not a correctness hazard for the assert paths, so left untouched.
+
 ## Plan forward
 
 **P1 — Land the current state.** I'll push a branch with the current changes (FIDESlib fixes,
@@ -299,8 +310,10 @@ with the stage harness):
   priority, so we stay at `accumulate_bStep = 2`.** Revisit only if the raised-level mod-up
   cost ever dominates profiles badly enough to outweigh the key growth.
 
-**P3 — Fix the `rotate_hoisted` memory bug (O2)** via ASAN host build or gdb watchpoint;
-re-enable `DISABLED_EvalFastRotationHoisted`.
+**P3 — Fix the `rotate_hoisted` memory bug (O2).** *(done)* Resolved exactly as prescribed —
+the host ASAN build identified it as a test-macro argument-re-evaluation bug, not a memory bug
+(see O2). `EvalFastRotationHoisted` is re-enabled and green; nothing to hand off to the
+FIDESlib maintainers.
 
 **P4 — Tier-2 coverage (O6)** one configuration at a time — each red result is a mini-investigation
 with the harness. Then close out the smaller semantic gaps (O3–O5) and the api type-erasure

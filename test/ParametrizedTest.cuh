@@ -540,47 +540,56 @@ class GeneralParametrizedTest : public testing::TestWithParam<std::tuple<std::tu
 	}
 };
 
-#define ASSERT_EQ_CIPHERTEXT(ct1, ct2)                                                                                                                           \
-	do {                                                                                                                                                         \
-		ASSERT_EQ(ct1->GetNoiseScaleDeg(), ct2->GetNoiseScaleDeg());                                                                                             \
-		ASSERT_EQ(ct1->GetScalingFactor(), ct2->GetScalingFactor());                                                                                             \
-		ASSERT_EQ(ct1->GetEncodingType(), ct2->GetEncodingType());                                                                                               \
-		for (size_t j = 0; j < 2; ++j) {                                                                                                                         \
-			ASSERT_EQ(ct1.get()->GetElements().at(j).GetAllElements().size(), ct2.get()->GetElements().at(j).GetAllElements().size());                           \
-			for (size_t i = 0; i < ct1.get()->GetElements().at(j).GetAllElements().size(); ++i) {                                                                \
-				std::cout << "(" << j << ", " << i << ") " << std::flush;                                                                                        \
-				ASSERT_EQ(ct1.get()->GetElements().at(j).GetAllElements().at(i).GetValues().GetLength(),                                                         \
-				  ct2.get()->GetElements().at(j).GetAllElements().at(i).GetValues().GetLength());                                                                \
-				ASSERT_EQ(ct1.get()->GetElements().at(j).GetAllElements().at(i).GetValues(), ct2.get()->GetElements().at(j).GetAllElements().at(i).GetValues()); \
-			}                                                                                                                                                    \
-		}                                                                                                                                                        \
-		std::cout << std::endl;                                                                                                                                  \
+#define ASSERT_EQ_CIPHERTEXT(ct1, ct2)                                                                                                    \
+	do {                                                                                                                                  \
+		const auto& eq_ct1_ = (ct1);                                                                                                      \
+		const auto& eq_ct2_ = (ct2);                                                                                                      \
+		ASSERT_EQ(eq_ct1_->GetNoiseScaleDeg(), eq_ct2_->GetNoiseScaleDeg());                                                              \
+		ASSERT_EQ(eq_ct1_->GetScalingFactor(), eq_ct2_->GetScalingFactor());                                                              \
+		ASSERT_EQ(eq_ct1_->GetEncodingType(), eq_ct2_->GetEncodingType());                                                                \
+		for (size_t eq_elem_ = 0; eq_elem_ < 2; ++eq_elem_) {                                                                             \
+			const auto& eq_e1_ = eq_ct1_.get()->GetElements().at(eq_elem_).GetAllElements();                                              \
+			const auto& eq_e2_ = eq_ct2_.get()->GetElements().at(eq_elem_).GetAllElements();                                              \
+			ASSERT_EQ(eq_e1_.size(), eq_e2_.size());                                                                                      \
+			for (size_t eq_tower_ = 0; eq_tower_ < eq_e1_.size(); ++eq_tower_) {                                                          \
+				std::cout << "(" << eq_elem_ << ", " << eq_tower_ << ") " << std::flush;                                                  \
+				ASSERT_EQ(eq_e1_.at(eq_tower_).GetValues().GetLength(), eq_e2_.at(eq_tower_).GetValues().GetLength());                    \
+				ASSERT_EQ(eq_e1_.at(eq_tower_).GetValues(), eq_e2_.at(eq_tower_).GetValues());                                            \
+			}                                                                                                                             \
+		}                                                                                                                                 \
+		std::cout << std::endl;                                                                                                           \
 	} while (0);
 
-#define ASSERT_ERROR_OK(result, resultGPU)                                                                                                 \
-	do {                                                                                                                                   \
-		double acc = 0.0;                                                                                                                  \
-		double Max = 0.0;                                                                                                                  \
-		for (size_t i = 0; i < result->GetSlots(); ++i) {                                                                                  \
-			double diff = abs(resultGPU->GetRealPackedValue().at(i) - result->GetRealPackedValue().at(i));                                 \
-			acc += diff * diff;                                                                                                            \
-			Max = std::max(Max, diff);                                                                                                     \
-		}                                                                                                                                  \
-		acc = std::sqrt(acc / result->GetSlots());                                                                                         \
-		std::cout << "Max error: " << Max << " (Expected: " << pow(2.0, -result->GetLogPrecision() + 1) << "), dev: " << acc << std::endl; \
-		ASSERT_LE(Max, pow(2.0, -result->GetLogPrecision() + 4));                                                                          \
+#define ASSERT_ERROR_OK(result, resultGPU)                                                                                     \
+	do {                                                                                                                       \
+		const auto& err_cpu_    = (result);                                                                                    \
+		const auto& err_gpu_    = (resultGPU);                                                                                 \
+		const auto err_cpu_val_ = err_cpu_->GetRealPackedValue();                                                              \
+		const auto err_gpu_val_ = err_gpu_->GetRealPackedValue();                                                              \
+		double err_acc_         = 0.0;                                                                                         \
+		double err_max_         = 0.0;                                                                                         \
+		for (size_t err_slot_ = 0; err_slot_ < err_cpu_->GetSlots(); ++err_slot_) {                                            \
+			double err_diff_ = abs(err_gpu_val_.at(err_slot_) - err_cpu_val_.at(err_slot_));                                   \
+			err_acc_ += err_diff_ * err_diff_;                                                                                 \
+			err_max_ = std::max(err_max_, err_diff_);                                                                          \
+		}                                                                                                                      \
+		err_acc_ = std::sqrt(err_acc_ / err_cpu_->GetSlots());                                                                 \
+		std::cout << "Max error: " << err_max_ << " (Expected: " << pow(2.0, -err_cpu_->GetLogPrecision() + 1)                 \
+				  << "), dev: " << err_acc_ << std::endl;                                                                      \
+		ASSERT_LE(err_max_, pow(2.0, -err_cpu_->GetLogPrecision() + 4));                                                       \
 	} while (0);
 
-#define ASSERT_EQ_DCRTPOLY(ct1, ct2)                                                                                         \
-	do {                                                                                                                     \
-		for (int j = 0; j < 1; ++j) {                                                                                        \
-			ASSERT_EQ(ct1->m_vectors.size(), ct2->m_vectors.size());                                                         \
-			for (int i = 0; i < ct1->m_vectors.size(); ++i) {                                                                \
-				/*    std::cout << j << " " << i << std::endl;       */                                                      \
-				ASSERT_EQ(ct1->m_vectors[i].m_values.get()->m_data.size(), ct2->m_vectors[i].m_values.get()->m_data.size()); \
-				ASSERT_EQ(ct1->m_vectors[i].m_values.get()->m_data, ct2->m_vectors[i].m_values.get()->m_data);               \
-			}                                                                                                                \
-		}                                                                                                                    \
+#define ASSERT_EQ_DCRTPOLY(ct1, ct2)                                                                                   \
+	do {                                                                                                               \
+		const auto& eqp_p1_ = (ct1);                                                                                   \
+		const auto& eqp_p2_ = (ct2);                                                                                   \
+		ASSERT_EQ(eqp_p1_->m_vectors.size(), eqp_p2_->m_vectors.size());                                               \
+		for (size_t eqp_tower_ = 0; eqp_tower_ < eqp_p1_->m_vectors.size(); ++eqp_tower_) {                            \
+			ASSERT_EQ(eqp_p1_->m_vectors[eqp_tower_].m_values.get()->m_data.size(),                                    \
+			  eqp_p2_->m_vectors[eqp_tower_].m_values.get()->m_data.size());                                           \
+			ASSERT_EQ(eqp_p1_->m_vectors[eqp_tower_].m_values.get()->m_data,                                           \
+			  eqp_p2_->m_vectors[eqp_tower_].m_values.get()->m_data);                                                  \
+		}                                                                                                              \
 	} while (0);
 
 } // namespace FIDESlib::Testing

@@ -469,11 +469,7 @@ TEST(OpenFHECompatTests, EvalChebyshev) {
     ASSERT_EQ_CIPHERTEXT(cCheb, gCheb);
 }
 
-// DISABLED: exposes a pre-existing heap corruption in the multi-index GPU path
-// (crash in CiphertextImpl's std::any during the comparison loop; layout-dependent).
-// The rotation VALUES are bit-exact: comparing either result alone passes, and
-// decrypt-level comparison of both passes. Re-enable once the memory bug is fixed.
-TEST(OpenFHECompatTests, DISABLED_EvalFastRotationHoisted) {
+TEST(OpenFHECompatTests, EvalFastRotationHoisted) {
     // Multi-index EvalFastRotation: the GPU side uses hoisted digits shared across
     // the rotations (rotate_hoisted), unlike the single-index path.
     auto cc   = MakeSmallContext(2);
