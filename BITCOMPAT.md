@@ -32,6 +32,14 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalAddMany` | PASS | |
 | `AccumulateSum` | PASS | api rotation fold: CPU fallback ≡ GPU `Accumulate(bStep=2)` (R11) |
 | `EvalFastRotationHoisted` | PASS | multi-index hoisted rotations; re-enabled after O2 turned out to be a test-macro bug |
+| `EvalBootstrapLT` | PASS | Tier-2: level budget {1,1}, `isLT`/`EvalLinearTransform` branch (O6) |
+| `EvalBootstrapSlots64` | PASS | Tier-2: slots=64 sparse bootstrap (O6) |
+| `EvalBootstrapFlexExt` | PASS | Tier-2: FLEXIBLEAUTOEXT bootstrap (O6) |
+| `EvalArithmeticFlexExt` | PASS | Tier-2: FLEXIBLEAUTOEXT arithmetic (O6) |
+| `EvalArithmeticFixedManual` | PASS | Tier-2: FIXEDMANUAL arithmetic incl. explicit `Rescale` (O6) |
+| `EvalChebyshevFixedManual` | PASS | Tier-2: re-enabled after O6a fix (T2km1 level alignment) |
+| `EvalBootstrapFixedManual` | PASS | Tier-2: re-enabled after O6b (double-angle rescale placement) + O6a fixes |
+| `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock) |
 
 ## Resolved issues
 
@@ -162,8 +170,8 @@ delegates to `EvalAutomorphism(ct, 2N−1)`. Side effect: upstream `EvalRotate` 
 change (same decrypted values and noise magnitude). Landed as commit `eb3e76cf` on branch `gpu`,
 tagged `fideslib-ref-v1.5.1.2`; the patch rebased onto it (R1 hunks dropped).
 `OpenFHECompatTests.EvalRotate` was the acceptance test and is green, and the api
-`AccumulateSum` CPU fallback (an `EvalRotate`+add doubling loop) and `EvalRotateInPlace` are
-bit-compatible with it.
+`AccumulateSum` CPU fallback (then an `EvalRotate`+add doubling loop, since replaced by the
+shared radix-2 helper — see R11) and `EvalRotateInPlace` became bit-compatible with it.
 
 ### O2. "Heap corruption" in multi-index `EvalFastRotation` *(resolved — test-harness bug, no memory bug exists)*
 The `DISABLED_EvalFastRotationHoisted` reproducer crashed with what looked like a clobbered
@@ -196,11 +204,121 @@ tests use (−1, 1). Align the GPU prelude to the CPU order when needed.
 ### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU
 The GPU has no mirrored linear path. Only matters if low-degree series are used through the api.
 
-### O6. Untested configurations (Tier 2)
-- Bootstrap with level budget {1,1} → `isLT`/`EvalLinearTransform` branch (untouched by all work so far).
-- FLEXIBLEAUTOEXT (OpenFHE default) — extra-level ModRaise handling.
-- FIXEDMANUAL branches of the Chebyshev/bootstrap transcriptions (mirrored by reading, never validated).
-- Other slot counts (64, 512, …); `SPARSE_ENCAPSULATED` key distribution path.
+### O6. Tier-2 configurations *(swept; O6a/O6b fixed, only O6c open)*
+Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the three findings,
+O6a and O6b are fixed and their tests re-enabled; O6c remains as a `DISABLED_` reproducer (the
+acceptance test for its fix).
+
+**Bit-compatible with no changes needed (green):**
+- Bootstrap level budget {1,1} → `isLT`/`EvalLinearTransform` branch (`EvalBootstrapLT`) —
+  also exercises P2c's lazy giant steps in the LT path.
+- slots=64 sparse bootstrap (`EvalBootstrapSlots64`) — different PartialSum depth + CtS/StC splits.
+- FLEXIBLEAUTOEXT arithmetic and full bootstrap (`EvalArithmeticFlexExt`, `EvalBootstrapFlexExt`)
+  — the extra-level ModRaise handling matches.
+- FIXEDMANUAL arithmetic including an explicit `Rescale` (`EvalArithmeticFixedManual`) — the
+  raw ModReduce path is bit-exact.
+
+**Findings:**
+- **O6a — FIXEDMANUAL Chebyshev formulation divergence** *(fixed)*
+  (`EvalChebyshevFixedManual`, re-enabled): values agreed to ~1.7e-14 on both sides but the
+  raw outputs differed bitwise. A checkpoint trace (coefficient fingerprints at every aligned
+  stage: T powers, alignment, T2 powers, T2km1, per-depth qu/su/res/fin) showed **every stage
+  bit-identical except `T2km1`** — including a one-tower level mismatch. Root cause: in the
+  `T2km1` update loop the operands have mismatched levels; stock's `EvalMult` aligns levels
+  internally (exact tower drop) before multiplying, while FIDESlib's `mult` does not under
+  FIXEDMANUAL, so the relinearization key-switch ran one tower higher and rounded differently
+  in every tower. Stock does this explicitly and by contract: `LeveledSHERNS::EvalMult` calls
+  `AdjustForMultInPlace` (→ `AdjustLevelsInPlace` under FIXEDMANUAL — a pure tower drop, no
+  rescale) whenever operand levels or tower counts differ, and `EvalMultCore` opens with
+  `VerifyNumOfTowers`, rejecting misaligned operands outright. **Fixed in
+  `Ciphertext::mult` itself** (FIXEDMANUAL-gated `dropToLevel(b.getLevel())` when `this` is
+  deeper), mirroring the stock wrapper and matching the convention FIDESlib's `add`/`sub`
+  already follow — so every FIXEDMANUAL mult call site is covered, not just T2km1. This also
+  greens the FIXEDMANUAL bootstrap (its only remaining divergence was T2km1 propagating).
+- **O6b — FIXEDMANUAL bootstrap livelock** *(fixed)*
+  (`EvalBootstrapFixedManual`, re-enabled): the GPU phase effectively hung. Live stack:
+  `Bootstrap → approxModReductionSparse → applyDoubleAngleIterations → addScalar →
+  ElemForEvalAddOrSub → CRTMult`. Root cause: the GPU double-angle loop rescaled at the
+  *start* of each iteration where stock's `ApplyDoubleAngleIterations` ends each iteration
+  with `ModReduceInPlace` (a real rescale only under FIXEDMANUAL). On the deg-1 series output
+  the start-rescale underflowed the noise degree to 0, blowing up the host-side big-integer
+  scalar encoding. **Fixed** by moving the FIXEDMANUAL rescale to the iteration end in
+  `applyDoubleAngleIterations` (`ApproxModEval.cu`) — FLEXIBLE paths untouched (the gate never
+  fired there). This turned the livelock into a fast exact-compare failure whose cause was
+  O6a upstream; with both fixes in, the test passes.
+- **O6c — SPARSE_ENCAPSULATED structural pipeline divergence** *(investigation in progress)*
+  (`DISABLED_EvalBootstrapSparseEncaps`): initially observed as a 9th-digit scaling-factor
+  mismatch, but that is a symptom. Probing data and metadata separately shows the outputs are
+  at **different levels entirely** (CPU 7 towers vs GPU 11 — the GPU pipeline consumes ~4
+  fewer levels) with genuinely different data. Ruled out: the Chebyshev coefficients (the GPU's
+  hardcoded degree-32 list is identical to `g_coefficientsSparseEncapsulated`) and the
+  double-angle count (R_SPARSE both). Root difference found: the two encapsulated-bootstrap
+  implementations are **different designs**. Stock does the dance in-context
+  (`KeySwitchSparse` via the `2N−4` key, raise, switch back via `2N−2`); FIDESlib builds a
+  **second "switchable" GPU context** (`createSwitchableContextBasedOnContext`, stored as
+  `sparse_context` in the bootstrap precomputation), moves the ciphertext across contexts with
+  `reinterpretContext`, key-switches there, and hand-sets `NoiseFactor = targetSF` afterward —
+  same key material, different parameter regime and level trajectory. `TODO`s in the code
+  ("1/32 will be pre-applied with OpenFHE v1.4, remove the flag") indicate the GPU path targets
+  a planned upstream convention rather than the current fideslib-ref one. Worse: at this test's
+  configuration the GPU output **decodes to ≈ zero** (all slots ~1e-14 where {0.25…5.0} were
+  expected) — the GPU ENCAPS path is functionally broken here, not merely bit-divergent
+  (whether it works at the parameters it was designed for is untestable on this machine's GPU).
+  The divergence originates in host-side control flow (dual-context routing, level bookkeeping,
+  hand-set `NoiseFactor`), not in device kernels.
+
+  **Fix deferred.** Stock's in-context design is the reference — its output is correct, and
+  the dual-context shape does not fit OpenFHE's single-context model.
+  `DISABLED_EvalBootstrapSparseEncaps` stays as the acceptance test. What the fix entails, in
+  dependency order:
+
+  1. **A GPU `keySwitchSparse` primitive.** Stock's `FHECKKSRNS::KeySwitchSparse` is *not* the
+     standard hybrid key switch: it operates on tower 0 only, over a two-prime basis (q₀, p)
+     taken from the eval key's params. Steps: extend `c1` from q₀ to (q₀, p) by a
+     coefficient-domain `SwitchModulus` round-trip; multiply the extended `c1` by the key's
+     B/A vectors; exact mod-switch back to q₀ as `(x_q − convert(x_p)) · p⁻¹ mod q₀` per
+     component; fold component 0 into `c0`. All single-limb — a small kernel sequence over
+     existing `Limb` ops (NTT/INTT, `SwitchModulus`-style rebase, pointwise mult, the p⁻¹
+     fold). Bit-compat requires matching stock's rounding exactly, so transcribe rather than
+     re-derive.
+  2. **Key loading into the main context.** `AddBootstrapPrecomputation`'s ENCAPS block
+     currently creates the switchable context and loads the `2N−2` key into it (`ksk_atob`)
+     and `2N−4` into the main one (`ksk_btoa`). Replace with: load `2N−4` as the sparse-switch
+     key — note its shape is the two-prime (q₀, p) key, so `KeySwitchingKey::Initialize` needs
+     a variant for that layout, it is not a standard dnum-digit hybrid key — and `2N−2` as an
+     ordinary hybrid key at raised params, both in the main context. Delete
+     `createSwitchableContextBasedOnContext`, the `sparse_context` member in
+     `BootstrapPrecomputation`, `Add/GetSecretSwitchingKey`, and the `reinterpretContext`
+     round-trips (grep for other users first).
+  3. **Rewrite the ENCAPS branches in `Bootstrap.cu` to stock's op order.** Stock (ckksrns-fhe
+     ModRaise): (i) `KeySwitchSparse(raised, key@2N−4)` at the *input* level, before the raise;
+     (ii) the raise itself (tower-0 reinterpret at raised params — same as the non-ENCAPS
+     path); (iii) plain `KeySwitchInPlace(raised, key@2N−2)` at the *raised* level (the
+     existing generic GPU `keySwitch` works here). The GPU currently also places the
+     switch-back *after* `multScalar(constantEvalMult)`; stock switches back before any
+     post-raise scaling — reorder to match. Remove the `ctxt.NoiseFactor = targetSF` hand-set:
+     with the in-context dance the scale factor evolves exactly as stock's and needs no
+     override.
+  4. **Constant conventions.** `RawParams` ENCAPS: `bootK` 16.0 → 1.0 (re-enable the
+     commented-out line; the CPU uses k = 1.0 because the 1/K division is baked into the CtS
+     precomputation, and the GPU consumes those same CPU-precomputed matrices via
+     `AddBootstrapPlaintexts`). Delete the commented `/32` variant of `constantEvalMult` and
+     its "OpenFHE v1.4" TODO — under the current fideslib-ref convention it is not needed.
+     Reconcile or remove the unused `ENCAPS_2` config the same way. `doubleAngleIts` stays
+     `R_SPARSE`.
+  5. **Level/metadata bookkeeping.** The observed 4-level trajectory gap and the scf mismatch
+     should disappear once the dance is in-context; verify api `GetLevel`/`original_level`
+     handling needs no ENCAPS special-casing afterward.
+  6. **Validation.** Re-enable the reproducer; if bits still differ, fingerprint-checkpoint the
+     three dance steps (post-sparse-switch, post-raise, post-switch-back) against CPU prints at
+     the corresponding `ckksrns-fhe.cpp` lines — the ModRaise stage is now the only place left
+     to diverge.
+
+  Open questions for the FIDESlib maintainers before starting: whether the dual-context design
+  exists for performance (the sparse-phase key switch at reduced parameters) or as groundwork
+  for a planned upstream convention (the "v1.4" TODOs), and whether anything else depends on
+  the switchable-context machinery. Independent of bit-compat, the ≈zero output at small
+  parameters is a functional bug worth reporting to them as-is.
 
 ### O7. api type-erasure design (`std::any`) — decide a direction
 The api layer stores its OpenFHE/FIDESlib objects type-erased (`std::any cpu/gpu/pimpl`,
@@ -267,9 +385,10 @@ not a correctness hazard for the assert paths, so left untouched.
 
 ## Plan forward
 
-**P1 — Land the current state.** I'll push a branch with the current changes (FIDESlib fixes,
-`deps/fideslib-ref-1.5.1.4.patch` + `build.sh` bump, `test/OpenFheCompatTests.cu`, and this
-document). The green suite is the regression wall for everything below.
+**P1 — Land the current state.** *(ongoing)* The `OpenFHECompatTests` branch carries the work
+in per-milestone commits (FIDESlib fixes, `deps/fideslib-ref-1.5.1.4.patch` + `build.sh` bumps,
+`test/OpenFheCompatTests.cu`, and this document); the upstream side is tagged
+`fideslib-ref-v1.5.1.2`–`v1.5.1.4`. The green suite is the regression wall for everything below.
 
 **P2 — Upstream OpenFHE PRs** (shrinks the patch back to visibility shims; each step re-validated
 with the stage harness):
@@ -316,8 +435,13 @@ the host ASAN build identified it as a test-macro argument-re-evaluation bug, no
 FIDESlib maintainers.
 
 **P4 — Tier-2 coverage (O6)** one configuration at a time — each red result is a mini-investigation
-with the harness. Then close out the smaller semantic gaps (O3–O5) and the api type-erasure
-decision (O7).
+with the harness. *(swept)* Five configurations green with tests landed; three findings
+characterized (O6a–O6c). O6a and O6b are fixed (T2km1 level alignment; double-angle
+FIXEDMANUAL rescale moved to iteration end) and their tests re-enabled — the full FIXEDMANUAL
+configuration is now bit-compatible. Remaining: **O6c** — the SPARSE_ENCAPSULATED
+implementations are structurally different designs (dual-context GPU vs in-context stock) and
+the GPU output is value-wrong at the test configuration; fix deferred, plan documented (see
+O6c). Then close out the smaller semantic gaps (O3–O5) and the api type-erasure decision (O7).
 
 ## Validation methodology (reusable)
 
@@ -326,12 +450,18 @@ Env-gated bisection: add a `BOOT_STAGE_LIMIT` helper to both pipelines
 1 ModRaise, 2 PartialSum, 3 CtS, 4 conj+add, 5 approxMod (51x = Chebyshev sub-stages: baby powers,
 giant powers, T2km1, inner PS; 52 = double-angle), 6 StC(+doubling); dense variants 71–82 —
 then compare with the exact-equality test. One build+run per probe localizes any divergence to a
-single stage. Gotchas learned: `g_used_rot_indices`-style key instrumentation misses
-`GetRotationKey`'s alternative-key early-return (the "unused key" that started all this was an
-artifact); `normalyzeIndex` maps rotation indices through `ctxt.slots`; encryption is randomized,
-so CPU/GPU test phases must share a single `Encrypt` call.
+single stage. A lighter-weight variant (used for O6a): env-gated checkpoint prints of
+coefficient fingerprints — `c0`/`c1` first coefficient of tower 0 (index 0 is invariant under
+the GPU's bit-reversed NTT order, so it compares directly) plus deg/level — at aligned stages
+on both sides; diffing the two traces names the first diverging op in one run. Gotchas learned:
+`g_used_rot_indices`-style key instrumentation misses `GetRotationKey`'s alternative-key
+early-return (the "unused key" that started all this was an artifact); `normalyzeIndex` maps
+rotation indices through `ctxt.slots`; encryption is randomized, so CPU/GPU test phases must
+share a single `Encrypt` call; test macros that re-evaluate their arguments under shadowed loop
+variables can fake memory corruption (O2); a "clean" `Decode` of values near zero still means a
+wrong result — check magnitudes, not just exceptions (O6c).
 
-## Performance accounting (to recover via P2)
+## Performance accounting (recovered via P2)
 
 | Change | Cost of current (eager) form |
 |---|---|

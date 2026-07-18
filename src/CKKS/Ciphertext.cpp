@@ -475,16 +475,12 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
 				assert(false);
 			return;
 		}
+	} else if (cc.rescaleTechnique == FIXEDMANUAL && getLevel() > b.getLevel()) {
+		dropToLevel(b.getLevel(), true);
 	}
 	assert(NoiseLevel == 1);
 	assert(NoiseLevel == b.NoiseLevel);
 	op_count[OPS::MULT]++;
-	/*
-	if (getLevel() > b.getLevel()) {
-		this->c0.dropToLevel(b.getLevel());
-		this->c1.dropToLevel(b.getLevel());
-	}
-	*/
 	// assert(c0.getLevel() <= b.c0.getLevel());
 	// assert(c1.getLevel() <= b.c1.getLevel());
 	Out(KEYSWITCH, " start ");

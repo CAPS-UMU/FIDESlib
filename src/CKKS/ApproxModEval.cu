@@ -543,7 +543,6 @@ const std::vector<double>& coefficients, double a, double b) const {
 
 	// Compute the Chebyshev polynomials T_k(y), T_{2k}(y), ..., T_{2^{m-1}k}(y) and
 	// T_{k(2m-1)}(y), interleaved exactly like OpenFHE internalEvalChebyPolysPS.
-	// FIDESlib bit-compat: stored powers stay pristine; mult/sub clone-adjust internally.
 	Ciphertext T2km1(cc_);
 	T2[0]->copy(*T.back());
 	T2km1.copy(*T.back());
@@ -586,8 +585,6 @@ const std::vector<double>& coefficients, double a, double b) const {
 
 
 	if constexpr (true) {
-		// FIDESlib bit-compat: mirror OpenFHE internalEvalChebyshevSeriesPSWithPrecomp's
-		// polynomial preparation: add T^{k(2^m - 1)}(y) to the evaluated polynomial.
 		uint32_t k2m2k = k * (1 << (m - 1)) - k;
 		f2.resize(2 * k2m2k + k + 1, 0.0);
 		f2.back() = 1;
@@ -624,15 +621,11 @@ void applyDoubleAngleIterations(Ciphertext& ctxt, int its, const KeySwitchingKey
 	int32_t r       = its;
 	// std::cout << "Its: " << its << std::endl;
 	for (int32_t j = 1; j < r + 1; j++) {
-		if (cc.rescaleTechnique == FIDESlib::CKKS::FIXEDMANUAL)
-			ctxt.rescale();
 		ctxt.square(false);
 		ctxt.add(ctxt);
-		// FIDESlib bit-compat: identical floating-point form to OpenFHE's
-		// ApplyDoubleAngleIterations (-pow(2pi, -2^i), NOT -1/pow(2pi, 2^i)).
 		double scalar = -std::pow(2.0 * M_PI, -std::pow(2.0, j - r));
 		ctxt.addScalar(scalar);
-
-		// cudaDeviceSynchronize();
+		if (cc.rescaleTechnique == FIDESlib::CKKS::FIXEDMANUAL)
+			ctxt.rescale();
 	}
 }
