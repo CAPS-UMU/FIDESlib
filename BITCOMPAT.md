@@ -154,7 +154,8 @@ radix-2 helper when `radix == 2`; both mirror FIDESlib's `Accumulate` level/inde
 bit-for-bit. A single api constant `ACCUMULATE_SUM_RADIX = 2` drives both sides: the CPU
 fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMULATE_SUM_RADIX,
 …)` (FIDESlib's existing `bStep` parameter — no new GPU code). The api GPU paths also restore
-the OpenFHE-visible slot count after the fold. Radix-2 keeps the rotation-key footprint at the
+the OpenFHE-visible slot count after the fold (whether that restore belongs in `Accumulate`
+itself is an open decision — see O10). Radix-2 keeps the rotation-key footprint at the
 power-of-two set (see O8, radix/key-size tradeoff — key minimization drove this choice).
 Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant
 (`AccumulateCascadeImpl`, which settles both elements per level) still uses `bStep=4` on the GPU
@@ -382,6 +383,38 @@ nothing depends on per-name declarations (repeated identical externs are legal),
 doesn't do what its signature advertises. Either fix it to `name##_fix` (and update/verify any
 code relying on the literal names) or delete it if dead. Surfaced during the O2 macro audit;
 not a correctness hazard for the assert paths, so left untouched.
+
+### O10. `Accumulate` slots-narrowing — decide the fix layer
+`FIDESlib::CKKS::Accumulate` rewrites the ciphertext's `slots` field after a full fold
+(`AccumulateBroadcast.cu`: `if (size * stride == ctxt.slots) ctxt.slots = stride;` — same
+pattern in `AccumulateCascadeImpl` and `Broadcast`). The guard is a caller-intent heuristic —
+"a fold covering the whole slot range must mean the caller wants the result treated as a sparse
+`stride`-slot ciphertext" — and it misfires: right for the bootstrap PartialSum, wrong for api
+`AccumulateSum`, whose OpenFHE semantics keep the slot count unchanged (the CPU mirror
+`EvalPartialSumInPlace` never touches slot metadata). The R11 fix compensates at the api
+boundary (save/restore of `slots` around the `Accumulate` call in the two radix-2 GPU paths),
+which works but must be remembered at every future call site.
+
+In-tree evidence that the narrowing sits at the wrong layer: `Accumulate` has exactly two
+internal callers, both in `Bootstrap.cu` — one (`Bootstrap.cu:264`) immediately **overwrites**
+`ctxt.slots` on the next line, making the internal narrowing dead code there; only the other
+(`Bootstrap.cu:100`) actually relies on it (downstream CtS rotations normalize indices through
+`ctxt.slots`).
+
+**Proposed FIDESlib-side fix (decision pending):**
+1. Delete the `slots` writes from `Accumulate` and `AccumulateCascadeImpl` — the fold becomes
+   metadata-neutral, matching its CPU mirror's contract.
+2. Add an explicit `ctxt.slots = slots;` after the `Bootstrap.cu:100` call site (mirroring what
+   the other call site already does), making the bootstrap's sparse re-interpretation visible
+   where it is decided.
+3. Drop the `inputSlots` save/restore from the api paths.
+
+Bonus: the `start`-offset api variant calls `AccumulateCascadeImpl` (no internal callers) and
+did **not** get the R11 save/restore — its slots leak (the O8 sub-item) is fixed for free.
+Caveat: this changes the observable behavior of a public FIDESlib function; any out-of-tree
+code relying on the narrowing convention would break — worth confirming with the FIDESlib
+maintainers. `Broadcast` has the same trailing `slots` rewrite with no in-tree consumers;
+leave it alone for this fix but it is the same pattern.
 
 ## Plan forward
 
