@@ -29,7 +29,7 @@ void FIDESlib::CKKS::approxModReduction(Ciphertext& ctxtEnc, Ciphertext& ctxtEnc
 		std::cout << "Approx mod red start " << ctxtEnc.getLevel() << " " << ctxtEnc.NoiseLevel << std::endl;
 
 	bool constexpr COMPLEX = true;
-	ContextData& cc		   = ctxtEnc.cc;
+	ContextData& cc        = ctxtEnc.cc;
 
 	if constexpr (COMPLEX)
 		evalChebyshevSeries(ctxtEncI, cc.GetCoeffsChebyshev(), -1.0, 1.0);
@@ -380,7 +380,7 @@ const std::vector<double>& coefficients, double a, double b) const {
 			ctxt.addScalar(-lower_bound + 1.0);
 		} else {
 			if (abs(lower_bound + upper_bound) > 1e-8)
-				ctxt.addScalar(-lower_bound + (upper_bound - lower_bound) / 2.0); // center on 0
+				ctxt.addScalar(-(upper_bound - lower_bound) / 2.0); // center on 0 (substract mean)
 			if (ctxt.cc.rescaleTechnique == CKKS::FIXEDMANUAL && ctxt.NoiseLevel == 2)
 				ctxt.rescale();
 			ctxt.multScalar(2.0 / (upper_bound - lower_bound));
