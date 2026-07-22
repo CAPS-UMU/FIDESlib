@@ -78,8 +78,6 @@ void FIDESlib::CKKS::approxModReduction(Ciphertext& ctxtEnc, Ciphertext& ctxtEnc
 		ctxtEnc.add(ctxtEnc);
 	// cudaDeviceSynchronize();
 	multIntScalar(ctxtEnc, post);
-	if (cc.rescaleTechnique == FIDESlib::CKKS::FIXEDMANUAL)
-		ctxtEnc.rescale();
 	// cudaDeviceSynchronize();
 	if constexpr (PRINT) {
 		std::cout << "ctxtEnc final res " << ctxtEnc.getLevel() << " " << ctxtEnc.NoiseLevel << std::endl;

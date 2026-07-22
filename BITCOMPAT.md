@@ -39,6 +39,12 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalArithmeticFixedManual` | PASS | Tier-2: FIXEDMANUAL arithmetic incl. explicit `Rescale` (O6) |
 | `EvalChebyshevFixedManual` | PASS | Tier-2: re-enabled after O6a fix (T2km1 level alignment) |
 | `EvalBootstrapFixedManual` | PASS | Tier-2: re-enabled after O6b (double-angle rescale placement) + O6a fixes |
+| `EvalBootstrapDenseFixedManual` | PASS | fully packed + FIXEDMANUAL combination, externally reported gap (O6d) |
+| `EvalBootstrapDenseFlexExt` | PASS | combination sweep: fully packed × FLEXIBLEAUTOEXT |
+| `EvalBootstrapLTFixedManual` | PASS | combination sweep: level budget {1,1} (LT branch) × FIXEDMANUAL |
+| `EvalBootstrapSparseSecret` | PASS | combination sweep: SPARSE_TERNARY keys (`g_coefficientsSparse`, bootK=1.0 path) |
+| `EvalArithmeticFixedAuto` | PASS | combination sweep: FIXEDAUTO arithmetic (same-level ops) |
+| `DISABLED_EvalBootstrapFixedAuto` | **disabled** | combination sweep finding O6e: FIXEDAUTO add/sub operand adjustment missing on GPU |
 | `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock) |
 
 ## Resolved issues
@@ -205,10 +211,18 @@ tests use (−1, 1). Align the GPU prelude to the CPU order when needed.
 ### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU
 The GPU has no mirrored linear path. Only matters if low-degree series are used through the api.
 
-### O6. Tier-2 configurations *(swept; O6a/O6b fixed, only O6c open)*
-Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the three findings,
-O6a and O6b are fixed and their tests re-enabled; O6c remains as a `DISABLED_` reproducer (the
-acceptance test for its fix).
+### O6. Tier-2 configurations *(swept; O6a/O6b/O6d fixed, O6c/O6e open)*
+Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the five findings,
+O6a, O6b, and O6d are fixed and their tests in place; O6c and O6e remain as `DISABLED_`
+reproducers (the acceptance tests for their fixes). O6d arrived after the sweep via an external
+report — the sweep varied one configuration axis at a time and missed the dense×FIXEDMANUAL
+combination. That prompted a systematic **combination sweep** (packing × technique × budget ×
+key distribution): dense×FLEXIBLEAUTOEXT, LT{1,1}×FIXEDMANUAL, SPARSE_TERNARY keys, and
+FIXEDAUTO arithmetic all came back bit-exact with no changes; FIXEDAUTO bootstrap is O6e.
+Known remaining coverage gaps: dense×LT{1,1} needs ≈2·slots raised-level LT plaintexts resident
+(several GB at N=4096 fully packed) and cannot run on this machine's 4GB GPU — validate on
+larger hardware; iterated bootstrap (`numIterations > 1`) and StC-first setups are api dispatch
+gaps, not testable combinations (see O11).
 
 **Bit-compatible with no changes needed (green):**
 - Bootstrap level budget {1,1} → `isLT`/`EvalLinearTransform` branch (`EvalBootstrapLT`) —
@@ -320,7 +334,42 @@ acceptance test for its fix).
   for a planned upstream convention (the "v1.4" TODOs), and whether anything else depends on
   the switchable-context machinery. Independent of bit-compat, the ≈zero output at small
   parameters is a functional bug worth reporting to them as-is.
+- **O6d — dense + FIXEDMANUAL leftover tail rescale** *(fixed)*
+  (`EvalBootstrapDenseFixedManual`, new test; externally reported): the fully-packed bootstrap
+  under FIXEDMANUAL produced bit-different outputs with **identical metadata** (same towers,
+  noise degree, scaling factor — only the data differed), and decrypt-level results were wrong.
+  Root cause: the dense tail of `approxModReduction` (`ApproxModEval.cu`) carried a
+  FIXEDMANUAL-gated `rescale()` after `multIntScalar(post)` — original FIDESlib code that
+  compensated for the pre-O6b double-angle placement (which exited at noise degree 2). After
+  O6b moved the double-angle rescale to iteration end (output degree 1), this became a second
+  rescale on a degree-1 ciphertext, underflowing it to degree 0. Stock has no counterpart (its
+  pre-StC `ModReduceInternalInPlace` is gated on `st != FIXEDMANUAL`), and the sparse tail
+  (`approxModReductionSparse`) never had the rescale — which is why the sparse FIXEDMANUAL
+  test stayed green after O6b. The metadata matched because the GPU CtS/StC rescales are
+  degree-gated (`if (NoiseLevel == 2) rescale()`): the first StC level's mult only reached
+  degree 1, its rescale didn't fire, and the skipped rescale exactly cancelled the extra one —
+  same final level, wrong rounding trajectory. **Fixed** by deleting the tail rescale; the
+  dense FIXEDMANUAL tail now matches the sparse tail and stock. All FIXEDMANUAL tests plus
+  dense FLEXIBLEAUTO revalidated green. Test note: at this toy ring size the slot-dependent
+  default correction factor lands at 9, below `deg = log2(2^60/2^50) = 10`, which
+  `EvalBootstrap` rejects outright — the test passes an explicit correction factor of 10
+  (production-scale parameters don't trip this check).
 
+- **O6e — FIXEDAUTO add/sub operand adjustment missing** *(open; combination sweep)*
+  (`DISABLED_EvalBootstrapFixedAuto`, the acceptance test): FIXEDAUTO bootstrap produces
+  bit-different outputs with identical metadata (the O6d signature — data-only divergence),
+  while FIXEDAUTO *arithmetic* (`EvalArithmeticFixedAuto`, same-level operands) is bit-exact.
+  Root-cause hypothesis, from the gate audit: stock `LeveledSHERNS::AdjustForAddOrSub` runs
+  `AdjustLevelsAndDepthInPlace` for **every technique except FIXEDMANUAL/NORESCALE — FIXEDAUTO
+  included** — but the GPU add/sub adjustment gates in `Ciphertext.cpp` fire only for
+  `FLEXIBLEAUTO || FLEXIBLEAUTOEXT` (the result-metadata blocks and the `skip_adjust` dispatch;
+  by contrast `mult`'s gates correctly include FIXEDAUTO). So FIXEDAUTO adds/subs of
+  mixed-level/degree operands — which the bootstrap does constantly (Chebyshev su/cu folds,
+  Horner accumulation, conjugate combine) but the arithmetic test never does — skip the operand
+  adjustment stock performs. Fix direction: widen those gates to match stock's contract
+  (everything except FIXEDMANUAL), then check the adjustment arithmetic degenerates correctly
+  for FIXEDAUTO's fixed scaling-factor table. Touches shared add/sub core paths — full-suite
+  revalidation required.
 ### O7. api type-erasure design (`std::any`) — decide a direction
 The api layer stores its OpenFHE/FIDESlib objects type-erased (`std::any cpu/gpu/pimpl`,
 `shared_ptr<void>` GPU registry) so the public headers carry no OpenFHE or CUDA includes.
@@ -416,6 +465,24 @@ code relying on the narrowing convention would break — worth confirming with t
 maintainers. `Broadcast` has the same trailing `slots` rewrite with no in-tree consumers;
 leave it alone for this fix but it is the same pattern.
 
+### O11. api `EvalBootstrap` GPU dispatch drops parameters
+Two silent divergences between the api's CPU fallback and GPU path (`api/CryptoContext.cpp`,
+`EvalBootstrap`/`EvalBootstrapInPlace`), found while auditing the dispatch during the
+combination sweep:
+
+- **`numIterations`/`precision` ignored on GPU.** The CPU fallback forwards both to
+  `context->EvalBootstrap(ct, numIterations, precision)` (META-BTS iterated bootstrapping);
+  the GPU path unconditionally runs a single `FIDESlib::CKKS::Bootstrap`. A caller requesting
+  two iterations gets one, silently, with correspondingly lower precision.
+- **`btsfirstboot` (StC-first) misroutes on GPU.** api `EvalBootstrapSetup` exposes
+  `btsfirstboot` and forwards it into the CPU precomputation (`BTSlotsEncoding`), but FIDESlib
+  has no StC-first pipeline (`Bootstrap.cuh` exposes only the CtS-first `Bootstrap` and
+  `BootstrapCPUraise`); the GPU path runs CtS-first against StC-first precomputations.
+
+Both are O3-class semantic gaps (api contract, not bit-compat): decide whether to fall back to
+CPU when the request can't be honored on GPU (`numIterations > 1`, StC-first setups), throw, or
+implement the missing GPU paths. Until then they fail silently rather than loudly.
+
 ## Plan forward
 
 **P1 — Land the current state.** *(ongoing)* The `OpenFHECompatTests` branch carries the work
@@ -468,13 +535,16 @@ the host ASAN build identified it as a test-macro argument-re-evaluation bug, no
 FIDESlib maintainers.
 
 **P4 — Tier-2 coverage (O6)** one configuration at a time — each red result is a mini-investigation
-with the harness. *(swept)* Five configurations green with tests landed; three findings
-characterized (O6a–O6c). O6a and O6b are fixed (T2km1 level alignment; double-angle
-FIXEDMANUAL rescale moved to iteration end) and their tests re-enabled — the full FIXEDMANUAL
-configuration is now bit-compatible. Remaining: **O6c** — the SPARSE_ENCAPSULATED
+with the harness. *(swept)* Five configurations green with tests landed; five findings
+characterized (O6a–O6e). O6a, O6b, and O6d are fixed (T2km1 level alignment; double-angle
+FIXEDMANUAL rescale moved to iteration end; dense-tail leftover rescale deleted) with tests in
+place — the full FIXEDMANUAL configuration, sparse and fully packed, is now bit-compatible.
+The follow-up combination sweep added four more green configurations (see O6) and surfaced
+O6e. Remaining: **O6c** — the SPARSE_ENCAPSULATED
 implementations are structurally different designs (dual-context GPU vs in-context stock) and
 the GPU output is value-wrong at the test configuration; fix deferred, plan documented (see
-O6c). Then close out the smaller semantic gaps (O3–O5) and the api type-erasure decision (O7).
+O6c) — and **O6e** — FIXEDAUTO add/sub operand adjustment (fix direction documented). Then
+close out the smaller semantic gaps (O3–O5, O11) and the api type-erasure decision (O7).
 
 ## Validation methodology (reusable)
 
@@ -492,7 +562,10 @@ early-return (the "unused key" that started all this was an artifact); `normalyz
 rotation indices through `ctxt.slots`; encryption is randomized, so CPU/GPU test phases must
 share a single `Encrypt` call; test macros that re-evaluate their arguments under shadowed loop
 variables can fake memory corruption (O2); a "clean" `Decode` of values near zero still means a
-wrong result — check magnitudes, not just exceptions (O6c).
+wrong result — check magnitudes, not just exceptions (O6c); sweeping configuration axes one at
+a time misses combinations — dense×FIXEDMANUAL diverged where each axis alone was green (O6d);
+matching output metadata does not imply a matching pipeline — degree-gated rescales can absorb
+an extra upstream rescale and land at the right level via the wrong trajectory (O6d).
 
 ## Performance accounting (recovered via P2)
 
