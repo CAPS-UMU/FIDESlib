@@ -1046,8 +1046,8 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
 	*/
 
 	if (cc->GetRingDimension() / 2 != static_cast<uint32_t>(slots)) {
-		int bStep				   = 2;
-		result.accumulate_bStep	   = bStep;
+		int bStep                  = CKKS_PARTIAL_SUM_RADIX;
+		result.accumulate_bStep    = bStep;
 		std::vector<int> rotations = GetAccumulateRotationIndices(bStep, slots, cc->GetRingDimension() / 2 / slots);
 		for (auto idx : rotations) {
 			indexes.push_back(idx);

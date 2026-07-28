@@ -1782,7 +1782,7 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& cip
 	FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled);
 }
 
-constexpr int ACCUMULATE_SUM_RADIX = 2;
+constexpr int ACCUMULATE_SUM_RADIX = CKKS_PARTIAL_SUM_RADIX;
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride) {
 	FIDESlib::CudaNvtxRange r("API");

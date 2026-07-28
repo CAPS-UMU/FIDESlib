@@ -13,8 +13,8 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 
 1. **OpenFHE dev branch** — algorithmic changes with standalone value (formulation unification,
    optimizations that also help the CPU).
-2. **`deps/fideslib-ref-1.5.1.4.patch`** — kept minimal; visibility/build-config shims only
-   (applies on tag `fideslib-ref-v1.5.1.4`). Temporary home for changes queued for upstream.
+2. **`deps/fideslib-ref-1.5.1.5.patch`** — kept minimal; visibility/build-config shims only
+   (applies on tag `fideslib-ref-v1.5.1.5`). Temporary home for changes queued for upstream.
 3. **FIDESlib** — GPU-side fixes and anything that is a FIDESlib bug.
 
 ## Current test status (`test/OpenFheCompatTests.cu`)
@@ -30,7 +30,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalAdjust` | PASS | 9 mixed noise-degree / level-gap adjustment cases |
 | `EvalChebyshev` | PASS | standalone degree-12 Paterson–Stockmeyer |
 | `EvalAddMany` | PASS | |
-| `AccumulateSum` | PASS | api rotation fold: CPU fallback ≡ GPU `Accumulate(bStep=2)` (R11) |
+| `AccumulateSum` | PASS | api rotation fold: CPU fallback ≡ GPU `Accumulate` at `CKKS_PARTIAL_SUM_RADIX` (R11, O8) |
 | `EvalFastRotationHoisted` | PASS | multi-index hoisted rotations; re-enabled after O2 turned out to be a test-macro bug |
 | `EvalBootstrapLT` | PASS | Tier-2: level budget {1,1}, `isLT`/`EvalLinearTransform` branch (O6) |
 | `EvalBootstrapSlots64` | PASS | Tier-2: slots=64 sparse bootstrap (O6) |
@@ -157,7 +157,8 @@ api-visible inconsistency.
 `(ct, stride, size)` radix-2 helper (doubling; one rotation per level, folded directly into the
 extended accumulator) plus a general `(ct, stride, size, radix)` form that delegates to the
 radix-2 helper when `radix == 2`; both mirror FIDESlib's `Accumulate` level/index structure
-bit-for-bit. A single api constant `ACCUMULATE_SUM_RADIX = 2` drives both sides: the CPU
+bit-for-bit. A single api constant `ACCUMULATE_SUM_RADIX` (since bound to OpenFHE's
+compile-time `CKKS_PARTIAL_SUM_RADIX` — see O8) drives both sides: the CPU
 fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMULATE_SUM_RADIX,
 …)` (FIDESlib's existing `bStep` parameter — no new GPU code). The api GPU paths also restore
 the OpenFHE-visible slot count after the fold (whether that restore belongs in `Accumulate`
@@ -391,7 +392,7 @@ includes two OpenFHE headers. Pick one direction:
 Deciding factor: whether external consumers must compile against `fideslib.hpp` without an
 OpenFHE installation. Either way, the centralized-cast hardening is worth doing immediately.
 
-### O8. Rotation-fold radix — performance vs key-size scaling knob
+### O8. Rotation-fold radix — performance vs key-size scaling knob *(knob landed: `CKKS_PARTIAL_SUM_RADIX`, default 4)*
 Every rotation-accumulation fold (`sum_j Rotate(ct, j·stride)` over `size` summands) can be
 evaluated at any power-of-two **radix** — the accumulation branching factor, exposed as the
 `radix` parameter of `FHECKKSRNS::EvalPartialSumInPlace(ct, stride, size, radix)` (OpenFHE) and
@@ -414,15 +415,39 @@ non-power-of-two indexes unlikely to be shared: radix-4 adds `{3·stride·4^j}`
 +1 at 8 slots, +5 at 1024, +7 at fully-packed 32768. At bootstrapping parameters a single
 rotation key is tens of MB, so those extra keys are real storage.
 
-**Current choices (key minimization is a priority — see the memory note):** everything uses
-radix-2. Bootstrap PartialSum runs `accumulate_bStep = 2` (FIDESlib's name for the radix); api
-`AccumulateSum` uses radix-2 on both CPU and GPU (R11). The general `(…, radix)` helper is
-retained but unused otherwise, so a future
-mod-up-bound workload that can afford the keys can opt a specific fold into a higher radix
-without new machinery. **Do not raise any radix without surfacing the key delta and getting a
-decision.** Open sub-item: the `start`-offset `AccumulateSum` variant (`AccumulateCascadeImpl`)
-still runs `bStep=4` on the GPU with an unvalidated eager-doubling CPU fallback; bringing it to
-radix-2 (and under the compat test) would close the last AccumulateSum key gap.
+**Current choice — a compile-time knob, `CKKS_PARTIAL_SUM_RADIX` (default 4, by decision):**
+the radix is now an OpenFHE CMake cache variable (`-DCKKS_PARTIAL_SUM_RADIX=<power of two>`),
+emitted into `config_core.h` and consumed as the single source of truth by every layer:
+
+- **OpenFHE**: the bootstrap `EvalPartialSumInPlace(raised, slots)` wrapper folds at the
+  configured radix, and keygen generates exactly the fold's index set —
+  `{i·stride·radix^level, i ∈ [1, radix)}`, computed inline (no new public API) in place of the
+  power-of-two loops at the three bootstrap `Find*RotationIndices` helpers and the two
+  scheme-switching keygen sites. For radix > 2 the set is a superset of the power-of-two set,
+  so nothing that relied on those keys breaks.
+- **FIDESlib**: `accumulate_bStep` (bootstrap PartialSum) and the api `ACCUMULATE_SUM_RADIX`
+  (AccumulateSum, both fallback and GPU) are set from the same macro.
+
+Validated: the full compat suite is green at the default radix 4 — the first bit-exact
+validation of the radix-4 fold (CPU 4-arg helper ≡ GPU `Accumulate(bStep=4)`), keygen included.
+The key cost of the default is as derived above (radix-4 adds the dedicated `{3·stride·4^j}`
+indices — `⌊log4(size)⌋` extra keys per fold); **key-minimizing deployments build with
+`-DCKKS_PARTIAL_SUM_RADIX=2`**, which reproduces the previous behavior exactly.
+
+Audit of inline occurrences of the fold pattern (places not calling the subroutine): the
+FHEW→CKKS sparse re-encode in `EvalFHEWtoCKKS` (`ckksrns-schemeswitching.cpp`) was an eager
+`EvalAtIndex`+add doubling loop — converted to call `EvalPartialSumInPlace` at the configured
+radix, with its two keygen sites generating the radix's index set (CPU-only path,
+compile-validated; no GPU counterpart). The wide-matrix log-fold in
+`EvalLTRectWithPrecomputeSwitch` is the same pattern but operates lazily on the extended
+accumulator mid-transform, where the settled-ciphertext helper does not fit — left as is. The
+`EvalSum`/`EvalSumRows`/`EvalSumCols` family (`base-advancedshe`) is also the pattern, but
+scheme-generic with its own `EvalSumKeyGen` key-management API — out of scope for a
+CKKS-specific knob.
+
+Open sub-item: the `start`-offset `AccumulateSum` variant (`AccumulateCascadeImpl`) still runs
+a literal `bStep=4` on the GPU with an unvalidated eager-doubling CPU fallback; binding it to
+the knob (and putting it under the compat test) would close the last AccumulateSum gap.
 
 ### O9. `MODES(name)` macro ignores its parameter
 `test/ParametrizedTest.cuh`'s `MODES(name)` declares identifiers literally named `name_fix`,
@@ -486,9 +511,9 @@ implement the missing GPU paths. Until then they fail silently rather than loudl
 ## Plan forward
 
 **P1 — Land the current state.** *(ongoing)* The `OpenFHECompatTests` branch carries the work
-in per-milestone commits (FIDESlib fixes, `deps/fideslib-ref-1.5.1.4.patch` + `build.sh` bumps,
+in per-milestone commits (FIDESlib fixes, `deps/fideslib-ref-1.5.1.5.patch` + `build.sh` bumps,
 `test/OpenFheCompatTests.cu`, and this document); the upstream side is tagged
-`fideslib-ref-v1.5.1.2`–`v1.5.1.4`. The green suite is the regression wall for everything below.
+`fideslib-ref-v1.5.1.2`–`v1.5.1.5`. The green suite is the regression wall for everything below.
 
 **P2 — Upstream OpenFHE PRs** (shrinks the patch back to visibility shims; each step re-validated
 with the stage harness):
@@ -520,14 +545,16 @@ with the stage harness):
   in `EvalLTRectWithPrecomputeSwitch` accumulate extended and settle once) — CPU-only paths, no
   GPU counterpart, validated with OpenFHE's pke unit tests. Landed with P2b as
   `fideslib-ref-v1.5.1.3` (commit `d31322ac`); remaining: propose upstream.
-- **Considered, not pursued — radix-4 bootstrap PartialSum (`accumulate_bStep = 4`):** the
-  generalized `EvalPartialSumInPlace(ct, stride, size, radix)` (R11) supports raising the
-  PartialSum radix on both sides, which would halve the digit decompositions at the raised
-  level (8 → 4 for slots=8, N=4096) — the widest-tower, most expensive mod-ups of the
-  bootstrap. The cost is ~1.5× more rotation keys for the PartialSum indexes (radix 4 needs
-  keys for `{1,2,3}·stride·4^i` vs doubling's `stride·2^i`). **Minimizing key storage is a
-  priority, so we stay at `accumulate_bStep = 2`.** Revisit only if the raised-level mod-up
-  cost ever dominates profiles badly enough to outweigh the key growth.
+- **d.** *(done)* Radix-configurable PartialSum: the generalized
+  `EvalPartialSumInPlace(ct, stride, size, radix)` (R11) is now driven everywhere by the
+  compile-time `CKKS_PARTIAL_SUM_RADIX` CMake variable, **default 4 by decision** — halving the
+  digit decompositions at the raised level (8 → 4 for slots=8, N=4096), the widest-tower, most
+  expensive mod-ups of the bootstrap, at the cost of the dedicated `{3·stride·4^i}` rotation
+  keys (~1.5× the PartialSum key count vs doubling). Keygen generates the radix's exact index
+  set inline at each site, FIDESlib and the api read the same macro, and the full
+  suite is green at radix 4. Key-minimizing deployments build OpenFHE with
+  `-DCKKS_PARTIAL_SUM_RADIX=2`, restoring the previous behavior exactly (see O8). Landed as
+  `fideslib-ref-v1.5.1.5` (commit `fa5b49e3`); remaining: propose upstream with the rest of P2.
 
 **P3 — Fix the `rotate_hoisted` memory bug (O2).** *(done)* Resolved exactly as prescribed —
 the host ASAN build identified it as a test-macro argument-re-evaluation bug, not a memory bug
