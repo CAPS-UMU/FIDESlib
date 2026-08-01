@@ -141,11 +141,11 @@ TEST(OpenFHECompatTests, AccumulateSum) {
 
     auto keys = cc->KeyGen();
     cc->EvalMultKeyGen(keys.secretKey);
-    // The accumulation radix is OpenFHE's compile-time CKKS_PARTIAL_SUM_RADIX; generate the
+    // The accumulation radix is OpenFHE's compile-time PARTIAL_SUM_RADIX; generate the
     // fold's rotation indices {i*radix^level : i in [1, radix)} for slots=8, stride=1.
     std::vector<int32_t> accIndices;
-    for (uint32_t s = 1; s < batchSize; s *= CKKS_PARTIAL_SUM_RADIX)
-        for (uint32_t idx = s; idx < batchSize && idx < CKKS_PARTIAL_SUM_RADIX * s; idx += s)
+    for (uint32_t s = 1; s < batchSize; s *= PARTIAL_SUM_RADIX)
+        for (uint32_t idx = s; idx < batchSize && idx < PARTIAL_SUM_RADIX * s; idx += s)
             accIndices.push_back(static_cast<int32_t>(idx));
     cc->EvalRotateKeyGen(keys.secretKey, accIndices);
 
