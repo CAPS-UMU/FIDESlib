@@ -681,10 +681,11 @@ FIDESlib adaptations in this delta (all validated against the new base, suite 23
    private max-level snapshot) at the widest bootstrap levels — the invariant that the
    snapshot is never mutated (which makes streaming bit-identical) is asserted.
 
-Build-system pitfall recorded on the way: FIDESlib's `find_package(OpenFHE ... PATHS ...)`
-searches `/usr/local` **before** `PATHS`, so a side-by-side validation against a second install
-silently linked the old one until a new-API symbol failed to resolve. Any non-default-prefix
-build must force `-DOpenFHE_DIR=<prefix>/lib/OpenFHE` and verify `CMakeCache.txt`.
+Build-system pitfall recorded on the way (and fixed): FIDESlib's `find_package(OpenFHE ...
+PATHS ...)` searched `/usr/local` **before** `PATHS`, so a side-by-side validation against a
+second install silently linked the old one until a new-API symbol failed to resolve. Fixed by
+adding `NO_DEFAULT_PATH`: `OPENFHE_INSTALL_PREFIX` is now authoritative (default builds
+unchanged, a wrong prefix is a loud configure error, `-DOpenFHE_DIR` still overrides).
 
 **P3 — Fix the `rotate_hoisted` memory bug (O2).** *(done)* Resolved exactly as prescribed —
 the host ASAN build identified it as a test-macro argument-re-evaluation bug, not a memory bug
