@@ -13,8 +13,8 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 
 1. **OpenFHE dev branch** — algorithmic changes with standalone value (formulation unification,
    optimizations that also help the CPU).
-2. **`deps/fideslib-ref-1.5.1.6.patch`** — kept minimal; visibility/build-config shims only
-   (applies on tag `fideslib-ref-v1.5.1.6`). Temporary home for changes queued for upstream.
+2. **`deps/fideslib-ref-1.5.1.7.patch`** — kept minimal; visibility/build-config shims only
+   (applies on tag `fideslib-ref-v1.5.1.7`). Temporary home for changes queued for upstream.
 3. **FIDESlib** — GPU-side fixes and anything that is a FIDESlib bug.
 
 ## Current test status (`test/OpenFheCompatTests.cu`)
@@ -335,6 +335,15 @@ gaps, not testable combinations (see O11).
   for a planned upstream convention (the "v1.4" TODOs), and whether anything else depends on
   the switchable-context machinery. Independent of bit-compat, the ≈zero output at small
   parameters is a functional bug worth reporting to them as-is.
+
+  **Update (v1.5.1.7 rebase):** upstream #1248 redesigned the reference `KeySwitchSparse` —
+  the switching key now lives over a **dedicated 3-limb basis** (q₀, p′₀, p′₁) with
+  `P′ = p′₀·p′₁` at 2×33 bits (`GetSparseKSParams*` accessors, no longer borrowed from the
+  hybrid `P`), and the mod-down back to q₀ is the **exact HPS `SwitchCRTBasis`** with the
+  `α·P′` correction, not the centered `SwitchModulus` fold described in step 1 above. The
+  degree-32 coefficients, `R_SPARSE + 1` double-angle count, and `K_SPARSE_ENCAPSULATED = 16`
+  are unchanged. Step 1's transcription target is therefore the post-#1248 stock code; the
+  plan's structure (steps 2–6) is unaffected.
 - **O6d — dense + FIXEDMANUAL leftover tail rescale** *(fixed)*
   (`EvalBootstrapDenseFixedManual`, new test; externally reported): the fully-packed bootstrap
   under FIXEDMANUAL produced bit-different outputs with **identical metadata** (same towers,
@@ -552,9 +561,9 @@ implement the missing GPU paths. Until then they fail silently rather than loudl
 ## Plan forward
 
 **P1 — Land the current state.** *(ongoing)* The `OpenFHECompatTests` branch carries the work
-in per-milestone commits (FIDESlib fixes, `deps/fideslib-ref-1.5.1.6.patch` + `build.sh` bumps,
+in per-milestone commits (FIDESlib fixes, `deps/fideslib-ref-1.5.1.7.patch` + `build.sh` bumps,
 `test/OpenFheCompatTests.cu`, and this document); the upstream side is tagged
-`fideslib-ref-v1.5.1.2`–`v1.5.1.6`. The green suite is the regression wall for everything below.
+`fideslib-ref-v1.5.1.2`–`v1.5.1.7`. The green suite is the regression wall for everything below.
 
 **P2 — Upstream OpenFHE PRs** (shrinks the patch back to visibility shims; each step re-validated
 with the stage harness):
@@ -636,6 +645,46 @@ with the stage harness):
   radix (the sets are threshold-nested in the exponent). Full pke unit suite green at radix 2,
   4, and 8 (1892 tests each; radix 2 provably reproduces the legacy key set). Landed as
   `fideslib-ref-v1.5.1.6` (commits `b211e037`, `691908c9`).
+
+**P2 closed — reference rebased onto upstream dev.** `fideslib-ref-v1.5.1.7` pins upstream dev
+directly (`39ab293d`): all P2 work reached dev as PR #1225, so the reference carries no
+FIDESlib-side commits and the patch is back to pure visibility/build shims — its original goal.
+The 21 upstream commits between the old base and the new tag were audited for bit-compat:
+- **Value-identical** (no GPU change needed): rescale reformulated as one scalar multiplication
+  per tower (#1247 — same expression mod each prime, rounding unchanged); native
+  math/lattice/transform rework (#1273 — bit-exact NTT, eval-format layout unchanged);
+  streamed weighted sums + Chebyshev PS parallelization (bootstrap's mod-eval stays on the
+  serial path: all four coefficient tables fall below the `k·2^{m−1} < 128` threshold); CKKS
+  encoding/serialization/threshold reworks (#1278).
+- **Value-changing, outside our regimes**: fixed-mode scaling-factor fix (#1230) — FIXEDAUTO
+  mixed-level operands only; also makes `ScalingFactorRealBig = Δ²` in FIXED modes, which turns
+  two previously-wrong FIDESlib debug asserts correct. Functional-bootstrap AUTO-mode support
+  (#1272) — FBT only, standard bootstrap untouched. Sparse-encapsulation keyswitch moved to a
+  dedicated 2×33-bit auxiliary basis with an exact `SwitchCRTBasis` mod-down (#1248) — confined
+  to `SPARSE_ENCAPSULATED`; raises the bar for the O6c re-enable (3-limb switching key over
+  `GetSparseKSParams*`, exact basis switch instead of centered `SwitchModulus`; see O6c).
+- **Parameter-affecting**: HYBRID `sizeP` now gets a safety margin in all scaling modes
+  (#1245) — some parameter sets gain one auxiliary prime (GPU memory note, not a compat issue).
+
+FIDESlib adaptations in this delta (all validated against the new base, suite 23/23):
+1. `RawCiphertext.cu` extracts `psi`/`psi_inv`/`N_inv` via the new
+   `ChineseRemainderTransformFTTNat::GetTables()` (#1273 removed the public static maps; table
+   contents are bit-exact).
+2. The one-mult rescale form is adopted in `rescale_fusion`/`multpt_fusion`
+   (`(in − A)·q_l⁻¹`, the form OpenFHE moved to in #1247), which makes the imported
+   `QlQlInvModqlDivqlModq` table dead: the import/staging/device chain is deleted end-to-end
+   (the self-computed all-pairs `q_inv` table already covers every row, including
+   `MODRAISE_WITH_P0`'s p₀ row), freeing a `MAXP²`×u64 device-constant block and ~200 host
+   lines. One fewer multiply and one fewer global load per element in both kernels.
+3. `evalPartialLinearWSumCompat` transcribes upstream's streamed weighted sum: peak live
+   temporaries drop from `limit + 1` full ciphertexts to 3 (accumulator, reused term buffer,
+   private max-level snapshot) at the widest bootstrap levels — the invariant that the
+   snapshot is never mutated (which makes streaming bit-identical) is asserted.
+
+Build-system pitfall recorded on the way: FIDESlib's `find_package(OpenFHE ... PATHS ...)`
+searches `/usr/local` **before** `PATHS`, so a side-by-side validation against a second install
+silently linked the old one until a new-API symbol failed to resolve. Any non-default-prefix
+build must force `-DOpenFHE_DIR=<prefix>/lib/OpenFHE` and verify `CMakeCache.txt`.
 
 **P3 — Fix the `rotate_hoisted` memory bug (O2).** *(done)* Resolved exactly as prescribed —
 the host ASAN build identified it as a test-macro argument-re-evaluation bug, not a memory bug

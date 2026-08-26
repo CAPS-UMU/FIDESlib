@@ -118,7 +118,6 @@ struct Global {
 	// uint64_t q_[MAXP][MAXP];
 	// uint64_t Q_[MAXP][MAXP];
 	uint64_t q_inv[MAXP][MAXP];
-	uint64_t QlQlInvModqlDivqlModq[MAXP][MAXP];
 	uint64_t aux;
 
 	uint64_t ModDown_pre_scale[MAXP];
@@ -149,7 +148,6 @@ struct Global {
 		//__device__ uint64_t q_[MAXP][MAXP];
 		//__device__ uint64_t Q_[MAXP][MAXP];
 		uint64_t q_inv[MAXP * MAXP];
-		uint64_t QlQlInvModqlDivqlModq[MAXP * MAXP];
 
 		uint64_t ModDown_pre_scale[MAXP];
 		uint64_t ModDown_pre_scale_shoup[MAXP];
