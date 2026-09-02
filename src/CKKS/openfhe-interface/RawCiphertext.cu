@@ -230,29 +230,19 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 		result.cyclotomic_order.push_back(i->GetCyclotomicOrder() /*m_cyclotomicOrder*/);
 	}
 
-	// intnat::ChineseRemainderTransformFTTNat<intnat::NativeVector>::m_rootOfUnityReverseTableByModulus
 	for (size_t i = 0; i < result.moduli.size(); ++i) {
 		using namespace intnat;
-		//  NumberTheoreticTransformNat<NativeVector>().PreCompute
-		using FFT      = ChineseRemainderTransformFTTNat<NativeVector>;
-		auto mapSearch = FFT::m_rootOfUnityReverseTableByModulus.find(result.moduli[i]);
-		if (mapSearch == FFT::m_rootOfUnityReverseTableByModulus.end() || mapSearch->second.GetLength() != (size_t)result.N /*CycloOrderHf*/) {
-			FFT().PreCompute(result.root_of_unity[i], result.N << 1, result.moduli[i]);
-		}
+		using FFT = ChineseRemainderTransformFTTNat<NativeVector>;
+		auto tables =
+			FFT::GetTables(NativeInteger(result.root_of_unity[i]), result.N << 1, NativeInteger(result.moduli[i]));
+		const size_t size = tables->rootReverse.GetLength();
+		assert(size == (size_t)result.N);
 
-		if (mapSearch == FFT::m_rootOfUnityReverseTableByModulus.end() || mapSearch->second.GetLength() != (size_t)result.N /*CycloOrderHf*/) {
-			assert("OpenFHE has not generated the NTT tables we want yet :(" == nullptr);
+		for (size_t k = 0; k < size; ++k) {
+			result.psi[i].push_back(tables->rootReverse.at(k).ConvertToInt<uint64_t>() /*.m_value*/);
+			result.psi_inv[i].push_back(tables->rootInverseReverse.at(k).ConvertToInt<uint64_t>() /*m_value*/);
 		}
-
-		{
-			int size = FFT::m_rootOfUnityReverseTableByModulus[result.moduli[i]].GetLength();
-
-			for (int k = 0; k < size; ++k) {
-				result.psi[i].push_back(FFT::m_rootOfUnityReverseTableByModulus[result.moduli[i]].at(k).ConvertToInt<uint64_t>() /*.m_value*/);
-				result.psi_inv[i].push_back(FFT::m_rootOfUnityInverseReverseTableByModulus[result.moduli[i]].at(k).ConvertToInt<uint64_t>() /*m_value*/);
-			}
-			result.N_inv.push_back(FFT::m_cycloOrderInverseTableByModulus.at(result.moduli[i]).at(result.logN).ConvertToInt<uint64_t>() /*.m_value*/);
-		}
+		result.N_inv.push_back(tables->cycloOrderInverse.at(result.logN).ConvertToInt<uint64_t>() /*.m_value*/);
 	}
 
 	//    intnat::NumberTheoreticTransformNat<intnat::NativeVector>().
@@ -270,130 +260,6 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 	result.ScalingFactorRealBig.resize(result.L + 1, 0);
 	for (size_t i = 0; i < result.ScalingFactorRealBig.size() - 1; ++i) {
 		result.ScalingFactorRealBig[result.L - i] = cryptoParams->GetScalingFactorRealBig(i);
-	}
-
-	{
-		auto& src  = cryptoParams->m_QlQlInvModqlDivqlModq;
-		auto& dest = result.m_QlQlInvModqlDivqlModq;
-		dest.resize(src.size());
-		for (size_t i = 0; i < src.size(); ++i) {
-			dest[i].resize(src[i].size());
-			for (size_t j = 0; j < src[i].size(); ++j) {
-				dest[i][j] = src[i][j].ConvertToInt<uint64_t>();
-			}
-		}
-
-		if (MODRAISE_WITH_P0) {
-			size_t k_ = cryptoParams->GetElementParams()->GetParams().size();
-			std::vector<NativeInteger> moduliQ(k_ + 1);
-			std::vector<NativeInteger> rootsQ(k_ + 1);
-			for (size_t i = 0; i < k_; i++) {
-				moduliQ[i] = cc->GetElementParams()->GetParams()[i]->GetModulus();
-				rootsQ[i]  = cc->GetElementParams()->GetParams()[i]->GetRootOfUnity();
-			}
-			moduliQ[k_] = cryptoParams->GetParamsP()->GetParams().at(0)->GetModulus();
-			rootsQ[k_]  = cryptoParams->GetParamsP()->GetParams().at(0)->GetRootOfUnity();
-
-			dest.resize(dest.size() + 1);
-			dest[k_ - 1].resize(k_);
-
-			const int sizeQ = static_cast<int>(k_);
-			for (int k = 1; k <= sizeQ; ++k) {
-
-				lbcrypto::BigInteger modulusQ = cryptoParams->GetElementParams()->GetModulus();
-
-				int curr_l = sizeQ;
-				while (curr_l > (k - (sizeQ == k && lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()))) {
-					// divide modulus q by the small last limb
-					modulusQ = modulusQ / lbcrypto::BigInteger(moduliQ.at(curr_l - 1));
-					// k -= 1;
-					curr_l--;
-				}
-				/*
-				m_QlQlInvModqlDivqlModq.resize(sizeQ - 1);
-				m_QlQlInvModqlDivqlModqPrecon.resize(sizeQ - 1);
-				m_qlInvModq.resize(sizeQ - 1);
-				m_qlInvModqPrecon.resize(sizeQ - 1);
-				for (size_t k = 0; k < sizeQ - 1; k++) {
-					size_t l = sizeQ - (k + 1);
-					modulusQ = modulusQ / BigInteger(moduliQ[l]);
-					m_QlQlInvModqlDivqlModq[k].resize(l);
-					m_QlQlInvModqlDivqlModqPrecon[k].resize(l);
-					m_qlInvModq[k].resize(l);
-					m_qlInvModqPrecon[k].resize(l);
-					BigInteger QlInvModql = modulusQ.ModInverse(moduliQ[l]);
-					BigInteger result     = (QlInvModql * modulusQ) / BigInteger(moduliQ[l]);
-					for (uint32_t i = 0; i < l; i++) {
-						m_QlQlInvModqlDivqlModq[k][i]       = result.Mod(moduliQ[i]).ConvertToInt();
-						m_QlQlInvModqlDivqlModqPrecon[k][i] = m_QlQlInvModqlDivqlModq[k][i].PrepModMulConst(moduliQ[i]);
-						m_qlInvModq[k][i]                   = moduliQ[l].ModInverse(moduliQ[i]);
-						m_qlInvModqPrecon[k][i]             = m_qlInvModq[k][i].PrepModMulConst(moduliQ[i]);
-					}
-				}
-				*/
-				lbcrypto::NativeInteger moduliP0 = moduliQ[k];
-				lbcrypto::BigInteger QlInvModp0  = modulusQ.ModInverse(moduliP0);
-				lbcrypto::BigInteger result      = (QlInvModp0 * modulusQ) / lbcrypto::BigInteger(moduliP0);
-				for (int i = 0; i < k; i++) {
-					if (k < sizeQ) {
-						uint64_t res = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
-						assert(dest[cryptoParams->GetElementParams()->GetParams().size() - k - 1][i] == res);
-					} else {
-						dest[k - 1][i] = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
-					}
-					// hG_.QlQlInvModqlDivqlModq[q.size()][i] = result.Mod(moduliQ[i]).ConvertToInt();
-				}
-			}
-		}
-
-		if (MODRAISE_WITH_P0) {
-			dest.resize(dest.size() + 1);
-			size_t k = cryptoParams->GetElementParams()->GetParams().size();
-			dest[k - 1].resize(k);
-			lbcrypto::BigInteger modulusQ = cryptoParams->GetElementParams()->GetModulus();
-			std::vector<NativeInteger> moduliQ(k);
-			std::vector<NativeInteger> rootsQ(k);
-
-			for (size_t i = 0; i < k; i++) {
-				moduliQ[i] = cc->GetElementParams()->GetParams()[i]->GetModulus();
-				rootsQ[i]  = cc->GetElementParams()->GetParams()[i]->GetRootOfUnity();
-			}
-			if (lbcrypto::FLEXIBLEAUTOEXT == cryptoParams->GetScalingTechnique()) {
-				// divide modulus q by the small last limb
-				modulusQ = modulusQ / lbcrypto::BigInteger(moduliQ.back());
-				// k -= 1;
-			}
-			/*
-			m_QlQlInvModqlDivqlModq.resize(sizeQ - 1);
-			m_QlQlInvModqlDivqlModqPrecon.resize(sizeQ - 1);
-			m_qlInvModq.resize(sizeQ - 1);
-			m_qlInvModqPrecon.resize(sizeQ - 1);
-			for (size_t k = 0; k < sizeQ - 1; k++) {
-				size_t l = sizeQ - (k + 1);
-				modulusQ = modulusQ / BigInteger(moduliQ[l]);
-				m_QlQlInvModqlDivqlModq[k].resize(l);
-				m_QlQlInvModqlDivqlModqPrecon[k].resize(l);
-				m_qlInvModq[k].resize(l);
-				m_qlInvModqPrecon[k].resize(l);
-				BigInteger QlInvModql = modulusQ.ModInverse(moduliQ[l]);
-				BigInteger result     = (QlInvModql * modulusQ) / BigInteger(moduliQ[l]);
-				for (uint32_t i = 0; i < l; i++) {
-					m_QlQlInvModqlDivqlModq[k][i]       = result.Mod(moduliQ[i]).ConvertToInt();
-					m_QlQlInvModqlDivqlModqPrecon[k][i] = m_QlQlInvModqlDivqlModq[k][i].PrepModMulConst(moduliQ[i]);
-					m_qlInvModq[k][i]                   = moduliQ[l].ModInverse(moduliQ[i]);
-					m_qlInvModqPrecon[k][i]             = m_qlInvModq[k][i].PrepModMulConst(moduliQ[i]);
-				}
-			}
-			*/
-			lbcrypto::NativeInteger moduliP0 = cryptoParams->GetParamsP()->GetParams().at(0)->GetModulus();
-			lbcrypto::BigInteger QlInvModp0  = modulusQ.ModInverse(moduliP0);
-			lbcrypto::BigInteger result      = (QlInvModp0 * modulusQ) / lbcrypto::BigInteger(moduliP0);
-			for (uint32_t i = 0; i < k; i++) {
-				assert(dest[k - 1][i] == result.Mod(moduliQ[i]).ConvertToInt<uint64_t>());
-				//  dest[k - 1][i] = result.Mod(moduliQ[i]).ConvertToInt<uint64_t>();
-				//  hG_.QlQlInvModqlDivqlModq[q.size()][i] = result.Mod(moduliQ[i]).ConvertToInt();
-			}
-		}
 	}
 
 	/// Key Switching precomputations !!!

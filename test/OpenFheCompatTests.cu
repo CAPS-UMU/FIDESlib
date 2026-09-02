@@ -139,10 +139,15 @@ TEST(OpenFHECompatTests, AccumulateSum) {
 	cc->Enable(KEYSWITCH);
 	cc->Enable(LEVELEDSHE);
 
-	auto keys = cc->KeyGen();
-	cc->EvalMultKeyGen(keys.secretKey);
-	// Radix-2 (doubling) accumulation for slots=8, stride=1 rotates by the power-of-two set {1, 2, 4}.
-	cc->EvalRotateKeyGen(keys.secretKey, { 1, 2, 4 });
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+    // The accumulation radix is OpenFHE's compile-time PARTIAL_SUM_RADIX; generate the
+    // fold's rotation indices {i*radix^level : i in [1, radix)} for slots=8, stride=1.
+    std::vector<int32_t> accIndices;
+    for (uint32_t s = 1; s < batchSize; s *= PARTIAL_SUM_RADIX)
+        for (uint32_t idx = s; idx < batchSize && idx < PARTIAL_SUM_RADIX * s; idx += s)
+            accIndices.push_back(static_cast<int32_t>(idx));
+    cc->EvalRotateKeyGen(keys.secretKey, accIndices);
 
 	std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
 

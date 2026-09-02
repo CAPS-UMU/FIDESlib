@@ -899,7 +899,9 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMany(const std::vector<
 		std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>> ctImpls;
 		ctImpls.reserve(ciphertexts.size());
 		for (const auto& ct : ciphertexts) {
-			ctImpls.push_back(std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu));
+			// Null entries pass through as null impls; the CPU EvalAddMany skips them.
+			ctImpls.push_back(ct ? std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu)
+			                     : lbcrypto::Ciphertext<lbcrypto::DCRTPoly>());
 		}
 		auto ct                         = context->EvalAddMany(ctImpls);
 		Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
@@ -909,26 +911,40 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMany(const std::vector<
 
 	// GPU path.
 
+	// Null entries are skipped, mirroring the CPU implementation.
+	size_t first = 0;
+	while (first < ciphertexts.size() && ciphertexts[first] == nullptr) {
+		++first;
+	}
+	if (first == ciphertexts.size()) {
+		OPENFHE_THROW("EvalAddMany: input ciphertext vector has no non-null entries");
+	}
+	size_t second = first + 1;
+	while (second < ciphertexts.size() && ciphertexts[second] == nullptr) {
+		++second;
+	}
+
 	for (const auto& ct : ciphertexts) {
-		this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct));
+		if (ct != nullptr) {
+			this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct));
+		}
 	}
 
-	// Initialize result with the first ciphertext.
-	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ciphertexts[0]);
-	auto res_gpu                = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
-
-	const size_t inSize = ciphertexts.size();
-	const size_t lim    = inSize * 2 - 2;
-	std::vector<Ciphertext<DCRTPoly>> ciphertextSumVec;
-	ciphertextSumVec.resize(inSize - 1);
-	size_t ctrIndex = 0;
-
-	for (size_t i = 0; i < lim; i = i + 2) {
-		ciphertextSumVec[ctrIndex++] =
-			this->EvalAdd(i < inSize ? ciphertexts[i] : ciphertextSumVec[i - inSize], i + 1 < inSize ? ciphertexts[i + 1] : ciphertextSumVec[i + 1 - inSize]);
+	if (second == ciphertexts.size()) {
+		// Single non-null entry: independent copy, like the CPU implementation's clone.
+		return std::make_shared<CiphertextImpl<DCRTPoly>>(*ciphertexts[first]);
 	}
 
-	return ciphertextSumVec.back();
+	// Left fold, same association as the CPU EvalAddMany: one fresh result, then
+	// in-place accumulation.
+	Ciphertext<DCRTPoly> result = this->EvalAdd(ciphertexts[first], ciphertexts[second]);
+	for (size_t i = second + 1; i < ciphertexts.size(); ++i) {
+		if (ciphertexts[i] != nullptr) {
+			this->EvalAddInPlace(result, ciphertexts[i]);
+		}
+	}
+
+	return result;
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddManyInPlace(std::vector<Ciphertext<DCRTPoly>>& ciphertexts) {
@@ -944,9 +960,15 @@ void CryptoContextImpl<DCRTPoly>::EvalAddManyInPlace(std::vector<Ciphertext<DCRT
 		std::vector<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>> ctImpls;
 		ctImpls.reserve(ciphertexts.size());
 		for (const auto& ct : ciphertexts) {
-			ctImpls.push_back(std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu));
+			// Null entries pass through as null impls; the CPU EvalAddManyInPlace skips them.
+			ctImpls.push_back(ct ? std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu)
+			                     : lbcrypto::Ciphertext<lbcrypto::DCRTPoly>());
 		}
 		context->EvalAddManyInPlace(ctImpls);
+		// The result lands in slot 0 (the in-place contract); wrap it if slot 0 was null.
+		if (ciphertexts[0] == nullptr) {
+			ciphertexts[0] = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+		}
 		ciphertexts[0]->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ctImpls[0]);
 		return;
 	}
@@ -954,19 +976,27 @@ void CryptoContextImpl<DCRTPoly>::EvalAddManyInPlace(std::vector<Ciphertext<DCRT
 	// GPU path.
 
 	for (const auto& ct : ciphertexts) {
-		this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct));
+		if (ct != nullptr) {
+			this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ct));
+		}
 	}
 
-	for (size_t j = 1; j < ciphertexts.size(); j = j * 2) {
-		for (size_t i = 0; i < ciphertexts.size(); i = i + 2 * j) {
-			if ((i + j) < ciphertexts.size()) {
-				if (ciphertexts[i] != nullptr && ciphertexts[i + j] != nullptr) {
-					this->EvalAddInPlace(ciphertexts[i], ciphertexts[i + j]);
-				} else if (ciphertexts[i] == nullptr && ciphertexts[i + j] != nullptr) {
-					ciphertexts[i] = ciphertexts[i + j];
-				}
-			}
+	// Serial in-place fold into slot 0 (null entries are skipped), matching the CPU
+	// EvalAddManyInPlace association.
+	size_t first = 0;
+	while (first < ciphertexts.size() && ciphertexts[first] == nullptr) {
+		++first;
+	}
+	if (first == ciphertexts.size()) {
+		OPENFHE_THROW("EvalAddManyInPlace: input ciphertext vector has no non-null entries");
+	}
+	for (size_t i = first + 1; i < ciphertexts.size(); ++i) {
+		if (ciphertexts[i] != nullptr) {
+			this->EvalAddInPlace(ciphertexts[first], ciphertexts[i]);
 		}
+	}
+	if (first != 0) {
+		ciphertexts[0] = ciphertexts[first];
 	}
 }
 

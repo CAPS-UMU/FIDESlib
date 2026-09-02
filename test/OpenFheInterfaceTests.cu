@@ -588,14 +588,6 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMult) {
 						}
 					}
 				}
-
-				for (int i = 0; i < GPUcc.L; ++i) {
-					for (int j = 0; j <= GPUcc.L; ++j) {
-						if (i < j) {
-							ASSERT_EQ(host_global.QlQlInvModqlDivqlModq[j][i], cryptoParams->GetQlQlInvModqlDivqlModq(GPUcc.L - j)[i]);
-						}
-					}
-				}
 			}
 
 			FIDESlib::CKKS::RawCipherText raw_res2;
@@ -732,14 +724,6 @@ TEST_P(OpenFHEInterfaceTest, ExtractContextShowPtMultSquareScale) {
 					for (int j = 0; j <= GPUcc.L; ++j) {
 						if (i < j) {
 							ASSERT_EQ(host_global.q_inv[j][i], cryptoParams->GetqlInvModq(GPUcc.L - j)[i]);
-						}
-					}
-				}
-
-				for (int i = 0; i < GPUcc.L; ++i) {
-					for (int j = 0; j <= GPUcc.L; ++j) {
-						if (i < j) {
-							ASSERT_EQ(host_global.QlQlInvModqlDivqlModq[j][i], cryptoParams->GetQlQlInvModqlDivqlModq(GPUcc.L - j)[i]);
 						}
 					}
 				}
