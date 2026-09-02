@@ -216,21 +216,18 @@ __device__ __forceinline__ void
 rescale_fusion(char* buffer, const int logBD, const int j, const int primeid, const int primeid_rescale, const T* res, const Global::Globals* Globals) {
 	constexpr ALGO algo = algo_ == ALGO_SHOUP ? ALGO_BARRETT : algo_;
 
-	const T q_inv_temp				   = G_->q_inv[MAXP * primeid_rescale + primeid];
-	const T QlQlInvModqlDivqlModq_temp = G_->QlQlInvModqlDivqlModq[MAXP * primeid_rescale + primeid];
+	const T q_inv_temp = G_->q_inv[MAXP * primeid_rescale + primeid];
 
 	for (int i = 0; i < M; i += 1) {
 		T* A = (T*)(buffer + (i << (logBD)));
 
 		T in[2] = { res[OFFSET_T(i)], res[OFFSET_T(i) | 1] };
 		assert(primeid_rescale >= 0);
-		if constexpr (1) { // OpenFHE style rescale
-			A[j]	 = modadd(modmult<algo>(q_inv_temp, in[0], primeid), modmult<algo>(QlQlInvModqlDivqlModq_temp, A[j], primeid), primeid);
-			A[j | 1] = modadd(modmult<algo>(q_inv_temp, in[1], primeid), modmult<algo>(QlQlInvModqlDivqlModq_temp, A[j | 1], primeid), primeid);
-		} else {
-			A[j]	 = modmult<algo>(q_inv_temp, modsub(in[0], A[j], primeid), primeid);
-			A[j | 1] = modmult<algo>(q_inv_temp, modsub(in[1], A[j | 1], primeid), primeid);
-		}
+		// (in - A) * q_l^{-1}: bit-identical to the former two-multiply form
+		// in * q_l^{-1} + A * [-q_l^{-1}], the constant table for which OpenFHE
+		// removed in PR #1247 for the same reason.
+		A[j]	 = modmult<algo>(q_inv_temp, modsub(in[0], A[j], primeid), primeid);
+		A[j | 1] = modmult<algo>(q_inv_temp, modsub(in[1], A[j | 1], primeid), primeid);
 	}
 }
 
@@ -256,8 +253,7 @@ __device__ __forceinline__ void
 multpt_fusion(char* buffer, const int logBD, const int j, const int primeid, const int primeid_rescale, const T* res, const T* pt, const Global::Globals* Globals) {
 	constexpr ALGO algo = algo_ == ALGO_SHOUP ? ALGO_BARRETT : algo_;
 
-	const T q_inv_temp				   = G_->q_inv[MAXP * primeid_rescale + primeid];
-	const T QlQlInvModqlDivqlModq_temp = G_->QlQlInvModqlDivqlModq[MAXP * primeid_rescale + primeid];
+	const T q_inv_temp = G_->q_inv[MAXP * primeid_rescale + primeid];
 
 	for (int i = 0; i < M; i += 1) {
 		T* A = (T*)(buffer + (i << (logBD)));
@@ -268,13 +264,9 @@ multpt_fusion(char* buffer, const int logBD, const int j, const int primeid, con
 		in[1] = modmult<algo>(in[1], pt[OFFSET_T(i) | 1], primeid);
 
 		assert(primeid_rescale >= 0);
-		if constexpr (1) { // OpenFHE style rescale
-			A[j]	 = modadd(modmult<algo>(q_inv_temp, in[0], primeid), modmult<algo>(QlQlInvModqlDivqlModq_temp, A[j], primeid), primeid);
-			A[j | 1] = modadd(modmult<algo>(q_inv_temp, in[1], primeid), modmult<algo>(QlQlInvModqlDivqlModq_temp, A[j | 1], primeid), primeid);
-		} else {
-			A[j]	 = modmult<algo>(q_inv_temp, modsub(in[0], A[j], primeid), primeid);
-			A[j | 1] = modmult<algo>(q_inv_temp, modsub(in[1], A[j | 1], primeid), primeid);
-		}
+		// (in - A) * q_l^{-1}: bit-identical to the former two-multiply form (see rescale_fusion).
+		A[j]	 = modmult<algo>(q_inv_temp, modsub(in[0], A[j], primeid), primeid);
+		A[j | 1] = modmult<algo>(q_inv_temp, modsub(in[1], A[j | 1], primeid), primeid);
 	}
 }
 

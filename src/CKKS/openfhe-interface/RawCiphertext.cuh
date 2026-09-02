@@ -63,7 +63,6 @@ struct RawParams {
 	std::map<int, std::vector<uint64_t>> psi_inv;
 	std::vector<uint64_t> N_inv;
 	std::vector<double> ModReduceFactor;
-	std::vector<std::vector<uint64_t>> m_QlQlInvModqlDivqlModq;
 
 	int dnum;
 	std::vector<std::vector<uint64_t>> PARTITIONmoduli;

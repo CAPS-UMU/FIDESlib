@@ -133,51 +133,60 @@ void FIDESlib::CKKS::multIntScalar(Ciphertext& ctxt, uint64_t op) {
 	ctxt.c1.multScalar(op_);
 }
 
-// FIDESlib bit-compat: direct transcription of OpenFHE EvalPartialLinearWSum.
+// FIDESlib bit-compat: direct transcription of OpenFHE evalStreamedLinearWSum
+// (streamed accumulation: one scaled term live at a time instead of `limit` clones).
 static void evalPartialLinearWSumCompat(Ciphertext& out, const std::vector<Ciphertext*>& ciphertexts,
                                         const std::vector<double>& constants, uint32_t limit) {
 	FIDESlib::CKKS::Context& cc_ = ciphertexts[0]->cc_;
 	ContextData& cc              = ciphertexts[0]->cc;
 
-	std::vector<Ciphertext> cts;
-	cts.reserve(limit);
-	for (uint32_t i = 0; i < limit; ++i) {
-		cts.emplace_back(cc_);
-		cts[i].copy(*ciphertexts[i]);
-	}
-
-	if (cc.rescaleTechnique != FIDESlib::CKKS::FIXEDMANUAL) {
-		// OpenFHE GetLevel() counts consumed levels; FIDESlib getLevel() counts remaining
-		// towers, so OpenFHE "higher level" corresponds to a smaller getLevel() here.
-		uint32_t maxIdx = 0;
+	if (cc.rescaleTechnique == FIDESlib::CKKS::FIXEDMANUAL) {
+		Ciphertext acc(cc_);
+		Ciphertext term(cc_);
+		acc.copy(*ciphertexts[0]);
+		acc.multScalar(constants[1], false);
 		for (uint32_t i = 1; i < limit; ++i) {
-			if ((cts[i].getLevel() < cts[maxIdx].getLevel()) ||
-			    ((cts[i].getLevel() == cts[maxIdx].getLevel()) && (cts[i].NoiseLevel == 2))) {
-				maxIdx = i;
-			}
+			term.copy(*ciphertexts[i]);
+			term.multScalar(constants[i + 1], false);
+			acc.add(term);
 		}
-		for (uint32_t i = 0; i < maxIdx; ++i)
-			if (!cts[i].adjustForAddOrSub(cts[maxIdx]))
-				cts[maxIdx].adjustForAddOrSub(cts[i]);
-		for (uint32_t i = maxIdx + 1; i < limit; ++i)
-			if (!cts[i].adjustForAddOrSub(cts[maxIdx]))
-				cts[maxIdx].adjustForAddOrSub(cts[i]);
-
-		if (cts[maxIdx].NoiseLevel == 2) {
-			for (uint32_t i = 0; i < limit; ++i)
-				cts[i].rescale();
-		}
+		acc.rescale();
+		out.copy(acc);
+		return;
 	}
 
-	cts[0].multScalar(constants[1], false);
+	// OpenFHE GetLevel() counts consumed levels; FIDESlib getLevel() counts remaining
+	// towers, so OpenFHE "higher level" corresponds to a smaller getLevel() here.
+	uint32_t maxIdx = 0;
 	for (uint32_t i = 1; i < limit; ++i) {
-		cts[i].multScalar(constants[i + 1], false);
-		cts[0].add(cts[i]);
+		if ((ciphertexts[i]->getLevel() < ciphertexts[maxIdx]->getLevel()) ||
+		    ((ciphertexts[i]->getLevel() == ciphertexts[maxIdx]->getLevel()) && (ciphertexts[i]->NoiseLevel == 2))) {
+			maxIdx = i;
+		}
 	}
-	if (cc.rescaleTechnique == FIDESlib::CKKS::FIXEDMANUAL)
-		cts[0].rescale();
 
-	out.copy(cts[0]);
+	// Private snapshot of the adjustment target: the maxIdx selection guarantees the
+	// per-term adjustments never need to mutate it, which is what makes the streamed
+	// fold bit-identical to the former adjust-all-then-fold version.
+	Ciphertext ctm(cc_);
+	ctm.copy(*ciphertexts[maxIdx]);
+	const bool reduceAll = (ctm.NoiseLevel == 2);
+
+	Ciphertext acc(cc_);
+	Ciphertext term(cc_);
+	for (uint32_t i = 0; i < limit; ++i) {
+		Ciphertext& dst = (i == 0) ? acc : term;
+		dst.copy(*ciphertexts[i]);
+		bool adjusted = dst.adjustForAddOrSub(ctm);
+		assert(adjusted && "evalPartialLinearWSumCompat: adjustment target would need mutation");
+		(void)adjusted;
+		if (reduceAll)
+			dst.rescale();
+		dst.multScalar(constants[i + 1], false);
+		if (i != 0)
+			acc.add(term);
+	}
+	out.copy(acc);
 }
 
 // FIDESlib bit-compat: direct transcription of OpenFHE InnerEvalChebyshevPS.

@@ -439,31 +439,6 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 	if constexpr (std::is_same_v<Scheme, CKKS::Parameters>) {
 		auto param = static_cast<CKKS::Parameters>(parameters);
 		if (param.raw) {
-			{
-				for (size_t i = 0; i < q.size(); ++i) {
-					for (size_t j = 0; j < q.size(); ++j) {
-						if (i < j) {
-							hG_.QlQlInvModqlDivqlModq[j][i] = param.raw->m_QlQlInvModqlDivqlModq[q.size() - 1 - j][i];
-						}
-					}
-				}
-
-				if (MODRAISE_WITH_P0) {
-					for (size_t j = 0; j < q.size(); ++j) {
-						hG_.QlQlInvModqlDivqlModq[q.size()][j] = param.raw->m_QlQlInvModqlDivqlModq[q.size() - 1][j];
-					}
-				}
-				constexpr int bytes = sizeof(Global::QlQlInvModqlDivqlModq);
-
-				for (uint32_t i = 0; i < GPUid.size(); ++i) {
-					cudaSetDevice(GPUid[i]);
-					// cudaMemcpyToSymbol(hG_.globals[i].QlQlInvModqlDivqlModq, hG_.QlQlInvModqlDivqlModq, bytes, 0,
-					//                    cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, QlQlInvModqlDivqlModq), hG_.QlQlInvModqlDivqlModq, bytes, cudaMemcpyHostToDevice);
-					CudaCheckErrorMod;
-				}
-			}
-
 			////////////////// KEY SWITCH //////////////////
 
 			hC_.dnum = param.raw->dnum;
