@@ -611,7 +611,7 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 								int added_decomp      = static_cast<uint32_t>(DECOMPmeta.at(0).at(i).at(0).id) <= l ? DECOMPmeta.at(0).at(i).size() : 0;
 								int predicted_primeid = l >= src[k][i][j].size() - hC_.K ?
 									hC_.L + hC_.K + (l - src[k][i][j].size()) :
-									l + added_decomp; // TODO: add possible decomp offset
+									l + added_decomp;
 								//  int DIGITmeta_primeid =
 								//      l >= src[k][i][j].size() - hC_.K
 								//          ? DIGITmeta.at(gpu).at(gpu_d).at(l - src[k][i][j].size() + hC_.K).id
