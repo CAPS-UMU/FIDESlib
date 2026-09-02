@@ -64,7 +64,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, GPUMatVecMult)(benchmark::State& state) {
 			// GPUct[0].add(GPUct[i]);
 			GPUct[0].addMultPt(GPUct[i], GPUpt[i], false);
 		}
-		GPUct[0].rescale();
+		GPUct[0].rescaleInternal();
 		cudaDeviceSynchronize();
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -119,7 +119,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, GPUMatVecMultScalar)(benchmark::State& state)
 			GPUct[i].multScalar(x[i][0], false);
 			GPUct[0].add(GPUct[i]);
 		}
-		GPUct[0].rescale();
+		GPUct[0].rescaleInternal();
 		cudaDeviceSynchronize();
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -176,7 +176,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, GPUMatVecMultWSum)(benchmark::State& state) {
 		auto start = std::chrono::high_resolution_clock::now();
 
 		GPUct[0]->evalLinearWSumMutable(8, GPUct, x);
-		GPUct[0]->rescale();
+		GPUct[0]->rescaleInternal();
 		cudaDeviceSynchronize();
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);

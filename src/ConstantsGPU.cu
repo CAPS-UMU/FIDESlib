@@ -121,17 +121,18 @@ Global::~Global() {
 	}
 }
 
-template <typename Scheme>
-std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const std::vector<PrimeRecord>& q,
-  const std::vector<std::vector<LimbRecord>>& meta,
-  const std::vector<PrimeRecord>& p,
-  const std::vector<LimbRecord>& smeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DECOMPmeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DIGITmeta,
-  const std::vector<std::vector<int>>& digitGPUid,
-  const std::vector<int>& GPUid,
-  const int N,
-  const Scheme& parameters) {
+template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const std::vector<PrimeRecord>& q,
+                                                                                                     const std::vector<std::vector<LimbRecord>>& meta,
+                                                                                                     const std::vector<PrimeRecord>& p,
+                                                                                                     const std::vector<LimbRecord>& smeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DECOMPmeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DIGITmeta,
+                                                                                                     const std::vector<std::vector<int>>& digitGPUid,
+                                                                                                     const std::vector<int>& GPUid,
+                                                                                                     const int N,
+                                                                                                     const Scheme& parameters) {
 	CudaCheckErrorMod;
 
 	initGPUprop();
@@ -142,10 +143,10 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 	for (int id : GPUid) {
 		cudaSetDevice(id);
-		hC_.N	 = N;
+		hC_.N    = N;
 		hC_.logN = (int)std::bit_width((uint32_t)N) - 1;
-		hC_.L	 = q.size();
-		hC_.K	 = p.size();
+		hC_.L    = q.size();
+		hC_.K    = p.size();
 
 		hC_.type = 0;
 		for (auto& i : meta)
@@ -165,25 +166,25 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 	{
 		for (size_t i = 0; i < q.size(); ++i) {
-			hC_.primes[i]	   = q[i].p;
-			hC_.N_shoup[i]	   = shoup_precomp(hC_.N, i, host_constants);
+			hC_.primes[i]      = q[i].p;
+			hC_.N_shoup[i]     = shoup_precomp(hC_.N, i, host_constants);
 			hC_.one_shoup[i]   = shoup_precomp(1, i, host_constants);
-			hC_.N_inv[i]	   = modinv(hC_.N, q[i].p);
+			hC_.N_inv[i]       = modinv(hC_.N, q[i].p);
 			hC_.N_inv_shoup[i] = shoup_precomp(hC_.N_inv[i], i, host_constants);
 
 			hC_.prime_better_barret_mu[i] = mu_new(q[i].p, q[i].bits);
-			hC_.prime_bits[i]			  = q[i].bits;
+			hC_.prime_bits[i]             = q[i].bits;
 		}
 
 		for (size_t i = 0; i < p.size(); ++i) {
-			hC_.primes[hC_.L + i]	   = p[i].p;
-			hC_.N_shoup[hC_.L + i]	   = shoup_precomp(hC_.N, hC_.L + i, host_constants);
-			hC_.one_shoup[i]		   = shoup_precomp(1, i, host_constants);
-			hC_.N_inv[hC_.L + i]	   = modinv(N, hC_.primes[hC_.L + i]);
+			hC_.primes[hC_.L + i]      = p[i].p;
+			hC_.N_shoup[hC_.L + i]     = shoup_precomp(hC_.N, hC_.L + i, host_constants);
+			hC_.one_shoup[i]           = shoup_precomp(1, i, host_constants);
+			hC_.N_inv[hC_.L + i]       = modinv(N, hC_.primes[hC_.L + i]);
 			hC_.N_inv_shoup[hC_.L + i] = shoup_precomp(hC_.N_inv[hC_.L + i], hC_.L + i, host_constants);
 
 			hC_.prime_better_barret_mu[hC_.L + i] = mu_new(hC_.primes[hC_.L + i], p[i].bits);
-			hC_.prime_bits[hC_.L + i]			  = p[i].bits;
+			hC_.prime_bits[hC_.L + i]             = p[i].bits;
 		}
 	}
 
@@ -209,9 +210,9 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 			hG_.inv_root[i] = modinv(hG_.root[i], hC_.primes[i]);
 
-			hC_.root[i]			  = hG_.root[i];
-			hC_.root_shoup[i]	  = shoup_precomp(hG_.root[i], i, host_constants);
-			hC_.inv_root[i]		  = hG_.inv_root[i];
+			hC_.root[i]           = hG_.root[i];
+			hC_.root_shoup[i]     = shoup_precomp(hG_.root[i], i, host_constants);
+			hC_.inv_root[i]       = hG_.inv_root[i];
 			hC_.inv_root_shoup[i] = shoup_precomp(hG_.inv_root[i], i, host_constants);
 
 			// std::swap(hG_.root[i], hG_.inv_root[i]);
@@ -223,28 +224,28 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 			int bytes = hC_.N * ((HISU64(i)) ? sizeof(uint64_t) : sizeof(uint32_t));
 
-			hG_.psi[i]					= malloc(bytes);
-			hG_.inv_psi[i]				= malloc(bytes);
-			hG_.psi_no[i]				= malloc(2 * bytes);
-			hG_.inv_psi_no[i]			= malloc(2 * bytes);
-			hG_.psi_middle_scale[i]		= malloc(bytes);
+			hG_.psi[i]                  = malloc(bytes);
+			hG_.inv_psi[i]              = malloc(bytes);
+			hG_.psi_no[i]               = malloc(2 * bytes);
+			hG_.inv_psi_no[i]           = malloc(2 * bytes);
+			hG_.psi_middle_scale[i]     = malloc(bytes);
 			hG_.inv_psi_middle_scale[i] = malloc(bytes);
-			hG_.psi_shoup[i]			= malloc(bytes);
-			hG_.inv_psi_shoup[i]		= malloc(bytes);
+			hG_.psi_shoup[i]            = malloc(bytes);
+			hG_.inv_psi_shoup[i]        = malloc(bytes);
 
 			if (!HISU64(i)) {
-				((uint32_t*)hG_.psi_no[i])[0]	  = 1;
+				((uint32_t*)hG_.psi_no[i])[0]     = 1;
 				((uint32_t*)hG_.inv_psi_no[i])[0] = 1;
 			} else {
-				((uint64_t*)hG_.psi_no[i])[0]	  = 1;
+				((uint64_t*)hG_.psi_no[i])[0]     = 1;
 				((uint64_t*)hG_.inv_psi_no[i])[0] = 1;
 			}
 			for (int j = 1; j < 2 * N; ++j) {
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.psi_no[i])[j]	  = modprod(hG_.root[i], ((uint32_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
+					((uint32_t*)hG_.psi_no[i])[j]     = modprod(hG_.root[i], ((uint32_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
 					((uint32_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i], ((uint32_t*)hG_.inv_psi_no[i])[j - 1], hC_.primes[i]);
 				} else {
-					((uint64_t*)hG_.psi_no[i])[j]	  = modprod(hG_.root[i], ((uint64_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
+					((uint64_t*)hG_.psi_no[i])[j]     = modprod(hG_.root[i], ((uint64_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
 					((uint64_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i], ((uint64_t*)hG_.inv_psi_no[i])[j - 1], hC_.primes[i]);
 				}
 			}
@@ -254,7 +255,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 				pow++;
 				pow--;
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.psi[i])[j]	   = ((uint32_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
+					((uint32_t*)hG_.psi[i])[j]     = ((uint32_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
 					((uint32_t*)hG_.inv_psi[i])[j] = ((uint32_t*)hG_.inv_psi_no[i])[bit_reverse(j, hC_.logN)];
 
 					assert(modpow(((uint32_t*)hG_.psi[i])[j], 2 * pow, hC_.primes[i]) == 1);
@@ -265,7 +266,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 						assert(modpow(((uint32_t*)hG_.inv_psi[i])[j], pow, hC_.primes[i]) == (hC_.primes[i] - 1));
 
 				} else {
-					((uint64_t*)hG_.psi[i])[j]	   = ((uint64_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
+					((uint64_t*)hG_.psi[i])[j]     = ((uint64_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
 					((uint64_t*)hG_.inv_psi[i])[j] = ((uint64_t*)hG_.inv_psi_no[i])[bit_reverse(j, hC_.logN)];
 
 					assert(modpow(((uint64_t*)hG_.psi[i])[j], 2 * pow, hC_.primes[i]) == 1);
@@ -281,13 +282,13 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 			for (int j = 0; j < N / (1 << auxWidth); ++j) {
 				for (int k = 0; k < (1 << auxWidth); ++k) {
 					if (!HISU64(i)) {
-						((uint32_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k] = ((uint32_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
+						((uint32_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k]     = ((uint32_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
 						((uint32_t*)hG_.inv_psi_middle_scale[i])[j * (1 << auxWidth) + k] =
-						  modprod(((uint32_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
+							modprod(((uint32_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
 					} else {
-						((uint64_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k] = ((uint64_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
+						((uint64_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k]     = ((uint64_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
 						((uint64_t*)hG_.inv_psi_middle_scale[i])[j * (1 << auxWidth) + k] =
-						  modprod(((uint64_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
+							modprod(((uint64_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
 					}
 				}
 			}
@@ -302,12 +303,12 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 			for (int j = 0; j < N; ++j) {
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.psi_shoup[i])[j]	 = (uint64_t)(((uint32_t*)hG_.psi[i])[j] << 1) * (1ul << 31) / hC_.primes[i];
+					((uint32_t*)hG_.psi_shoup[i])[j]     = (uint64_t)(((uint32_t*)hG_.psi[i])[j] << 1) * (1ul << 31) / hC_.primes[i];
 					((uint32_t*)hG_.inv_psi_shoup[i])[j] = (uint64_t)(((uint32_t*)hG_.inv_psi[i])[j] << 1) * (1ul << 31) / hC_.primes[i];
 				} else {
 					assert(hC_.primes[i] != 0);
 
-					((uint64_t*)hG_.psi_shoup[i])[j]	 = (__uint128_t)(((uint64_t*)hG_.psi[i])[j] << 1) * (1ul << 63) / hC_.primes[i];
+					((uint64_t*)hG_.psi_shoup[i])[j]     = (__uint128_t)(((uint64_t*)hG_.psi[i])[j] << 1) * (1ul << 63) / hC_.primes[i];
 					((uint64_t*)hG_.inv_psi_shoup[i])[j] = (__uint128_t)(((uint64_t*)hG_.inv_psi[i])[j] << 1) * (1ul << 63) / hC_.primes[i];
 				}
 			}
@@ -387,23 +388,35 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 		CudaCheckErrorMod;
 		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_no), hG_.psi_no_ptr[i], sizeof(hG_.globals[i]->psi_no), cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_middle_scale), hG_.psi_middle_scale_ptr[i], sizeof(hG_.globals[i]->psi_middle_scale), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_middle_scale),
+		           hG_.psi_middle_scale_ptr[i],
+		           sizeof(hG_.globals[i]->psi_middle_scale),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi), hG_.inv_psi_ptr[i], sizeof(hG_.globals[i]->inv_psi), cudaMemcpyHostToDevice);
 
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_no), hG_.inv_psi_no_ptr[i], sizeof(hG_.globals[i]->inv_psi_no), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_no),
+		           hG_.inv_psi_no_ptr[i],
+		           sizeof(hG_.globals[i]->inv_psi_no),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 
 		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_middle_scale),
-		  hG_.inv_psi_middle_scale_ptr[i],
-		  sizeof(hG_.globals[i]->inv_psi_middle_scale),
-		  cudaMemcpyHostToDevice);
+		           hG_.inv_psi_middle_scale_ptr[i],
+		           sizeof(hG_.globals[i]->inv_psi_middle_scale),
+		           cudaMemcpyHostToDevice);
 
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_shoup), hG_.psi_shoup_ptr[i], sizeof(hG_.globals[i]->psi_shoup), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_shoup),
+		           hG_.psi_shoup_ptr[i],
+		           sizeof(hG_.globals[i]->psi_shoup),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_shoup), hG_.inv_psi_shoup_ptr[i], sizeof(hG_.globals[i]->inv_psi_shoup), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_shoup),
+		           hG_.inv_psi_shoup_ptr[i],
+		           sizeof(hG_.globals[i]->inv_psi_shoup),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 	}
 
@@ -459,7 +472,10 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 					cudaSetDevice(GPUid[i]);
 					// cudaMemcpyToSymbol(hG_.globals[i].QlQlInvModqlDivqlModq, hG_.QlQlInvModqlDivqlModq, bytes, 0,
 					//                    cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, QlQlInvModqlDivqlModq), hG_.QlQlInvModqlDivqlModq, bytes, cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, QlQlInvModqlDivqlModq),
+					           hG_.QlQlInvModqlDivqlModq,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					CudaCheckErrorMod;
 				}
 			}
@@ -470,10 +486,10 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 			{
 				auto& src = param.raw->PInvModq;
 				for (size_t i = 0; i < src.size(); ++i) {
-					hC_.P_inv[i]	   = src[i];
+					hC_.P_inv[i]       = src[i];
 					hC_.P_inv_shoup[i] = shoup_precomp(hC_.P_inv[i], i, host_constants);
-					hC_.P[i]		   = modinv(src[i], hC_.primes[i]);
-					hC_.P_shoup[i]	   = shoup_precomp(hC_.P[i], i, host_constants);
+					hC_.P[i]           = modinv(src[i], hC_.primes[i]);
+					hC_.P_shoup[i]     = shoup_precomp(hC_.P[i], i, host_constants);
 				}
 			}
 
@@ -481,7 +497,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 				auto& src = param.raw->PHatInvModp;
 
 				for (size_t k = 0; k < src.size(); ++k) {
-					hG_.ModDown_pre_scale[hC_.L + k]	   = src[k];
+					hG_.ModDown_pre_scale[hC_.L + k]       = src[k];
 					hG_.ModDown_pre_scale_shoup[hC_.L + k] = shoup_precomp(hG_.ModDown_pre_scale[hC_.L + k], hC_.L + k, host_constants);
 				}
 
@@ -495,7 +511,10 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 									   cudaMemcpyHostToDevice);
 									   */
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale), hG_.ModDown_pre_scale, bytes, cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale_shoup), hG_.ModDown_pre_scale_shoup, bytes, cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale_shoup),
+					           hG_.ModDown_pre_scale_shoup,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					CudaCheckErrorMod;
 				}
 			}
@@ -505,7 +524,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 
 				for (size_t k = 0; k < src.size(); ++k) {
 					for (size_t i = 0; i < src[k].size(); ++i) {
-						hG_.ModDown_matrix[k][i]	   = src[k][i];
+						hG_.ModDown_matrix[k][i]       = src[k][i];
 						hG_.ModDown_matrix_shoup[k][i] = shoup_precomp(hG_.ModDown_matrix[k][i], i, host_constants);
 					}
 				}
@@ -520,21 +539,24 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 									   cudaMemcpyHostToDevice);
 									   */
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix), hG_.ModDown_matrix, bytes, cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix_shoup), hG_.ModDown_matrix_shoup, bytes, cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix_shoup),
+					           hG_.ModDown_matrix_shoup,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					CudaCheckErrorMod;
 				}
 			}
 
 			{
-				auto& src		 = param.raw->PartQlHatInvModq;
+				auto& src        = param.raw->PartQlHatInvModq;
 				int init_primeid = 0;
 				for (size_t k = 0; k < src.size(); ++k) {
 					for (size_t i = 0; i < src[k].size(); ++i) {
 						for (size_t j = 0; j < src[k][i].size(); ++j) {
 							assert(src[k][i][j] != 0);
-							hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j] = src[k][i][j];
+							hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j]       = src[k][i][j];
 							hG_.DecompAndModUp_pre_scale_shoup[k][i][init_primeid + j] =
-							  shoup_precomp(hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j], init_primeid + j, host_constants);
+								shoup_precomp(hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j], init_primeid + j, host_constants);
 						}
 					}
 					init_primeid += src[k].size();
@@ -550,8 +572,14 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_pre_scale_shoup,
 									   hG_.DecompAndModUp_pre_scale_shoup, bytes, 0, cudaMemcpyHostToDevice);
 									   */
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_pre_scale), hG_.DecompAndModUp_pre_scale, bytes, cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_pre_scale_shoup), hG_.DecompAndModUp_pre_scale_shoup, bytes, cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_pre_scale),
+					           hG_.DecompAndModUp_pre_scale,
+					           bytes,
+					           cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_pre_scale_shoup),
+					           hG_.DecompAndModUp_pre_scale_shoup,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					CudaCheckErrorMod;
 				}
 			}
@@ -580,18 +608,18 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 						for (size_t j = 0; j < src[k][i].size(); ++j) {
 							for (size_t l = 0; l < src[k][i][j].size(); ++l) {
 								assert(src[k][i][j][l] != 0);
-								int added_decomp	  = static_cast<uint32_t>(DECOMPmeta.at(0).at(i).at(0).id) <= l ? DECOMPmeta.at(0).at(i).size() : 0;
-								int predicted_primeid = l >= src[k][i][j].size() - hC_.K ? hC_.L + l - src[k][i][j].size() + hC_.K :
-																						   l + added_decomp; // TODO: add possible decomp offset
+								int added_decomp      = static_cast<uint32_t>(DECOMPmeta.at(0).at(i).at(0).id) <= l ? DECOMPmeta.at(0).at(i).size() : 0;
+								int predicted_primeid = l >= src[k][i][j].size() - hC_.K ?
+									hC_.L + hC_.K + (l - src[k][i][j].size()) :
+									l + added_decomp; // TODO: add possible decomp offset
 								//  int DIGITmeta_primeid =
 								//      l >= src[k][i][j].size() - hC_.K
 								//          ? DIGITmeta.at(gpu).at(gpu_d).at(l - src[k][i][j].size() + hC_.K).id
 								//         : DIGITmeta.at(gpu).at(gpu_d).at(l + hC_.K).id;
-
 								assert(hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid] == 0);
-								hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid] = src[k][i][j][l];
+								hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid]       = src[k][i][j][l];
 								hG_.DecompAndModUp_matrix_shoup[k] /*[i]*/[input_primeid][predicted_primeid] =
-								  shoup_precomp(src[k][i][j][l], predicted_primeid, host_constants);
+									shoup_precomp(src[k][i][j][l], predicted_primeid, host_constants);
 							}
 							input_primeid++;
 						}
@@ -608,8 +636,14 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_matrix_shoup, hG_.DecompAndModUp_matrix_shoup,
 									   bytes, 0, cudaMemcpyHostToDevice);
 									   */
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_matrix), hG_.DecompAndModUp_matrix, bytes, cudaMemcpyHostToDevice);
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_matrix_shoup), hG_.DecompAndModUp_matrix_shoup, bytes, cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_matrix),
+					           hG_.DecompAndModUp_matrix,
+					           bytes,
+					           cudaMemcpyHostToDevice);
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_matrix_shoup),
+					           hG_.DecompAndModUp_matrix_shoup,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					CudaCheckErrorMod;
 					/*
 					cudaMemcpyFromSymbol(hG_.DecompAndModUp_matrix, hG_.globals[i].DecompAndModUp_matrix, bytes, 0,
@@ -625,7 +659,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 	CudaCheckErrorMod;
 	for (size_t i = 0; i < GPUid.size(); ++i) {
 		for (size_t j = 0; j < meta[i].size(); ++j) {
-			hC_.primeid_partition[i][j]		 = meta[i][j].id;
+			hC_.primeid_partition[i][j]      = meta[i][j].id;
 			hC_.primeid_digit[meta[i][j].id] = meta[i][j].digit;
 			// hC_.primeid_flattened[PARTITION(i, j)] = meta[i][j].id;
 		}
@@ -685,14 +719,16 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
 }
 
 template std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants<CKKS::Parameters>(const std::vector<PrimeRecord>& q,
-  const std::vector<std::vector<LimbRecord>>& meta,
-  const std::vector<PrimeRecord>& p,
-  const std::vector<LimbRecord>& smeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DECOMPmeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DIGITmeta,
-  const std::vector<std::vector<int>>& digitGPUid,
-  const std::vector<int>& GPUid,
-  const int N,
-  const CKKS::Parameters& parameters);
+                                                                                                     const std::vector<std::vector<LimbRecord>>& meta,
+                                                                                                     const std::vector<PrimeRecord>& p,
+                                                                                                     const std::vector<LimbRecord>& smeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DECOMPmeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DIGITmeta,
+                                                                                                     const std::vector<std::vector<int>>& digitGPUid,
+                                                                                                     const std::vector<int>& GPUid,
+                                                                                                     const int N,
+                                                                                                     const CKKS::Parameters& parameters);
 
 } // namespace FIDESlib

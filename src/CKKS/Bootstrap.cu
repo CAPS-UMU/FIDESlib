@@ -22,20 +22,21 @@ using namespace FIDESlib::CKKS;
 constexpr bool PRINT = false;
 
 void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
-  const int slots,
-  std::shared_ptr<lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<expdtype>>>>>& CPUcc,
-  lbcrypto::KeyPair<lbcrypto::DCRTPoly> keys,
-  const bool prescaled) {
+                                       const int slots,
+                                       std::shared_ptr<lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<expdtype>>>>>&
+                                       CPUcc,
+                                       lbcrypto::KeyPair<lbcrypto::DCRTPoly> keys,
+                                       const bool prescaled) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() });
 
 	FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-	ContextData& cc				 = ctxt.cc;
+	ContextData& cc              = ctxt.cc;
 	Ciphertext aux(cc_);
 	bool isLT = cc.GetBootPrecomputation(slots).LT.slots == slots;
 
 	/////////////////////////////////////////////////////////////////////
 	// NativeInteger q = elementParamsRaisedPtr->GetParams()[0]->GetModulus().ConvertToInt();
-	uint64_t q	   = cc.prime[0].p;
+	uint64_t q     = cc.prime[0].p;
 	double qDouble = (double)q; // q.ConvertToDouble();
 
 	if constexpr (PRINT) {
@@ -43,7 +44,7 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
 		std::cout << qDouble << std::endl;
 	}
 	const auto p = cc.param.raw->p; // cryptoParams->GetPlaintextModulus();
-	double powP	 = pow(2, p);
+	double powP  = pow(2, p);
 
 	if constexpr (PRINT) {
 		std::cout << "p: " << p << std::endl;
@@ -62,7 +63,7 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
 		std::cout << cc.GetBootPrecomputation(slots).correctionFactor << " " << deg << std::endl;
 	double post = std::pow(2, static_cast<double>(deg));
 
-	double pre		= 1. / post;
+	double pre      = 1. / post;
 	uint64_t scalar = std::llround(post);
 
 	//////////////////////////////////////////////////////////////////////
@@ -101,7 +102,7 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
 	}
 
 	if (ctxt.NoiseLevel == 2) {
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	}
 
 	//   std::cout << "LT" << std::endl;
@@ -120,21 +121,21 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
 		ctxt.add(aux);
 		ctxtEncI.multMonomial(3 * 2 * cc.N / 4);
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxtEncI.rescale();
+			ctxtEncI.rescaleInternal();
 
 		approxModReduction(ctxt, ctxtEncI, cc.GetEvalKey(ctxt.keyID), scalar);
 	} else {
 		aux.conjugate(ctxt);
 		ctxt.add(aux);
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 		approxModReductionSparse(ctxt, scalar);
 	}
 
 	if (ctxt.NoiseLevel == 2) {
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	}
 
 	//  std::cout << "LT" << std::endl;
@@ -173,13 +174,13 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 	int old_slots = ctxt.slots;
 
 	FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-	ContextData& cc				 = ctxt.cc;
+	ContextData& cc              = ctxt.cc;
 	Ciphertext aux(cc_);
 	bool isLT = cc.GetBootPrecomputation(slots).LT.slots == slots;
 
 	/////////////////////////////////////////////////////////////////////
 	// NativeInteger q = elementParamsRaisedPtr->GetParams()[0]->GetModulus().ConvertToInt();
-	uint64_t q	   = cc.prime[0].p;
+	uint64_t q     = cc.prime[0].p;
 	double qDouble = (double)q; // q.ConvertToDouble();
 
 	if constexpr (PRINT) {
@@ -187,7 +188,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		std::cout << qDouble << std::endl;
 	}
 	const auto p = cc.param.raw->p; // cryptoParams->GetPlaintextModulus();
-	double powP	 = pow(2, p);
+	double powP  = pow(2, p);
 
 	if constexpr (PRINT) {
 		std::cout << "p: " << p << std::endl;
@@ -206,7 +207,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		std::cout << cc.GetBootPrecomputation(slots).correctionFactor << " " << deg << std::endl;
 	double post = std::pow(2, static_cast<double>(deg));
 
-	double pre		= 1. / post;
+	double pre      = 1. / post;
 	uint64_t scalar = std::llround(post);
 
 	//////////////////////////////////////////////////////////////////////
@@ -234,7 +235,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 			std::cout << "mult: " << constantEvalMult << std::endl;
 		ctxt.multScalar(constantEvalMult, false);
 		if (MODRAISE_WITH_P0) {
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 			// ctxt.multScalar(1.0, false); // TODO remove
 			// ctxt.rescale();
 		}
@@ -268,7 +269,7 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 	ctxt.slots = cc.N / 2 == slots ? slots : 2 * slots;
 
 	if (ctxt.NoiseLevel == 2) {
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	}
 
 	//   std::cout << "LT" << std::endl;
@@ -288,28 +289,27 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		ctxt.add(aux);
 		ctxtEncI.multMonomial(3 * 2 * cc.N / 4);
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 		else if (ctxt.NoiseLevel == 2)
-			ctxt.rescale();  // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
+			ctxt.rescaleInternal(); // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxtEncI.rescale();
+			ctxtEncI.rescaleInternal();
 		else if (ctxtEncI.NoiseLevel == 2)
-			ctxtEncI.rescale();  // FIDESlib bit-compat: same for the imaginary component
+			ctxtEncI.rescaleInternal(); // FIDESlib bit-compat: same for the imaginary component
 		approxModReduction(ctxt, ctxtEncI, cc.GetEvalKey(ctxt.keyID), scalar);
 	} else {
 		aux.conjugate(ctxt);
 		ctxt.add(aux);
 
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 		else if (ctxt.NoiseLevel == 2)
-			ctxt.rescale();  // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
+			ctxt.rescaleInternal(); // FIDESlib bit-compat: mirror OpenFHE's ModReduceInternal before the Chebyshev series
 		approxModReductionSparse(ctxt, scalar);
 	}
 
-
 	if (ctxt.NoiseLevel == 2) {
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	}
 
 	//  std::cout << "LT" << std::endl;
@@ -324,7 +324,6 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		aux.rotate(ctxt, slots);
 		ctxt.add(aux);
 	}
-
 
 	uint64_t corFactor = (uint64_t)1 << std::llround(correction);
 	multIntScalar(ctxt, corFactor);
@@ -349,7 +348,7 @@ double FIDESlib::CKKS::GetPreScaleFactor(Context& cc_, int slots) {
 	SetCurrentContext(cc_);
 	/////////////////////////////////////////////////////////////////////
 	// NativeInteger q = elementParamsRaisedPtr->GetParams()[0]->GetModulus().ConvertToInt();
-	uint64_t q	   = cc.prime[0].p;
+	uint64_t q     = cc.prime[0].p;
 	double qDouble = (double)q; // q.ConvertToDouble();
 
 	if constexpr (PRINT) {
@@ -357,7 +356,7 @@ double FIDESlib::CKKS::GetPreScaleFactor(Context& cc_, int slots) {
 		std::cout << qDouble << std::endl;
 	}
 	const auto p = cc.param.raw->p; // cryptoParams->GetPlaintextModulus();
-	double powP	 = pow(2, p);
+	double powP  = pow(2, p);
 
 	if constexpr (PRINT) {
 		std::cout << "p: " << p << std::endl;
@@ -375,10 +374,10 @@ double FIDESlib::CKKS::GetPreScaleFactor(Context& cc_, int slots) {
 
 	double res = 0.0;
 	if (cc.rescaleTechnique == CKKS::FLEXIBLEAUTO || cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT) {
-		uint32_t lvl	   = cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT;
-		double targetSF	   = cc.param.ScalingFactorReal[cc.L - lvl];
-		double sourceSF	   = cc.param.ScalingFactorReal[1]; // ciphertext->GetScalingFactor();
-		uint32_t numTowers = 2;								// ciphertext->GetElements()[0].GetNumOfElements();
+		uint32_t lvl       = cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT;
+		double targetSF    = cc.param.ScalingFactorReal[cc.L - lvl];
+		double sourceSF    = cc.param.ScalingFactorReal[1]; // ciphertext->GetScalingFactor();
+		uint32_t numTowers = 2;                             // ciphertext->GetElements()[0].GetNumOfElements();
 		double modToDrop   = static_cast<double>(cc.prime.at(numTowers - 1).p);
 		// cryptoParams->GetElementParams()->GetParams()[numTowers - 1]->GetModulus().ConvertToDouble();
 		//  in the case of FLEXIBLEAUTO, we need to bring the ciphertext to the right scale using a
@@ -388,14 +387,15 @@ double FIDESlib::CKKS::GetPreScaleFactor(Context& cc_, int slots) {
 		//  Scaling down the message by a correction factor to emulate using a larger q0.
 		//  This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
 		double adjustmentFactor = (targetSF / sourceSF) * (modToDrop / sourceSF);
-		double pow				= std::pow((double)2.0, (double)-1.0 * (double)correction);
+		double pow              = std::pow((double)2.0, (double)-1.0 * (double)correction);
 		adjustmentFactor *= pow;
 		if constexpr (PRINT)
 			std::cout << adjustmentFactor << std::endl;
 		res = adjustmentFactor;
-	} else { // THIS is only for FIXEDAUTO/FIXEDMANUAL (AdjustCiphertext)
-			 // Scaling down the message by a correction factor to emulate using a larger q0.
-			 // This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
+	} else {
+		// THIS is only for FIXEDAUTO/FIXEDMANUAL (AdjustCiphertext)
+		// Scaling down the message by a correction factor to emulate using a larger q0.
+		// This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
 		res = std::pow((double)2.0, (double)-1.0 * (double)correction);
 	}
 
@@ -432,7 +432,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 		CudaCheckErrorMod;
 	}
 	if (ctxt.NoiseLevel == 2)
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	if constexpr (PRINT) {
 		cudaDeviceSynchronize();
 		std::cout << "Initial 2 ";
@@ -457,7 +457,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 		} else {
 			targetSF = cc.param.ScalingFactorReal[cc.L - lvl];
 		}
-		double sourceSF	   = ctxt.NoiseFactor;	  // ciphertext->GetScalingFactor();
+		double sourceSF    = ctxt.NoiseFactor;    // ciphertext->GetScalingFactor();
 		uint32_t numTowers = ctxt.getLevel() + 1; // ciphertext->GetElements()[0].GetNumOfElements();
 		double modToDrop   = static_cast<double>(cc.prime.at(numTowers - 1).p);
 		// cryptoParams->GetElementParams()->GetParams()[numTowers - 1]->GetModulus().ConvertToDouble();
@@ -469,7 +469,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 		// Scaling down the message by a correction factor to emulate using a larger q0.
 		// This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
 		double adjustmentFactor = (targetSF / sourceSF) * (modToDrop / sourceSF);
-		double pow				= std::pow((double)2.0, (double)-1.0 * (double)correction);
+		double pow              = std::pow((double)2.0, (double)-1.0 * (double)correction);
 		adjustmentFactor *= pow;
 		if constexpr (PRINT)
 			std::cout << adjustmentFactor << std::endl;
@@ -501,7 +501,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 				CudaCheckErrorMod;
 			}
 			// cc->EvalMultInPlace(ciphertext, adjustmentFactor);
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 			ctxt.dropToLevel(0, true);
 			if constexpr (PRINT) {
 				cudaDeviceSynchronize();
@@ -530,15 +530,16 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 			}
 			if (ctxt.NoiseLevel == 2) {
 				ctxt.dropToLevel(1, true);
-				ctxt.rescale();
+				ctxt.rescaleInternal();
 			} else {
 				ctxt.dropToLevel(0, true);
 			}
 		}
 		ctxt.NoiseFactor = targetSF;
-	} else { // THIS is only for FIXEDAUTO/FIXEDMANUAL (AdjustCiphertext)
-			 // Scaling down the message by a correction factor to emulate using a larger q0.
-			 // This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
+	} else {
+		// THIS is only for FIXEDAUTO/FIXEDMANUAL (AdjustCiphertext)
+		// Scaling down the message by a correction factor to emulate using a larger q0.
+		// This step is needed so we could use a scaling factor of up to 2^59 with q9 ~= 2^60.
 		if (!prescaled) {
 			if constexpr (PRINT) {
 				cudaDeviceSynchronize();
@@ -565,7 +566,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 				cudaDeviceSynchronize();
 				CudaCheckErrorMod;
 			}
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 			ctxt.dropToLevel(0);
 			if constexpr (PRINT) {
 				cudaDeviceSynchronize();
@@ -594,7 +595,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 			}
 			if (ctxt.NoiseLevel == 2) {
 				ctxt.dropToLevel(1);
-				ctxt.rescale();
+				ctxt.rescaleInternal();
 			} else {
 				ctxt.dropToLevel(0);
 			}
@@ -602,7 +603,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 	}
 
 	if (sparse_encaps) {
-		auto& sparse_context	= cc.GetBootPrecomputation(slots).sparse_context;
+		auto& sparse_context    = cc.GetBootPrecomputation(slots).sparse_context;
 		auto sparse_context_use = sparse_context.lock();
 		Ciphertext sparse_ctxt(sparse_context_use);
 		auto& atob = CKKS::GetSecretSwitchingKey(ctxt.cc_, sparse_context_use, ctxt.keyID);

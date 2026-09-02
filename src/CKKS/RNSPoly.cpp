@@ -132,13 +132,11 @@ void RNSPoly::generateSpecialLimbs(const bool zero_out, const bool for_communica
 		}
 
 		if (GPU[0].SPECIALlimb.size() * sizeof(void*) > 0) {
-			CudaCheckErrorMod;
 			for (size_t g = 0; g < GPU.size(); ++g) {
 				// std::cout << GPU[g].DECOMPlimbptr[i].data << " " << cpu_ptr.data() << " " << GPU[g].DECOMPmeta.at(i).size() * sizeof(void*) << " "
 				//		  << cudaMemcpyHostToDevice << " " << GPU[g].s.ptr() << std::endl;
 				cudaSetDevice(cc.GPUid[g]);
 				cudaMemcpyAsync(GPU[g].SPECIALlimbptr.data, cpu_ptr.data(), GPU[g].SPECIALmeta.size() * sizeof(void*), cudaMemcpyHostToDevice, GPU[g].s.ptr());
-				CudaCheckErrorMod;
 			}
 		}
 	}
@@ -241,7 +239,6 @@ void RNSPoly::binomialMult(RNSPoly& c1, RNSPoly& in, const RNSPoly& d0, const RN
 
 	if (!moddown) {
 		this->generateSpecialLimbs(true, false);
-		CudaCheckErrorMod;
 		c1.generateSpecialLimbs(true, false);
 	}
 
@@ -950,15 +947,46 @@ void RNSPoly::broadcastLimb0() {
 	}
 }
 
-void RNSPoly::evalLinearWSum(uint32_t n, std::vector<const RNSPoly*>& vec, std::vector<uint64_t>& elem) {
+void RNSPoly::evalLinearWSum(uint32_t n, std::vector<const RNSPoly*>& vec, std::vector<uint64_t>& elem, bool with_bias) {
+	if (cc.GPUid.size() == 1) {
+		for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+			assert(omp_get_num_threads() == (int)cc.GPUid.size());
+			std::vector<const LimbPartition*> ps(n);
+			for (int j = 0; j < (int)n; ++j) {
+				ps[j] = &vec[j]->GPU.at(i);
+			}
+			GPU.at(i).evalLinearWSum(n, ps, elem, with_bias);
+		}
+	} else {
+#pragma omp parallel for num_threads(cc.GPUid.size())
+		for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+			assert(omp_get_num_threads() == (int)cc.GPUid.size());
+			std::vector<const LimbPartition*> ps(n);
+			for (int j = 0; j < (int)n; ++j) {
+				ps[j] = &vec[j]->GPU.at(i);
+			}
+			GPU.at(i).evalLinearWSum(n, ps, elem, with_bias);
+		}
+	}
+}
+
+void RNSPoly::evalLinearWSumMultiple(int max_n,
+                                     const std::vector<const RNSPoly*>& in,
+                                     const std::vector<RNSPoly*>& out,
+                                     const std::vector<uint64_t>& elem,
+                                     const bool isC1) {
+	ContextData& cc = out[0]->cc;
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
-		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		std::vector<const LimbPartition*> ps(n);
-		for (int j = 0; j < (int)n; ++j) {
-			ps[j] = &vec[j]->GPU.at(i);
+		std::vector<const LimbPartition*> ins(in.size());
+		std::vector<LimbPartition*> outs(out.size());
+		for (int j = 0; j < (int)in.size(); ++j) {
+			ins[j] = &in[j]->GPU.at(i);
 		}
-		GPU.at(i).evalLinearWSum(n, ps, elem);
+		for (int j = 0; j < (int)out.size(); ++j) {
+			outs[j] = &out[j]->GPU.at(i);
+		}
+		LimbPartition::evalLinearWSumMultiple(max_n, ins, outs, elem, isC1);
 	}
 }
 

@@ -20,7 +20,7 @@ extern bool GRAPH_CAPTURE;
 extern bool PEER_ACCESS;
 
 class LimbPartition {
-  public:
+public:
 	ContextData& cc;
 	const uint64_t uid;
 	int* level;
@@ -58,12 +58,12 @@ class LimbPartition {
 	// std::vector<VectorGPU<void*>> DIGITauxptr;
 	VectorGPU<void*> GATHERptr;
 
-	uint64_t* bufferDECOMPandDIGIT	  = nullptr;
-	uint64_t* bufferSPECIAL			  = nullptr;
-	uint64_t* bufferLIMB			  = nullptr;
-	uint64_t* bufferGATHER			  = nullptr;
+	uint64_t* bufferDECOMPandDIGIT    = nullptr;
+	uint64_t* bufferSPECIAL           = nullptr;
+	uint64_t* bufferLIMB              = nullptr;
+	uint64_t* bufferGATHER            = nullptr;
 	void* bufferDECOMPandDIGIT_handle = nullptr;
-	void* bufferGATHER_handle		  = nullptr;
+	void* bufferGATHER_handle         = nullptr;
 
 	/*
 	LimbPartition(LimbPartition && lp) :
@@ -89,27 +89,32 @@ class LimbPartition {
 
 	Global::Globals* getGlobals();
 	void binomialDotProduct(LimbPartition& c1,
-	  LimbPartition& c2,
-	  const std::vector<const LimbPartition*>& c0s,
-	  const std::vector<const LimbPartition*>& c1s,
-	  const std::vector<const LimbPartition*>& d0s,
-	  const std::vector<const LimbPartition*>& d1s,
-	  bool ext);
+	                        LimbPartition& c2,
+	                        const std::vector<const LimbPartition*>& c0s,
+	                        const std::vector<const LimbPartition*>& c1s,
+	                        const std::vector<const LimbPartition*>& d0s,
+	                        const std::vector<const LimbPartition*>& d1s,
+	                        bool ext);
 	void binomialMult(LimbPartition& c1, LimbPartition& c2, const LimbPartition& d0, const LimbPartition& d1, bool extend_ins, bool square);
 	void generateLimbToLevel(int new_level);
+	static void evalLinearWSumMultiple(int max_n,
+	                                   const std::vector<const LimbPartition*>& in,
+	                                   const std::vector<LimbPartition*>& out,
+	                                   const std::vector<unsigned long int>& elem,
+	                                   bool isC1);
 
 	enum GENERATION_MODE { AUTOMATIC, SINGLE_BUFFER, DUAL_BUFFER };
 
 	void generate(std::vector<LimbRecord>& records,
-	  std::vector<LimbImpl>& limbs,
-	  VectorGPU<void*>& ptrs,
-	  int pos,
-	  VectorGPU<void*>* auxptrs,
-	  uint64_t* buffer	   = nullptr,
-	  size_t offset		   = 0,
-	  uint64_t* buffer_aux = nullptr,
-	  size_t offset_aux	   = 0,
-	  bool noptr		   = false);
+	              std::vector<LimbImpl>& limbs,
+	              VectorGPU<void*>& ptrs,
+	              int pos,
+	              VectorGPU<void*>* auxptrs,
+	              uint64_t* buffer     = nullptr,
+	              size_t offset        = 0,
+	              uint64_t* buffer_aux = nullptr,
+	              size_t offset_aux    = 0,
+	              bool noptr           = false);
 
 	void generateLimb();
 
@@ -132,7 +137,7 @@ class LimbPartition {
 
 	void freeSpecialLimbs();
 
-	using OptReference		= LimbPartition*;
+	using OptReference      = LimbPartition*;
 	using OptConstReference = const LimbPartition*;
 
 	struct NTT_fusion_fields {
@@ -144,15 +149,14 @@ class LimbPartition {
 		OptConstReference kskb;
 	};
 
-	template <ALGO algo, NTT_MODE mode>
-	void ApplyNTT(int batch,
-	  LimbPartition::NTT_fusion_fields fields,
-	  std::vector<LimbImpl>& limb,
-	  VectorGPU<void*>& limbptr,
-	  VectorGPU<void*>& auxptr,
-	  ContextData& cc,
-	  const int primeid_init,
-	  const int limbsize = -1);
+	template <ALGO algo, NTT_MODE mode> void ApplyNTT(int batch,
+	                                                  LimbPartition::NTT_fusion_fields fields,
+	                                                  std::vector<LimbImpl>& limb,
+	                                                  VectorGPU<void*>& limbptr,
+	                                                  VectorGPU<void*>& auxptr,
+	                                                  ContextData& cc,
+	                                                  const int primeid_init,
+	                                                  const int limbsize = -1);
 
 	template <ALGO algo = ALGO_SHOUP, NTT_MODE mode = NTT_NONE> void NTT(int batch = 1, bool sync = false, NTT_fusion_fields fields = NTT_fusion_fields{});
 
@@ -167,19 +171,21 @@ class LimbPartition {
 		OptConstReference c1tilde;
 	};
 
-	template <ALGO algo, INTT_MODE mode>
-	void ApplyINTT(int batch,
-	  LimbPartition::INTT_fusion_fields fields,
-	  std::vector<LimbImpl>& limb,
-	  VectorGPU<void*>& limbptr,
-	  VectorGPU<void*>& auxptr,
-	  ContextData& cc,
-	  const int primeid_init,
-	  const int limbsize);
+	template <ALGO algo, INTT_MODE mode> void ApplyINTT(int batch,
+	                                                    LimbPartition::INTT_fusion_fields fields,
+	                                                    std::vector<LimbImpl>& limb,
+	                                                    VectorGPU<void*>& limbptr,
+	                                                    VectorGPU<void*>& auxptr,
+	                                                    ContextData& cc,
+	                                                    const int primeid_init,
+	                                                    const int limbsize);
 
 	template <ALGO algo = ALGO_SHOUP, INTT_MODE mode = INTT_NONE> void INTT(int batch = 1, bool sync = false, INTT_fusion_fields fields = INTT_fusion_fields{});
 
-	static std::vector<VectorGPU<void*>> generateDecompLimbptr(void** buffer, const std::vector<std::vector<LimbRecord>>& DECOMPmeta, const int device, int offset);
+	static std::vector<VectorGPU<void*>> generateDecompLimbptr(void** buffer,
+	                                                           const std::vector<std::vector<LimbRecord>>& DECOMPmeta,
+	                                                           const int device,
+	                                                           int offset);
 
 	void generateAllDecompLimb(uint64_t* pInt, size_t offset);
 
@@ -203,9 +209,14 @@ class LimbPartition {
 
 	void multElement(const LimbPartition& partition1, const LimbPartition& partition2);
 
-	void multModupDotKSK(LimbPartition& c1, const LimbPartition& c1tilde, LimbPartition& c0, const LimbPartition& c0tilde, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
+	void multModupDotKSK(LimbPartition& c1,
+	                     const LimbPartition& c1tilde,
+	                     LimbPartition& c0,
+	                     const LimbPartition& c0tilde,
+	                     const LimbPartition& ksk_a,
+	                     const LimbPartition& ksk_b);
 
-	size_t getLimbSize(int level);
+	size_t getLimbSize(int level) const;
 	void automorph(const int index, const int br, LimbPartition* src, bool ext);
 
 	void modupInto(LimbPartition& partition, LimbPartition& partition1);
@@ -217,74 +228,93 @@ class LimbPartition {
 	void dropLimb();
 	void addMult(const LimbPartition& partition, const LimbPartition& partition1);
 	void broadcastLimb0();
-	void evalLinearWSum(uint32_t n, std::vector<const LimbPartition*> ps, std::vector<uint64_t>& weights);
+	void evalLinearWSum(uint32_t n, std::vector<const LimbPartition*> ps, std::vector<uint64_t>& weights, bool with_bias = false);
 	void rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
 	void squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
 	void rescaleMGPU();
 	void moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs, const std::vector<uint64_t*>& bufferSpecial_);
 	void generatePartialSpecialLimb();
 	void dotProductPt(LimbPartition& c1,
-	  const std::vector<const LimbPartition*>& c0s,
-	  const std::vector<const LimbPartition*>& c1s,
-	  const std::vector<const LimbPartition*>& pts,
-	  bool ext);
+	                  const std::vector<const LimbPartition*>& c0s,
+	                  const std::vector<const LimbPartition*>& c1s,
+	                  const std::vector<const LimbPartition*>& pts,
+	                  bool ext);
 
 	void generateGatherLimb(bool iskey);
 	void dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& digitSrc, const LimbPartition& ksk_a, const LimbPartition& ksk_b, const LimbPartition& src);
 	void fusedHoistRotate(int n,
-	  std::vector<int> indexes,
-	  std::vector<LimbPartition*>& c0,
-	  std::vector<LimbPartition*>& c1,
-	  const std::vector<LimbPartition*>& ksk_a,
-	  const std::vector<LimbPartition*>& ksk_b,
-	  const LimbPartition& src_c0,
-	  const LimbPartition& src_c1,
-	  bool c0_modup);
+	                      std::vector<int> indexes,
+	                      std::vector<LimbPartition*>& c0,
+	                      std::vector<LimbPartition*>& c1,
+	                      const std::vector<LimbPartition*>& ksk_a,
+	                      const std::vector<LimbPartition*>& ksk_b,
+	                      const LimbPartition& src_c0,
+	                      const LimbPartition& src_c1,
+	                      bool c0_modup);
 
 	void modup_ksk_moddown_mgpu(LimbPartition& c0,
-	  const LimbPartition& ksk_a,
-	  const LimbPartition& ksk_b,
-	  LimbPartition& auxLimbs1,
-	  LimbPartition& auxLimbs2,
-	  const bool moddown,
-	  const std::vector<uint64_t*>& bufferGather_,
-	  const std::vector<uint64_t*>& bufferSpecial_c0,
-	  const std::vector<uint64_t*>& bufferSpecial_c1,
-	  const std::vector<Stream*>& external_s,
-	  std::vector<std::vector<std::vector<std::pair<uint64_t, TimelineSemaphore*>>>>& signal,
-	  std::vector<std::atomic_uint64_t*>& thread_stop,
-	  const std::vector<Stream*>& external_s0);
+	                            const LimbPartition& ksk_a,
+	                            const LimbPartition& ksk_b,
+	                            LimbPartition& auxLimbs1,
+	                            LimbPartition& auxLimbs2,
+	                            const bool moddown,
+	                            const std::vector<uint64_t*>& bufferGather_,
+	                            const std::vector<uint64_t*>& bufferSpecial_c0,
+	                            const std::vector<uint64_t*>& bufferSpecial_c1,
+	                            const std::vector<Stream*>& external_s,
+	                            std::vector<std::vector<std::vector<std::pair<uint64_t, TimelineSemaphore*>>>>& signal,
+	                            std::vector<std::atomic_uint64_t*>& thread_stop,
+	                            const std::vector<Stream*>& external_s0);
 	void broadcastLimb0_mgpu();
 	void doubleRescaleMGPU(LimbPartition& partition);
 	void scaleByP();
 
-	void modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& bufferGather_, std::vector<std::atomic_uint64_t*>& thread_stop, std::vector<Stream*>& external_s);
+	void modupMGPU(LimbPartition& aux,
+	               const std::vector<uint64_t*>& bufferGather_,
+	               std::vector<std::atomic_uint64_t*>& thread_stop,
+	               std::vector<Stream*>& external_s);
 
 	void multNoModdownEnd(LimbPartition& c0, const LimbPartition& bc0, const LimbPartition& bc1, const LimbPartition& in, const LimbPartition& aux);
 	static void multScalarBatchManyToOne(std::vector<LimbPartition*>& parta,
-	  const std::vector<std::vector<unsigned long int>>& vector,
-	  const std::vector<std::vector<unsigned long int>>& vector_shoup,
-	  int stride,
-	  double usage);
+	                                     const std::vector<std::vector<unsigned long int>>& vector,
+	                                     const std::vector<std::vector<unsigned long int>>& vector_shoup,
+	                                     int stride,
+	                                     double usage);
 
-	static void addScalarBatchManyToOne(std::vector<LimbPartition*>& parta, const std::vector<std::vector<unsigned long int>>& vector, int stride, double usage);
+	static void addScalarBatchManyToOne(std::vector<LimbPartition*>& parta,
+	                                    const std::vector<std::vector<unsigned long int>>& vector,
+	                                    int stride,
+	                                    double usage);
 
 	static void multPtBatchManyToOne(std::vector<LimbPartition*>& parta, const std::vector<LimbPartition*>& partb, int stride, double usage);
 
-	static void addBatchManyToOne(std::vector<LimbPartition*>& parta, const std::vector<LimbPartition*>& partb, int stride, double usage, bool sub, bool exta, bool extb);
+	static void addBatchManyToOne(std::vector<LimbPartition*>& parta,
+	                              const std::vector<LimbPartition*>& partb,
+	                              int stride,
+	                              double usage,
+	                              bool sub,
+	                              bool exta,
+	                              bool extb);
 
 	static void
-	LTdotProductPtBatch(std::vector<LimbPartition*>& out, const std::vector<LimbPartition*>& in, const std::vector<LimbPartition*>& pt, int bStep, int gStep, int stride, double usage, bool ext);
+	LTdotProductPtBatch(std::vector<LimbPartition*>& out,
+	                    const std::vector<LimbPartition*>& in,
+	                    const std::vector<LimbPartition*>& pt,
+	                    int bStep,
+	                    int gStep,
+	                    int stride,
+	                    double usage,
+	                    bool ext);
 
 	static void fusedHoistedRotateBatch(std::vector<LimbPartition*>& out,
-	  const std::vector<LimbPartition*>& in,
-	  const std::vector<LimbPartition*>& ksk_a,
-	  const std::vector<LimbPartition*>& ksk_b,
-	  const std::vector<int>& indexes,
-	  int n,
-	  int stride,
-	  double usage,
-	  bool c0_modup);
+	                                    const std::vector<LimbPartition*>& in,
+	                                    const std::vector<LimbPartition*>& ksk_a,
+	                                    const std::vector<LimbPartition*>& ksk_b,
+	                                    const std::vector<int>& indexes,
+	                                    int n,
+	                                    int stride,
+	                                    double usage,
+	                                    bool c0_modup);
 
 	Stream& getS() const {
 		return const_cast<LimbPartition*>(this)->s;

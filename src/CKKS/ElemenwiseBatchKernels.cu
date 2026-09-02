@@ -12,16 +12,16 @@ namespace cg = cooperative_groups;
 
 namespace FIDESlib ::CKKS {
 __global__ void mult1AddMult23Add4_(const __grid_constant__ int primeid_init, void** l, void** l1, void** l2, void** l3, void** l4) {
-	const int primeid	= C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx		= threadIdx.x + blockDim.x * blockIdx.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
-		using T					 = uint64_t;
-		T aux					 = ((T*)l4[blockIdx.y])[idx];
-		T res					 = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
-		res						 = modadd(res, aux, primeid);
-		res						 = modadd(res, modmult<algo>(((T*)l2[blockIdx.y])[idx], ((T*)l3[blockIdx.y])[idx], primeid), primeid);
+		using T                  = uint64_t;
+		T aux                    = ((T*)l4[blockIdx.y])[idx];
+		T res                    = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
+		res                      = modadd(res, aux, primeid);
+		res                      = modadd(res, modmult<algo>(((T*)l2[blockIdx.y])[idx], ((T*)l3[blockIdx.y])[idx], primeid), primeid);
 		((T*)l[blockIdx.y])[idx] = res;
 	} else {
 		using T = uint32_t;
@@ -29,19 +29,21 @@ __global__ void mult1AddMult23Add4_(const __grid_constant__ int primeid_init, vo
 }
 
 __global__ void multnomoddownend_(const __grid_constant__ int primeid_init, void** c1, void** c0, void** bc0, void** bc1, void** in, void** aux) {
-	const int primeid	= C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx		= threadIdx.x + blockDim.x * blockIdx.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
 		using T = uint64_t;
-		T aux0	= ((T*)in[blockIdx.y])[idx];
+		T aux0 = ((T*)in[blockIdx.y])[idx];
 		T res = modmult<ALGO_SHOUP>(modmult<algo>(((T*)c1[blockIdx.y])[idx], ((T*)bc0[blockIdx.y])[idx], primeid), C_.P[primeid], primeid, C_.P_shoup[primeid]);
-		res	  = modadd(res, aux0, primeid);
-		res	  = modadd(
-			res, modmult<ALGO_SHOUP>(modmult<algo>(((T*)c0[blockIdx.y])[idx], ((T*)bc1[blockIdx.y])[idx], primeid), C_.P[primeid], primeid, C_.P_shoup[primeid]), primeid);
+		res = modadd(res, aux0, primeid);
+		res = modadd(
+			res,
+			modmult<ALGO_SHOUP>(modmult<algo>(((T*)c0[blockIdx.y])[idx], ((T*)bc1[blockIdx.y])[idx], primeid), C_.P[primeid], primeid, C_.P_shoup[primeid]),
+			primeid);
 		((T*)c1[blockIdx.y])[idx] = res;
-		aux0					  = ((T*)aux[blockIdx.y])[idx];
+		aux0 = ((T*)aux[blockIdx.y])[idx];
 		res = modmult<ALGO_SHOUP>(modmult<algo>(((T*)c0[blockIdx.y])[idx], ((T*)bc0[blockIdx.y])[idx], primeid), C_.P[primeid], primeid, C_.P_shoup[primeid]);
 		res = modadd(res, aux0, primeid);
 
@@ -52,25 +54,25 @@ __global__ void multnomoddownend_(const __grid_constant__ int primeid_init, void
 }
 
 __global__ void mult1Add2_(const __grid_constant__ int primeid_init, void** l, void** l1, void** l2) {
-	const int primeid	= C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx		= threadIdx.x + blockDim.x * blockIdx.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
-		using T					 = uint64_t;
-		T aux					 = ((T*)l2[blockIdx.y])[idx];
-		T res					 = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
+		using T                  = uint64_t;
+		T aux                    = ((T*)l2[blockIdx.y])[idx];
+		T res                    = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
 		((T*)l[blockIdx.y])[idx] = modadd(res, aux, primeid);
 	} else {
-		using T					 = uint32_t;
-		T aux					 = ((T*)l2[blockIdx.y])[idx];
-		T res					 = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
+		using T                  = uint32_t;
+		T aux                    = ((T*)l2[blockIdx.y])[idx];
+		T res                    = modmult<algo>(((T*)l[blockIdx.y])[idx], ((T*)l1[blockIdx.y])[idx], primeid);
 		((T*)l[blockIdx.y])[idx] = modadd(res, aux, primeid);
 	}
 }
 
 template <typename T> __device__ __forceinline__ void addMult__(T* l, const T* l1, const T* l2, const int primeid) {
-	const int idx		= threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	l[idx] = modadd(l[idx], modmult<algo>(l1[idx], l2[idx], primeid), primeid);
@@ -94,7 +96,7 @@ __global__ void addMult_(void** l, void** l1, void** l2, const __grid_constant__
 
 __global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 
 	//    if (idx == 0)
 	//        printf("%d %d\n", primeid_init + blockIdx.y, primeid);
@@ -107,38 +109,38 @@ __global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ in
 
 __global__ void square_(void** l, void** l1, const __grid_constant__ int primeid_init) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 
 	if (ISU64(primeid)) {
-		uint64_t in						= ((uint64_t*)l1[blockIdx.y])[idx];
+		uint64_t in                     = ((uint64_t*)l1[blockIdx.y])[idx];
 		((uint64_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(in, in, primeid);
 	} else {
-		uint32_t in						= ((uint64_t*)l1[blockIdx.y])[idx];
+		uint32_t in                     = ((uint64_t*)l1[blockIdx.y])[idx];
 		((uint32_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(in, in, primeid);
 	}
 };
 
 __global__ void binomial_square_fold_(void** c0_res, void** c2_key_switched_0, void** c1, void** c2_key_switched_1, const __grid_constant__ int primeid_init) {
-	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
+	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
 
 	if (ISU64(primeid)) {
-		uint64_t in2_0						 = ((uint64_t*)c2_key_switched_0[blockIdx.y])[idx];
-		uint64_t in2_1						 = ((uint64_t*)c2_key_switched_1[blockIdx.y])[idx];
-		uint64_t in0						 = ((uint64_t*)c0_res[blockIdx.y])[idx];
-		uint64_t ok							 = modadd(modmult<ALGO_BARRETT>(in0, in0, primeid), in2_0, primeid);
+		uint64_t in2_0                       = ((uint64_t*)c2_key_switched_0[blockIdx.y])[idx];
+		uint64_t in2_1                       = ((uint64_t*)c2_key_switched_1[blockIdx.y])[idx];
+		uint64_t in0                         = ((uint64_t*)c0_res[blockIdx.y])[idx];
+		uint64_t ok                          = modadd(modmult<ALGO_BARRETT>(in0, in0, primeid), in2_0, primeid);
 		((uint64_t*)c0_res[blockIdx.y])[idx] = ok;
-		uint64_t in1						 = ((uint64_t*)c1[blockIdx.y])[idx];
-		uint64_t aux						 = modmult<ALGO_BARRETT>(in0, in1, primeid);
-		uint64_t aux2						 = modadd(aux, aux, primeid);
-		ok									 = modadd(aux2, in2_1, primeid);
-		((uint64_t*)c1[blockIdx.y])[idx]	 = ok;
+		uint64_t in1                         = ((uint64_t*)c1[blockIdx.y])[idx];
+		uint64_t aux                         = modmult<ALGO_BARRETT>(in0, in1, primeid);
+		uint64_t aux2                        = modadd(aux, aux, primeid);
+		ok                                   = modadd(aux2, in2_1, primeid);
+		((uint64_t*)c1[blockIdx.y])[idx]     = ok;
 	} else {
 	}
 }
 
 __global__ void broadcastLimb0_(void** a) {
-	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
+	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
 	const int primeid = blockIdx.y + 1;
 	if (ISU64(primeid) && ISU64(0)) {
 		uint64_t in = ((uint64_t*)a[0])[idx];
@@ -148,7 +150,7 @@ __global__ void broadcastLimb0_(void** a) {
 }
 
 __global__ void broadcastLimb0_mgpu_(void** a, const __grid_constant__ int primeid_init, void** limb0) {
-	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
+	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
 	if (ISU64(primeid) && ISU64(0)) {
 		uint64_t in = ((uint64_t*)limb0[0])[idx];
@@ -174,28 +176,88 @@ __global__ void copy1D_(void* a, void* b) {
 }
 
 template <ALGO algo> __global__ void Scalar_mult_(void** a, const uint64_t* b, const __grid_constant__ int primeid_init, const uint64_t* shoup_mu) {
-	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
+	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
 
 	if (ISU64(primeid)) {
 		((uint64_t*)a[blockIdx.y])[idx] = modmult<algo>(((uint64_t*)a[blockIdx.y])[idx], b[primeid], primeid, shoup_mu ? shoup_mu[primeid] : 0);
 	} else {
-		((uint32_t*)a[blockIdx.y])[idx] = modmult<algo>(((uint32_t*)a[blockIdx.y])[idx], (uint32_t)b[primeid], primeid, (uint32_t)(shoup_mu ? shoup_mu[primeid] : 0));
+		((uint32_t*)a[blockIdx.y])[idx] = modmult<algo>(((uint32_t*)a[blockIdx.y])[idx],
+		                                                (uint32_t)b[primeid],
+		                                                primeid,
+		                                                (uint32_t)(shoup_mu ? shoup_mu[primeid] : 0));
 	}
 }
 
 __global__ void eval_linear_w_sum_(const __grid_constant__ int n, void** a, void*** bs, uint64_t* w, const __grid_constant__ int primeid_init) {
-	int idx				= threadIdx.x + blockIdx.x * blockDim.x;
-	const int primeid	= C_.primeid_flattened[primeid_init + blockIdx.y];
+	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	{
-		uint64_t res = modmult<algo>(((uint64_t*)(bs[0])[blockIdx.y])[idx], w[primeid], primeid);
-		for (int i = 1; i < n; ++i) {
+		uint64_t res = 0;
+		for (int i = 0; i < n; ++i) {
 			uint64_t temp = modmult<algo>(((uint64_t*)(bs[i])[blockIdx.y])[idx], w[i * MAXP + primeid], primeid);
-			res			  = modadd(res, temp, primeid);
+			res           = modadd(res, temp, primeid);
 		}
 		((uint64_t*)a[blockIdx.y])[idx] = res;
+	}
+}
+
+__global__ void eval_linear_w_sum_with_bias_(const __grid_constant__ int n, void** a, void*** bs, uint64_t* w, const __grid_constant__ int primeid_init) {
+	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	constexpr ALGO algo = ALGO_BARRETT;
+
+	{
+		uint64_t res = 0;
+		for (int i = 0; i < n; ++i) {
+			uint64_t temp = modmult<algo>(((uint64_t*)(bs[i])[blockIdx.y])[idx], w[i * MAXP + primeid], primeid);
+			res           = modadd(res, temp, primeid);
+		}
+		res                             = modadd(res, w[n * MAXP + primeid], primeid);
+		((uint64_t*)a[blockIdx.y])[idx] = res;
+	}
+}
+
+__global__ void eval_batched_linear_w_sum_with_bias_(const __grid_constant__ int n,
+                                                     const __grid_constant__ int results,
+                                                     void*** a,
+                                                     void*** bs,
+                                                     int* target_limbsize,
+                                                     uint64_t* w,
+                                                     const __grid_constant__ int primeid_init,
+                                                     const __grid_constant__ bool isC1) {
+	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	constexpr ALGO algo = ALGO_BARRETT;
+
+	extern __shared__ char buffer[];
+
+	uint64_t* res = ((uint64_t*)buffer) + threadIdx.x;
+
+	for (int j = 0; j < results; ++j) {
+		res[j * blockDim.x] = 0;
+	}
+	for (int i = 0; i < n; ++i) {
+		uint64_t in = ((uint64_t*)(bs[i])[blockIdx.y])[idx];
+		for (int j = 0; j < results; ++j) {
+			uint64_t weight = w[j * (n + 1) * MAXP + i * MAXP + primeid];
+			if (weight != 0) {
+				uint64_t temp       = modmult<algo>(in, weight, primeid);
+				res[j * blockDim.x] = modadd(res[j * blockDim.x], temp, primeid);
+			}
+		}
+	}
+	for (int j = 0; j < results; ++j) {
+		uint64_t result = res[j * blockDim.x];
+		if (!isC1) {
+			uint64_t weight = w[j * (n + 1) * MAXP + n * MAXP + primeid];
+			if (weight != 0)
+				result = modadd(result, weight, primeid);
+		}
+		if (blockIdx.y < target_limbsize[j])
+			((uint64_t*)a[j][blockIdx.y])[idx] = result;
 	}
 }
 
@@ -244,13 +306,13 @@ __global__ void fusedDotKSK_2_(void** out1, void** sout1, void** out2, void** so
 
 	for (int i = 0; i < num_d; ++i) {
 		bool decomp = (i == primeid_digit);
-		int pos		= C_.pos_in_digit[i][primeid];
+		int pos     = C_.pos_in_digit[i][primeid];
 
 		// printf("Digit %d: in: %p\n", i, digits);
 		// printf("Digit %d: in: %p, kska: %p, kskb: %p\n", i, digits[i + decomp * 3 * C_.dnum],
 		//        digits[C_.dnum + i + decomp * 3 * C_.dnum], digits[2 * C_.dnum + i + decomp * 3 * C_.dnum]);
 
-		uint64_t in	  = ((uint64_t*)digits[i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx];
+		uint64_t in   = ((uint64_t*)digits[i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx];
 		uint64_t add1 = modmult<ALGO_BARRETT>(in, ((uint64_t*)digits[C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx], primeid);
 		uint64_t add2 = modmult<ALGO_BARRETT>(in, ((uint64_t*)digits[2 * C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx], primeid);
 
@@ -275,27 +337,27 @@ __global__ void fusedDotKSK_2_(void** out1, void** sout1, void** out2, void** so
 constexpr bool PRINT = false;
 
 __global__ void hoistedRotateDotKSK_2_(void*** din1,
-  void** c0,
-  void*** out1,
-  void*** sout1,
-  void*** out2,
-  void*** sout2,
-  const int n,
-  const int* indexes,
-  void*** digits,
-  int num_d,
-  int id,
-  int num_special,
-  int init,
-  void** sc0,
-  bool c0_modup) {
+                                       void** c0,
+                                       void*** out1,
+                                       void*** sout1,
+                                       void*** out2,
+                                       void*** sout2,
+                                       const int n,
+                                       const int* indexes,
+                                       void*** digits,
+                                       int num_d,
+                                       int id,
+                                       int num_special,
+                                       int init,
+                                       void** sc0,
+                                       bool c0_modup) {
 	const int idx  = threadIdx.x + blockIdx.x * blockDim.x;
 	const int blky = blockIdx.y + init;
 
 	const int primeid = (blky < num_special) ? C_.primeid_digit_to[0][blky] : C_.primeid_partition[id][blky - num_special];
 
 	const int primeid_digit = C_.primeid_digit[primeid];
-	const int pos_dec		= blky - num_special;
+	const int pos_dec       = blky - num_special;
 
 	extern __shared__ char buffer[];
 
@@ -303,8 +365,8 @@ __global__ void hoistedRotateDotKSK_2_(void*** din1,
 
 	for (int i = 0; i < num_d; ++i) {
 		bool decomp = (i == primeid_digit);
-		int pos		= C_.pos_in_digit[i][primeid];
-		in1[i]		= ((uint64_t*)din1[i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx];
+		int pos     = C_.pos_in_digit[i][primeid];
+		in1[i]      = ((uint64_t*)din1[i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx];
 
 		if (PRINT && idx == 0 && blky == 6)
 			printf("In %d : %lu\n", i, in1[i]);
@@ -326,16 +388,20 @@ __global__ void hoistedRotateDotKSK_2_(void*** din1,
 		int offset = j * 3 * 2 * C_.dnum;
 
 		for (int i = 0; i < num_d; ++i) {
-			bool decomp = (i == primeid_digit);
-			int pos		= C_.pos_in_digit[i][primeid];
-			uint64_t add1 = modmult<ALGO_BARRETT>(in1[i], ((uint64_t*)digits[offset + C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx], primeid);
+			bool decomp   = (i == primeid_digit);
+			int pos       = C_.pos_in_digit[i][primeid];
+			uint64_t add1 = modmult<ALGO_BARRETT>(in1[i],
+			                                      ((uint64_t*)digits[offset + C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx],
+			                                      primeid);
 
 			if (PRINT && idx == 0 && blky == 6)
 				printf("kska %d : %lu\n", i, ((uint64_t*)digits[offset + C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx]);
 
 			if (PRINT && idx == 0 && blky == 6)
 				printf("add1 %d : %lu\n", i, add1);
-			uint64_t add2 = modmult<ALGO_BARRETT>(in1[i], ((uint64_t*)digits[offset + 2 * C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx], primeid);
+			uint64_t add2 = modmult<ALGO_BARRETT>(in1[i],
+			                                      ((uint64_t*)digits[offset + 2 * C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx],
+			                                      primeid);
 
 			if (PRINT && idx == 0 && blky == 6)
 				printf("kskb %d : %lu\n", i, ((uint64_t*)digits[offset + 2 * C_.dnum + i + decomp * 3 * C_.dnum][decomp ? pos_dec : pos])[idx]);
@@ -377,21 +443,21 @@ __global__ void hoistedRotateDotKSK_2_(void*** din1,
 }
 
 __global__ void hoistedRotateDotKSKBatched___(void*** c1,
-  void*** din1,
-  void*** c0,
-  void*** sc0,
-  void*** out1,
-  void*** sout1,
-  void*** out2,
-  void*** sout2,
-  const int n,
-  const int* indexes,
-  void*** digits,
-  int num_d,
-  int id,
-  int num_special,
-  int init_,
-  bool c0_modup) {
+                                              void*** din1,
+                                              void*** c0,
+                                              void*** sc0,
+                                              void*** out1,
+                                              void*** sout1,
+                                              void*** out2,
+                                              void*** sout2,
+                                              const int n,
+                                              const int* indexes,
+                                              void*** digits,
+                                              int num_d,
+                                              int id,
+                                              int num_special,
+                                              int init_,
+                                              bool c0_modup) {
 	// cg::thread_block tb = cg::this_thread_block();
 	const int idx  = threadIdx.x + blockIdx.x * blockDim.x;
 	const int blky = blockIdx.y + init_;
@@ -399,7 +465,7 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1,
 	const int primeid = (blky < num_special) ? C_.primeid_digit_to[0][blky] : C_.primeid_partition[id][blky - num_special];
 
 	const int primeid_digit = C_.primeid_digit[primeid];
-	const int pos_dec		= blky - num_special;
+	const int pos_dec       = blky - num_special;
 	//__shared__ cuda::barrier<cuda::thread_scope_block> bar;
 	extern __shared__ char buffer[];
 
@@ -448,7 +514,7 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1,
 
 	for (uint32_t i = threadIdx.y; i < num_d; i += blockDim.y) {
 		bool decomp = (i == primeid_digit);
-		int pos		= C_.pos_in_digit[i][primeid];
+		int pos     = C_.pos_in_digit[i][primeid];
 
 		in1[i * stride_in] = ((uint64_t*)(decomp ? c1[threadIdx.z] : din1[num_d * threadIdx.z + i])[decomp ? pos_dec : pos])[idx];
 
@@ -458,8 +524,9 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1,
 	__syncthreads();
 	uint64_t in2 = 0;
 	if ((c0_modup && threadIdx.y == 1) || primeid < C_.L) {
-		in2 = threadIdx.y == 1 ? ((primeid < C_.L) ? ((uint64_t*)c0[threadIdx.z][pos_dec])[idx] : ((uint64_t*)sc0[threadIdx.z][primeid - C_.L])[idx]) :
-								 in1[stride_in * primeid_digit];
+		in2 = threadIdx.y == 1 ?
+			((primeid < C_.L) ? ((uint64_t*)c0[threadIdx.z][pos_dec])[idx] : ((uint64_t*)sc0[threadIdx.z][primeid - C_.L])[idx]) :
+			in1[stride_in * primeid_digit];
 		if (!c0_modup || threadIdx.y == 0)
 			in2 = modmult<ALGO_SHOUP>(in2, C_.P[primeid], primeid, C_.P_shoup[primeid]);
 	}
@@ -476,7 +543,7 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1,
 			uint64_t aux;
 			for (int i = threadIdx.z; i < num_d; i += blockDim.z) {
 				bool decomp = (i == primeid_digit);
-				int pos		= C_.pos_in_digit[i][primeid];
+				int pos     = C_.pos_in_digit[i][primeid];
 				/*
 			if (threadIdx.x == 0) {
 
@@ -522,15 +589,15 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1,
 			uint32_t out_idx = automorph_slot(C_.logN, indexes[j], idx);
 			// uint32_t out_idx = idx;
 			uint64_t* out = (primeid < C_.L) ?
-			  (threadIdx.y == 0 ? (uint64_t*)out1[threadIdx.z * n + j][pos_dec] : (uint64_t*)out2[threadIdx.z * n + j][pos_dec]) :
-			  (threadIdx.y == 0 ? (uint64_t*)sout1[threadIdx.z * n + j][primeid - C_.L] : (uint64_t*)sout2[threadIdx.z * n + j][primeid - C_.L]);
+				(threadIdx.y == 0 ? (uint64_t*)out1[threadIdx.z * n + j][pos_dec] : (uint64_t*)out2[threadIdx.z * n + j][pos_dec]) :
+				(threadIdx.y == 0 ? (uint64_t*)sout1[threadIdx.z * n + j][primeid - C_.L] : (uint64_t*)sout2[threadIdx.z * n + j][primeid - C_.L]);
 
 			out[out_idx] = aux;
 		} else {
 
 			uint64_t* out = (primeid < C_.L) ?
-			  (threadIdx.y == 0 ? (uint64_t*)out1[threadIdx.z * n + j][pos_dec] : (uint64_t*)out2[threadIdx.z * n + j][pos_dec]) :
-			  (threadIdx.y == 0 ? (uint64_t*)sout1[threadIdx.z * n + j][primeid - C_.L] : (uint64_t*)sout2[threadIdx.z * n + j][primeid - C_.L]);
+				(threadIdx.y == 0 ? (uint64_t*)out1[threadIdx.z * n + j][pos_dec] : (uint64_t*)out2[threadIdx.z * n + j][pos_dec]) :
+				(threadIdx.y == 0 ? (uint64_t*)sout1[threadIdx.z * n + j][primeid - C_.L] : (uint64_t*)sout2[threadIdx.z * n + j][primeid - C_.L]);
 
 			if (PRINT && idx == 0)
 				printf("y: %d Primeid_digit: %d, in2: %lu %lu\n", blky, primeid_digit, in2, in1[stride_in * (primeid_digit + (primeid_digit == -1))]);
@@ -634,8 +701,8 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1, void*** din1, void*** 
 */
 
 __global__ void dotProductPt_(void** c0, void** c1, void*** data, const size_t ptroffset, const int primeidInit, const int n) {
-	int idx				= threadIdx.x + blockIdx.x * blockDim.x;
-	const int primeid	= C_.primeid_flattened[primeidInit + blockIdx.y];
+	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+	const int primeid   = C_.primeid_flattened[primeidInit + blockIdx.y];
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	uint64_t out0, out1;
@@ -783,7 +850,15 @@ __global__ void dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void***
 }*/
 
 __global__ void
-dotProductLtBatchedPt2___(void*** c0_out, void*** c1_out, void*** c0_in, void*** c1_in, void*** pts, const int bStep, const int gStep, const int primeidInit, const int n) {
+dotProductLtBatchedPt2___(void*** c0_out,
+                          void*** c1_out,
+                          void*** c0_in,
+                          void*** c1_in,
+                          void*** pts,
+                          const int bStep,
+                          const int gStep,
+                          const int primeidInit,
+                          const int n) {
 	int idx = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
 	// int b = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
@@ -793,7 +868,7 @@ dotProductLtBatchedPt2___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 
 	// Shared required: (2*batch+1/2)*threads_per_block
 	const int in_stride = blockDim.x * blockDim.y * blockDim.z;
-	const int block_id	= (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
+	const int block_id  = (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
 	// uint64_t* in = ((uint64_t*)buffer) + block_id;
 	// uint64_t in[6];
 
@@ -807,7 +882,7 @@ dotProductLtBatchedPt2___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 
 	// uint64_t pt;
 
-	void*** inputs	= im_c0 ? c0_in : c1_in;
+	void*** inputs  = im_c0 ? c0_in : c1_in;
 	void*** outputs = im_c0 ? c0_out : c1_out;
 
 	for (int k = blockIdx.z; k < n; k += gridDim.z) {
@@ -835,7 +910,15 @@ dotProductLtBatchedPt2___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 }
 
 __global__ void
-dotProductLtBatchedPt3___(void*** c0_out, void*** c1_out, void*** c0_in, void*** c1_in, void*** pts, const int bStep, const int gStep, const int primeidInit, const int n) {
+dotProductLtBatchedPt3___(void*** c0_out,
+                          void*** c1_out,
+                          void*** c0_in,
+                          void*** c1_in,
+                          void*** pts,
+                          const int bStep,
+                          const int gStep,
+                          const int primeidInit,
+                          const int n) {
 	int idx = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
 	// int b = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
@@ -845,7 +928,7 @@ dotProductLtBatchedPt3___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 
 	// Shared required: (2*batch+1/2)*threads_per_block
 	const int in_stride = blockDim.x * blockDim.y * blockDim.z;
-	const int block_id	= (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
+	const int block_id  = (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
 	// uint64_t* in = ((uint64_t*)buffer) + block_id;
 	// uint64_t in[6];
 
@@ -859,7 +942,7 @@ dotProductLtBatchedPt3___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 
 	// uint64_t pt;
 
-	void*** inputs	= im_c0 ? c0_in : c1_in;
+	void*** inputs  = im_c0 ? c0_in : c1_in;
 	void*** outputs = im_c0 ? c0_out : c1_out;
 
 	for (int k = blockIdx.z; k < n; k += gridDim.z) {
@@ -881,7 +964,7 @@ dotProductLtBatchedPt3___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 					acc_this_thread[j * in_stride] = acc_this_thread[j * in_stride] + mult;
 
 				if (i == bStep - 1) {
-					uint64_t res										 = modreduce<ALGO_NATIVE>(acc_this_thread[j * in_stride], primeid);
+					uint64_t res                                         = modreduce<ALGO_NATIVE>(acc_this_thread[j * in_stride], primeid);
 					((uint64_t*)outputs[k * gStep + j][blockIdx.y])[idx] = res;
 				}
 			}
@@ -890,9 +973,17 @@ dotProductLtBatchedPt3___(void*** c0_out, void*** c1_out, void*** c0_in, void***
 }
 
 __global__ void
-dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** c1_in, void*** pts, const int batch, const int gStep, const int primeidInit, const int n) {
-	int idx			  = threadIdx.x + blockIdx.x * blockDim.x;
-	int b			  = blockDim.z;
+dotProductLtBatchedPt___(void*** c0_out,
+                         void*** c1_out,
+                         void*** c0_in,
+                         void*** c1_in,
+                         void*** pts,
+                         const int batch,
+                         const int gStep,
+                         const int primeidInit,
+                         const int n) {
+	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
+	int b             = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
 	// constexpr ALGO algo = ALGO_BARRETT;
 
@@ -900,16 +991,16 @@ dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** 
 
 	// Shared required: (2*batch+1/2)*threads_per_block
 	const int in_stride = blockDim.x * blockDim.y * blockDim.z;
-	const int block_id	= (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
-	uint64_t* in		= ((uint64_t*)buffer) + block_id;
+	const int block_id  = (threadIdx.x + blockDim.x * threadIdx.y + blockDim.x * blockDim.y * threadIdx.z);
+	uint64_t* in        = ((uint64_t*)buffer) + block_id;
 	// uint64_t in[6];
 
-	uint64_t* acc			  = ((uint64_t*)buffer) + in_stride * batch;
+	uint64_t* acc             = ((uint64_t*)buffer) + in_stride * batch;
 	uint64_t* acc_this_thread = acc + block_id;
-	uint64_t* pt			  = acc + 2 * in_stride + (threadIdx.x + blockDim.x * threadIdx.z);
+	uint64_t* pt              = acc + 2 * in_stride + (threadIdx.x + blockDim.x * threadIdx.z);
 
-	int r_init		= 1 << (32 - __clz(b - 1) - 1);
-	bool im_c0		= threadIdx.y == 0;
+	int r_init      = 1 << (32 - __clz(b - 1) - 1);
+	bool im_c0      = threadIdx.y == 0;
 	const int b_idx = threadIdx.z;
 
 	if (PRINT && idx == 0 && blockIdx.y == 0 && im_c0 && b_idx == 0 && blockIdx.z == 0) {
@@ -919,7 +1010,7 @@ dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** 
 	if (PRINT && idx == 0 && blockIdx.y == 0 && im_c0 && b_idx == 0 && blockIdx.z == 0)
 		printf("%d <- 2^{floor(log2(bStep))}\n", r_init);
 
-	void*** inputs	= im_c0 ? c0_in : c1_in;
+	void*** inputs  = im_c0 ? c0_in : c1_in;
 	void*** outputs = im_c0 ? c0_out : c1_out;
 
 	for (int k = blockIdx.z; k < n; k += gridDim.z) {
@@ -927,20 +1018,20 @@ dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** 
 			in[in_stride * i] = ((uint64_t*)inputs[k * b * batch + i * b + b_idx][blockIdx.y])[idx];
 			if (PRINT && idx == 0 && blockIdx.y == 0 && im_c0)
 				printf("LT: %d, b: %d, in c0: %lu %lu %p %p\n",
-				  k,
-				  b_idx,
-				  in[/*in_stride * */ i],
-				  ((uint64_t*)inputs[k * b * batch + i * b + b_idx][blockIdx.y])[idx],
-				  inputs[k * b * batch + i * b + b_idx],
-				  inputs);
+				       k,
+				       b_idx,
+				       in[/*in_stride * */ i],
+				       ((uint64_t*)inputs[k * b * batch + i * b + b_idx][blockIdx.y])[idx],
+				       inputs[k * b * batch + i * b + b_idx],
+				       inputs);
 			if (PRINT && idx == 0 && blockIdx.y == 0 && !im_c0)
 				printf("LT: %d, b: %d, in c1: %lu %lu %p %p\n",
-				  k,
-				  b_idx,
-				  in[/*in_stride * */ i],
-				  ((uint64_t*)inputs[k * b * batch + i * b + b_idx][blockIdx.y])[idx],
-				  inputs[k * b * batch + i * b + b_idx],
-				  inputs);
+				       k,
+				       b_idx,
+				       in[/*in_stride * */ i],
+				       ((uint64_t*)inputs[k * b * batch + i * b + b_idx][blockIdx.y])[idx],
+				       inputs[k * b * batch + i * b + b_idx],
+				       inputs);
 		}
 
 		for (int j = 0; j < gStep; ++j) {
@@ -949,7 +1040,14 @@ dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** 
 				if (im_c0) {
 					pt[0] = ((uint64_t*)pt_partition[blockIdx.y])[idx];
 					if (PRINT && idx == 0 && blockIdx.y == 0)
-						printf("LT: %d, b: %d, g: %d, in pt: %lu %lu %p %p\n", k, b_idx, j, pt[0], ((uint64_t*)pt_partition[blockIdx.y])[idx], pt_partition, pts);
+						printf("LT: %d, b: %d, g: %d, in pt: %lu %lu %p %p\n",
+						       k,
+						       b_idx,
+						       j,
+						       pt[0],
+						       ((uint64_t*)pt_partition[blockIdx.y])[idx],
+						       pt_partition,
+						       pts);
 				}
 			}
 
@@ -961,7 +1059,7 @@ dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void*** c0_in, void*** 
 					if (i_0 + 1 < batch)
 						acc_this_thread[in_stride] = modmult<ALGO_BARRETT>(in[in_stride * (i_0 + 1)], pt[0], primeid);
 				} else {
-					acc_this_thread[0]		   = 0;
+					acc_this_thread[0]         = 0;
 					acc_this_thread[in_stride] = 0;
 				}
 
@@ -1108,9 +1206,9 @@ __global__ void dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void***
  */
 __global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
-		uint64_t in						= modmult<ALGO_SHOUP>(((uint64_t*)b[blockIdx.y])[idx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
+		uint64_t in                     = modmult<ALGO_SHOUP>(((uint64_t*)b[blockIdx.y])[idx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
 		((uint64_t*)a[blockIdx.y])[idx] = modadd(in, ((uint64_t*)c[blockIdx.y])[idx], primeid);
 	} else {
 	}
@@ -1118,9 +1216,9 @@ __global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init)
 
 __global__ void scaleByP_(void** a, const int primeid_init) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
-		uint64_t in						= modmult<ALGO_SHOUP>(((uint64_t*)a[blockIdx.y])[idx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
+		uint64_t in                     = modmult<ALGO_SHOUP>(((uint64_t*)a[blockIdx.y])[idx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
 		((uint64_t*)a[blockIdx.y])[idx] = in;
 	} else {
 	}
@@ -1128,7 +1226,7 @@ __global__ void scaleByP_(void** a, const int primeid_init) {
 
 __global__ void add_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1148,11 +1246,11 @@ __global__ void add_reuse_b___(void*** a, void*** b, const int primeid_init, con
 
 __global__ void add_reuse_scale_p_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, C_.P[primeid], primeid, C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, C_.P[primeid], primeid, C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint64_t*)(a[i * its + j][blockIdx.y]))[idx] = modadd(((uint64_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid);
 			}
@@ -1160,7 +1258,7 @@ __global__ void add_reuse_scale_p_b___(void*** a, void*** b, const int primeid_i
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint32_t load = ((uint32_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = modadd(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid);
 			}
@@ -1170,11 +1268,11 @@ __global__ void add_reuse_scale_p_b___(void*** a, void*** b, const int primeid_i
 
 __global__ void sub_reuse_scale_p_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, C_.P[primeid], primeid, C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, C_.P[primeid], primeid, C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint64_t*)(a[i * its + j][blockIdx.y]))[idx] = modsub(((uint64_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid);
 			}
@@ -1182,7 +1280,7 @@ __global__ void sub_reuse_scale_p_b___(void*** a, void*** b, const int primeid_i
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint32_t load = ((uint32_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = modsub(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid);
 			}
@@ -1192,7 +1290,7 @@ __global__ void sub_reuse_scale_p_b___(void*** a, void*** b, const int primeid_i
 
 __global__ void add_scale_p_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1204,9 +1302,12 @@ __global__ void add_scale_p_reuse_b___(void*** a, void*** b, const int primeid_i
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint32_t load = ((uint32_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
-				uint32_t aux = modmult<ALGO_SHOUP>(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx], (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+				uint32_t aux = modmult<ALGO_SHOUP>(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx],
+				                                   (uint32_t)C_.P[primeid],
+				                                   primeid,
+				                                   (uint32_t)C_.P_shoup[primeid]);
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = modadd(aux, load, primeid);
 			}
 		}
@@ -1215,7 +1316,7 @@ __global__ void add_scale_p_reuse_b___(void*** a, void*** b, const int primeid_i
 
 __global__ void sub_scale_p_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1227,9 +1328,12 @@ __global__ void sub_scale_p_reuse_b___(void*** a, void*** b, const int primeid_i
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint32_t load = ((uint32_t*)(b[i][blockIdx.y]))[idx];
-			load		  = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+			load          = modmult<ALGO_SHOUP>(load, (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
-				uint32_t aux = modmult<ALGO_SHOUP>(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx], (uint32_t)C_.P[primeid], primeid, (uint32_t)C_.P_shoup[primeid]);
+				uint32_t aux = modmult<ALGO_SHOUP>(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx],
+				                                   (uint32_t)C_.P[primeid],
+				                                   primeid,
+				                                   (uint32_t)C_.P_shoup[primeid]);
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = modsub(aux, load, primeid);
 			}
 		}
@@ -1238,7 +1342,7 @@ __global__ void sub_scale_p_reuse_b___(void*** a, void*** b, const int primeid_i
 
 __global__ void copy_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1258,11 +1362,11 @@ __global__ void copy_reuse_b___(void*** a, void*** b, const int primeid_init, co
 
 __global__ void copy_reuse_negative_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
-			load		  = load == 0 ? 0 : C_.primes[primeid] - load;
+			load          = load == 0 ? 0 : C_.primes[primeid] - load;
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint64_t*)(a[i * its + j][blockIdx.y]))[idx] = load;
 			}
@@ -1270,7 +1374,7 @@ __global__ void copy_reuse_negative_b___(void*** a, void*** b, const int primeid
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint32_t load = ((uint32_t*)(b[i][blockIdx.y]))[idx];
-			load		  = load == 0 ? 0 : C_.primes[primeid] - load;
+			load          = load == 0 ? 0 : C_.primes[primeid] - load;
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = load;
 			}
@@ -1280,7 +1384,7 @@ __global__ void copy_reuse_negative_b___(void*** a, void*** b, const int primeid
 
 __global__ void add_scalar_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)b)[i * MAXP + primeid];
@@ -1300,10 +1404,10 @@ __global__ void add_scalar_reuse_b___(void*** a, void*** b, const int primeid_in
 
 __global__ void mult_scalar_reuse_b___(void*** a, void*** b, void*** b_shoup, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
-			uint64_t load		= ((uint64_t*)b)[i * MAXP + primeid];
+			uint64_t load       = ((uint64_t*)b)[i * MAXP + primeid];
 			uint64_t load_shoup = ((uint64_t*)b_shoup)[i * MAXP + primeid];
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint64_t*)(a[i * its + j][blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(((uint64_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid, load_shoup);
@@ -1311,7 +1415,7 @@ __global__ void mult_scalar_reuse_b___(void*** a, void*** b, void*** b_shoup, co
 		}
 	} else {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
-			uint32_t load		= ((uint32_t*)b)[i * MAXP + primeid];
+			uint32_t load       = ((uint32_t*)b)[i * MAXP + primeid];
 			uint32_t load_shoup = ((uint32_t*)b_shoup)[i * MAXP + primeid];
 			for (int j = 0; j < its && a[i * its + j] != nullptr; ++j) {
 				((uint32_t*)(a[i * its + j][blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(((uint32_t*)(a[i * its + j][blockIdx.y]))[idx], load, primeid, load_shoup);
@@ -1322,7 +1426,7 @@ __global__ void mult_scalar_reuse_b___(void*** a, void*** b, void*** b_shoup, co
 
 __global__ void sub_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1342,7 +1446,7 @@ __global__ void sub_reuse_b___(void*** a, void*** b, const int primeid_init, con
 
 __global__ void mult_reuse_b___(void*** a, void*** b, const int primeid_init, const int n, const int its) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
 	if (ISU64(primeid)) {
 		for (int i = blockIdx.z; i < n / its; i += gridDim.z) {
 			uint64_t load = ((uint64_t*)(b[i][blockIdx.y]))[idx];
@@ -1362,156 +1466,166 @@ __global__ void mult_reuse_b___(void*** a, void*** b, const int primeid_init, co
 
 __global__ void binomialMult_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2, void** d0, void** d1) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
 		using T = uint64_t;
-		T d0in	= ((T*)(d0[blockIdx.y]))[idx];
-		T d1in	= ((T*)(d1[blockIdx.y]))[idx];
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T d0in  = ((T*)(d0[blockIdx.y]))[idx];
+		T d1in  = ((T*)(d1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, d0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, d0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = aux0;
 
-		T aux1						= modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
+		T aux1                      = modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
 		((T*)(c1[blockIdx.y]))[idx] = aux1;
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, d1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, d1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 
 	} else {
 		using T = uint32_t;
-		T d0in	= ((T*)(d0[blockIdx.y]))[idx];
-		T d1in	= ((T*)(d1[blockIdx.y]))[idx];
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T d0in  = ((T*)(d0[blockIdx.y]))[idx];
+		T d1in  = ((T*)(d1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, d0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, d0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = aux0;
 
-		T aux1						= modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
+		T aux1                      = modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
 		((T*)(c1[blockIdx.y]))[idx] = aux1;
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, d1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, d1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 	}
 }
 
 __global__ void binomialMultExtend_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2, void** d0, void** d1) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
 		using T = uint64_t;
-		T d0in	= ((T*)(d0[blockIdx.y]))[idx];
-		T d1in	= ((T*)(d1[blockIdx.y]))[idx];
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T d0in  = ((T*)(d0[blockIdx.y]))[idx];
+		T d1in  = ((T*)(d1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, d0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, d0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(aux0, (T)C_.P[primeid], primeid, (T)C_.P_shoup[primeid]);
 
-		T aux1						= modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
+		T aux1                      = modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(aux1, (T)C_.P[primeid], primeid, (T)C_.P_shoup[primeid]);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, d1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, d1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 
 	} else {
 		using T = uint32_t;
-		T d0in	= ((T*)(d0[blockIdx.y]))[idx];
-		T d1in	= ((T*)(d1[blockIdx.y]))[idx];
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T d0in  = ((T*)(d0[blockIdx.y]))[idx];
+		T d1in  = ((T*)(d1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, d0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, d0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(aux0, (T)C_.P[primeid], primeid, (T)C_.P_shoup[primeid]);
 
-		T aux1						= modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
+		T aux1                      = modadd(modmult<ALGO_BARRETT>(c0in, d1in, primeid), modmult<ALGO_BARRETT>(c1in, d0in, primeid), primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(aux1, (T)C_.P[primeid], primeid, (T)C_.P_shoup[primeid]);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, d1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, d1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 	}
 }
 
 __global__ void binomialSquare_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
 		using T = uint64_t;
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, c0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, c0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = aux0;
 
-		T aux1						= modmult<ALGO_BARRETT>(c0in, c1in, primeid);
+		T aux1                      = modmult<ALGO_BARRETT>(c0in, c1in, primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modadd(aux1, aux1, primeid);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, c1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, c1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 
 	} else {
 		using T = uint32_t;
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, c0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, c0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = aux0;
 
-		T aux1						= modmult<ALGO_BARRETT>(c0in, c1in, primeid);
+		T aux1                      = modmult<ALGO_BARRETT>(c0in, c1in, primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modadd(aux1, aux1, primeid);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, c1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, c1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 	}
 }
 
 __global__ void binomialSquareExtend_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
 		using T = uint64_t;
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, c0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, c0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(aux0, C_.P[primeid], primeid, C_.P_shoup[primeid]);
 
-		T aux1						= modmult<ALGO_BARRETT>(c0in, c1in, primeid);
+		T aux1                      = modmult<ALGO_BARRETT>(c0in, c1in, primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modmult<ALGO_SHOUP>(modadd(aux1, aux1, primeid), C_.P[primeid], primeid, C_.P_shoup[primeid]);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, c1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, c1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 
 	} else {
 		using T = uint32_t;
-		T c0in	= ((T*)(c0[blockIdx.y]))[idx];
-		T c1in	= ((T*)(c1[blockIdx.y]))[idx];
+		T c0in  = ((T*)(c0[blockIdx.y]))[idx];
+		T c1in  = ((T*)(c1[blockIdx.y]))[idx];
 
-		T aux0						= modmult<ALGO_BARRETT>(c0in, c0in, primeid);
+		T aux0                      = modmult<ALGO_BARRETT>(c0in, c0in, primeid);
 		((T*)(c0[blockIdx.y]))[idx] = aux0;
 
-		T aux1						= modmult<ALGO_BARRETT>(c0in, c1in, primeid);
+		T aux1                      = modmult<ALGO_BARRETT>(c0in, c1in, primeid);
 		((T*)(c1[blockIdx.y]))[idx] = modadd(aux1, aux1, primeid);
 
-		T aux2						= modmult<ALGO_BARRETT>(c1in, c1in, primeid);
+		T aux2                      = modmult<ALGO_BARRETT>(c1in, c1in, primeid);
 		((T*)(c2[blockIdx.y]))[idx] = aux2;
 	}
 }
 
 __global__ void
-binomialDotProdBatched___(const __grid_constant__ int primeid_init, void*** c0, void*** c1, void*** d0, void*** d1, void*** c0_out, void*** c1_out, void*** c2_out, int its, int n, bool ext_in) {
+binomialDotProdBatched___(const __grid_constant__ int primeid_init,
+                          void*** c0,
+                          void*** c1,
+                          void*** d0,
+                          void*** d1,
+                          void*** c0_out,
+                          void*** c1_out,
+                          void*** c2_out,
+                          int its,
+                          int n,
+                          bool ext_in) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
@@ -1593,19 +1707,19 @@ binomialDotProdBatched___(const __grid_constant__ int primeid_init, void*** c0, 
 }
 
 __global__ void binomialDotProdSpecialBatched___(const __grid_constant__ int primeid_init,
-  void*** c0,
-  void*** c1,
-  void*** d0,
-  void*** d1,
-  void*** pt1,
-  void*** pt2,
-  void*** c0_out,
-  void*** c1_out,
-  void*** c2_out,
-  int its,
-  int n) {
+                                                 void*** c0,
+                                                 void*** c1,
+                                                 void*** d0,
+                                                 void*** d1,
+                                                 void*** pt1,
+                                                 void*** pt2,
+                                                 void*** c0_out,
+                                                 void*** c1_out,
+                                                 void*** c2_out,
+                                                 int its,
+                                                 int n) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx	  = threadIdx.x + blockDim.x * blockIdx.x;
+	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
 	// constexpr ALGO algo = ALGO_BARRETT;
 
 	if (ISU64(primeid)) {
@@ -1621,8 +1735,8 @@ __global__ void binomialDotProdSpecialBatched___(const __grid_constant__ int pri
 				{
 					T pt1in = ((T*)(pt1[i * its + j][blockIdx.y]))[idx];
 					T pt2in = ((T*)(pt2[i * its + j][blockIdx.y]))[idx];
-					c0in	= modadd(modmult<ALGO_BARRETT>(c0in, pt1in, primeid), modmult<ALGO_BARRETT>(c0in, pt2in, primeid), primeid);
-					c1in	= modadd(modmult<ALGO_BARRETT>(c1in, pt1in, primeid), modmult<ALGO_BARRETT>(c1in, pt2in, primeid), primeid);
+					c0in    = modadd(modmult<ALGO_BARRETT>(c0in, pt1in, primeid), modmult<ALGO_BARRETT>(c0in, pt2in, primeid), primeid);
+					c1in    = modadd(modmult<ALGO_BARRETT>(c1in, pt1in, primeid), modmult<ALGO_BARRETT>(c1in, pt2in, primeid), primeid);
 				}
 
 				T aux0 = modmult<ALGO_BARRETT>(c0in, d0in, primeid);
@@ -1660,8 +1774,8 @@ __global__ void binomialDotProdSpecialBatched___(const __grid_constant__ int pri
 				{
 					T pt1in = ((T*)(pt1[i * its + j][blockIdx.y]))[idx];
 					T pt2in = ((T*)(pt2[i * its + j][blockIdx.y]))[idx];
-					c0in	= modadd(modmult<ALGO_BARRETT>(c0in, pt1in, primeid), modmult<ALGO_BARRETT>(c0in, pt2in, primeid), primeid);
-					c1in	= modadd(modmult<ALGO_BARRETT>(c1in, pt1in, primeid), modmult<ALGO_BARRETT>(c1in, pt2in, primeid), primeid);
+					c0in    = modadd(modmult<ALGO_BARRETT>(c0in, pt1in, primeid), modmult<ALGO_BARRETT>(c0in, pt2in, primeid), primeid);
+					c1in    = modadd(modmult<ALGO_BARRETT>(c1in, pt1in, primeid), modmult<ALGO_BARRETT>(c1in, pt2in, primeid), primeid);
 				}
 
 				T aux0 = modmult<ALGO_BARRETT>(c0in, d0in, primeid);

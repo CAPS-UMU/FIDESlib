@@ -37,8 +37,8 @@
 #include <vector>
 
 template <> std::map<std::string, std::vector<lbcrypto::EvalKey<lbcrypto::DCRTPoly>>> lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalMultKeyMap;
-template <>
-std::map<std::string, std::shared_ptr<std::map<uint32_t, lbcrypto::EvalKey<lbcrypto::DCRTPoly>>>> lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalAutomorphismKeyMap;
+template <> std::map<std::string, std::shared_ptr<std::map<uint32_t, lbcrypto::EvalKey<lbcrypto::DCRTPoly>>>> lbcrypto::CryptoContextImpl<
+	lbcrypto::DCRTPoly>::s_evalAutomorphismKeyMap;
 
 namespace fideslib {
 
@@ -51,50 +51,50 @@ inline void EnsureMutableCpuCiphertext(Ciphertext<DCRTPoly>& ct) {
 } // namespace
 
 static std::vector<FIDESlib::PrimeRecord> p64{ { .p = 2305843009218281473 },
-	{ .p = 2251799661248513 },
-	{ .p = 2251799661641729 },
-	{ .p = 2251799665180673 },
-	{ .p = 2251799682088961 },
-	{ .p = 2251799678943233 },
-	{ .p = 2251799717609473 },
-	{ .p = 2251799710138369 },
-	{ .p = 2251799708827649 },
-	{ .p = 2251799707385857 },
-	{ .p = 2251799713677313 },
-	{ .p = 2251799712366593 },
-	{ .p = 2251799716691969 },
-	{ .p = 2251799714856961 },
-	{ .p = 2251799726522369 },
-	{ .p = 2251799726129153 },
-	{ .p = 2251799747493889 },
-	{ .p = 2251799741857793 },
-	{ .p = 2251799740416001 },
-	{ .p = 2251799746707457 },
-	{ .p = 2251799756013569 },
-	{ .p = 2251799775805441 },
-	{ .p = 2251799763091457 },
-	{ .p = 2251799767154689 },
-	{ .p = 2251799765975041 },
-	{ .p = 2251799770562561 },
-	{ .p = 2251799769776129 },
-	{ .p = 2251799772266497 },
-	{ .p = 2251799775281153 },
-	{ .p = 2251799774887937 },
-	{ .p = 2251799797432321 },
-	{ .p = 2251799787995137 },
-	{ .p = 2251799787601921 },
-	{ .p = 2251799791403009 },
-	{ .p = 2251799789568001 },
-	{ .p = 2251799795466241 },
-	{ .p = 2251799807131649 },
-	{ .p = 2251799806345217 },
-	{ .p = 2251799805165569 },
-	{ .p = 2251799813554177 },
-	{ .p = 2251799809884161 },
-	{ .p = 2251799810670593 },
-	{ .p = 2251799818928129 },
-	{ .p = 2251799816568833 },
-	{ .p = 2251799815520257 } };
+                                               { .p = 2251799661248513 },
+                                               { .p = 2251799661641729 },
+                                               { .p = 2251799665180673 },
+                                               { .p = 2251799682088961 },
+                                               { .p = 2251799678943233 },
+                                               { .p = 2251799717609473 },
+                                               { .p = 2251799710138369 },
+                                               { .p = 2251799708827649 },
+                                               { .p = 2251799707385857 },
+                                               { .p = 2251799713677313 },
+                                               { .p = 2251799712366593 },
+                                               { .p = 2251799716691969 },
+                                               { .p = 2251799714856961 },
+                                               { .p = 2251799726522369 },
+                                               { .p = 2251799726129153 },
+                                               { .p = 2251799747493889 },
+                                               { .p = 2251799741857793 },
+                                               { .p = 2251799740416001 },
+                                               { .p = 2251799746707457 },
+                                               { .p = 2251799756013569 },
+                                               { .p = 2251799775805441 },
+                                               { .p = 2251799763091457 },
+                                               { .p = 2251799767154689 },
+                                               { .p = 2251799765975041 },
+                                               { .p = 2251799770562561 },
+                                               { .p = 2251799769776129 },
+                                               { .p = 2251799772266497 },
+                                               { .p = 2251799775281153 },
+                                               { .p = 2251799774887937 },
+                                               { .p = 2251799797432321 },
+                                               { .p = 2251799787995137 },
+                                               { .p = 2251799787601921 },
+                                               { .p = 2251799791403009 },
+                                               { .p = 2251799789568001 },
+                                               { .p = 2251799795466241 },
+                                               { .p = 2251799807131649 },
+                                               { .p = 2251799806345217 },
+                                               { .p = 2251799805165569 },
+                                               { .p = 2251799813554177 },
+                                               { .p = 2251799809884161 },
+                                               { .p = 2251799810670593 },
+                                               { .p = 2251799818928129 },
+                                               { .p = 2251799816568833 },
+                                               { .p = 2251799815520257 } };
 
 static std::vector<FIDESlib::PrimeRecord> sp64{ { .p = 2305843009218936833 },
                                                 { .p = 2305843009220116481 },
@@ -678,12 +678,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalNegate(const Ciphertext<DC
 
 	// Exact negation (multiply each limb by q_i - 1), matching OpenFHE's EvalNegate:
 	// no noise-degree or scaling-factor change, unlike multScalar(-1.0).
-	auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
-	std::vector<uint64_t> negOne(res_gpu->getLevel() + 1);
-	for (size_t i = 0; i < negOne.size(); ++i)
-		negOne[i] = context_gpu->prime[i].p - 1;
-	res_gpu->c0.multScalar(negOne);
-	res_gpu->c1.multScalar(negOne);
+	res_gpu->negate();
 	return result;
 }
 
@@ -706,12 +701,7 @@ void CryptoContextImpl<DCRTPoly>::EvalNegateInPlace(Ciphertext<DCRTPoly>& ct) {
 	auto ct_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
 
 	// Exact negation (multiply each limb by q_i - 1), matching OpenFHE's EvalNegate.
-	auto& context_gpu = std::any_cast<FIDESlib::CKKS::Context&>(this->gpu);
-	std::vector<uint64_t> negOne(ct_gpu->getLevel() + 1);
-	for (size_t i = 0; i < negOne.size(); ++i)
-		negOne[i] = context_gpu->prime[i].p - 1;
-	ct_gpu->c0.multScalar(negOne);
-	ct_gpu->c1.multScalar(negOne);
+	ct_gpu->negate();
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAdd(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
@@ -1700,7 +1690,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::Rescale(const Ciphertext<DCRTP
 
 	Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ciphertext);
 	auto res_gpu                = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
-	res_gpu->rescale();
+	res_gpu->rescaleInternal();
 
 	return result;
 }
@@ -1723,7 +1713,7 @@ void CryptoContextImpl<DCRTPoly>::RescaleInPlace(Ciphertext<DCRTPoly>& ciphertex
 	this->LoadCiphertext(ciphertext);
 
 	auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ciphertext->gpu));
-	res_gpu->rescale();
+	res_gpu->rescaleInternal();
 }
 
 void CryptoContextImpl<DCRTPoly>::SetLevel(Ciphertext<DCRTPoly>& ct, size_t level) {
@@ -1782,7 +1772,7 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& cip
 	FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled);
 }
 
-constexpr int ACCUMULATE_SUM_RADIX = 2;
+constexpr int ACCUMULATE_SUM_RADIX = PARTIAL_SUM_RADIX;
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride) {
 	FIDESlib::CudaNvtxRange r("API");

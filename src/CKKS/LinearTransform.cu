@@ -72,7 +72,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
 
 	if (ctxt.NoiseLevel == 2)
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 	assert(pts[0]->c0.getLevel() == ctxt.getLevel());
 	{
 		std::vector<Ciphertext> fastRotation;
@@ -264,7 +264,7 @@ void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bSt
 	// ContextData& cc = ctxt.cc;
 
 	if (ctxt.NoiseLevel == 2)
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 
 	// Internal block size for DotProductPtInternal
 	constexpr uint32_t INTERNAL_GSTEP = 8;
@@ -459,7 +459,7 @@ void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
 	// ContextData& cc = ctxt.cc;
 
 	if (ctxt.NoiseLevel == 2)
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 
 	// Internal block size for DotProductPtInternal (same as ConvolutionTransform)
 	constexpr uint32_t INTERNAL_GSTEP = 8;
@@ -645,7 +645,7 @@ void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
 				blockResults[0]->modDown(false);
 
 			ctxt.copy(*blockResults[0]);
-			ctxt.rescale();
+			ctxt.rescaleInternal();
 		}
 	}
 }
@@ -846,11 +846,11 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
 
 	if (ctxt1.NoiseLevel == 2)
-		ctxt1.rescale();
+		ctxt1.rescaleInternal();
 	if (ctxt2.NoiseLevel == 2)
-		ctxt2.rescale();
+		ctxt2.rescaleInternal();
 	if (ctxt3.NoiseLevel == 2)
-		ctxt3.rescale();
+		ctxt3.rescaleInternal();
 
 	std::vector<Ciphertext> fastRotation;
 
@@ -1031,11 +1031,11 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
 
 	if (ctxt1.NoiseLevel == 2)
-		ctxt1.rescale();
+		ctxt1.rescaleInternal();
 	if (ctxt2.NoiseLevel == 2)
-		ctxt2.rescale();
+		ctxt2.rescaleInternal();
 	if (ctxt3.NoiseLevel == 2)
-		ctxt3.rescale();
+		ctxt3.rescaleInternal();
 
 	std::vector<Ciphertext> fastRotation;
 
@@ -1154,7 +1154,7 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 	}
 
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel() - 1] * cc.param.ModReduceFactor[result.getLevel()];
-	result.rescale();
+	result.rescaleInternal();
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel()];
 	ctxt1.copy(result);
 	CudaCheckErrorModNoSync;
@@ -1280,9 +1280,9 @@ void FIDESlib::CKKS::LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
 	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
 
 	if (ctxt1.NoiseLevel == 2)
-		ctxt1.rescale();
+		ctxt1.rescaleInternal();
 	if (ctxt2.NoiseLevel == 2)
-		ctxt2.rescale();
+		ctxt2.rescaleInternal();
 
 	std::vector<Ciphertext> fastRotation;
 
@@ -1375,7 +1375,7 @@ void FIDESlib::CKKS::LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
 	}
 
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel() - 1] * cc.param.ModReduceFactor[result.getLevel()];
-	result.rescale();
+	result.rescaleInternal();
 	// result.rescale();
 	result.NoiseFactor = cc.param.ScalingFactorRealBig[result.getLevel()];
 

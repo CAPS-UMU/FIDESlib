@@ -94,7 +94,7 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 	// Ciphertext& result = ctxt;
 	// hoisted automorphisms
 	if (ctxt.NoiseLevel == 2)
-		ctxt.rescale();
+		ctxt.rescaleInternal();
 
 	for (BootstrapPrecomputation::LTstep& step : (decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS)) {
 		// computes the NTTs for each CRT limb (for the hoisted automorphisms used later on)

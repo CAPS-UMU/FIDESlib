@@ -37,16 +37,16 @@ class Ciphertext {
 	/** @brief NVTX range object for profiling this class' methods. */
 	CudaNvtxRange my_range;
 
-  public:
+public:
 	/** @brief Identifier for the key associated with this ciphertext. */
 	KeyHash keyID{ "" };
 	/** @brief Reference to the CKKS context owning this ciphertext. */
-	Context& cc_;
+	Context cc_;
 	/** @brief Reference to the context data (metadata) for this ciphertext. */
 	ContextData& cc;
 	/** @brief The two polynomial components of the ciphertext (c0 and c1). */
 	RNSPoly c0, c1;
-	/** @brief Accumulated noise factor for this ciphertext. */
+	/** @brief Scaling factor for this ciphertext. */
 	double NoiseFactor = 0;
 	/** @brief Discrete noise level indicator. */
 	int NoiseLevel = { 1 };
@@ -60,6 +60,7 @@ class Ciphertext {
 	 * @param ct_moved Rvalue reference to the source Ciphertext.
 	 */
 	Ciphertext(Ciphertext&& ct_moved) noexcept;
+	Ciphertext& operator=(Ciphertext&& ct_moved) noexcept;
 
 	/**
 	 * @brief Constructs an empty Ciphertext bound to a given context.
@@ -68,7 +69,7 @@ class Ciphertext {
 	 *
 	 * @param cc Reference to the CKKS Context the ciphertext belongs to.
 	 */
-	explicit Ciphertext(Context& cc);
+	explicit Ciphertext(const Context& cc);
 
 	/**
 	 * @brief Constructs a Ciphertext from a serialized RawCipherText.
@@ -78,7 +79,7 @@ class Ciphertext {
 	 * @param cc   Reference to the CKKS Context.
 	 * @param rawct Serialized representation of a ciphertext.
 	 */
-	Ciphertext(Context& cc, const RawCipherText& rawct);
+	Ciphertext(const Context& cc, const RawCipherText& rawct);
 
 	/** @brief Destructor. Releases any allocated resources. */
 	~Ciphertext();
@@ -165,6 +166,7 @@ class Ciphertext {
 	 * @param b Ciphertext to add.
 	 */
 	void add(const Ciphertext& b);
+	void addMutable(Ciphertext& b);
 
 	/**
 	 * @brief Subtracts another ciphertext from *this* (in‑place).
@@ -176,6 +178,7 @@ class Ciphertext {
 	 * @param b Ciphertext to subtract.
 	 */
 	void sub(const Ciphertext& b);
+	void subMutable(Ciphertext& b);
 
 	/**
 	 * @brief Adds a plaintext to *this* ciphertext (in‑place).
@@ -188,6 +191,7 @@ class Ciphertext {
 	 * @param b Plaintext operand.
 	 */
 	void addPt(const Plaintext& b);
+	void addPtMutable(Plaintext& b);
 
 	/**
 	 * @brief Subtracts a plaintext from *this* ciphertext (in‑place).
@@ -197,6 +201,7 @@ class Ciphertext {
 	 * @param pt Plaintext operand.
 	 */
 	void subPt(const Plaintext& pt);
+	void subPtMutable(Plaintext& b);
 
 	/**
 	 * @brief Adds a scalar (double) to both polynomial components.
@@ -225,6 +230,7 @@ class Ciphertext {
 	 * @param ignore_scales
 	 */
 	void multPt(const Plaintext& b, bool rescale = false, bool ignore_scales = false);
+	void multPtMutable(Plaintext& b, bool rescale = false);
 
 	/**
 	 * @brief Multiplies a ciphertext `c` by a plaintext and stores the result in *this*.
@@ -236,6 +242,7 @@ class Ciphertext {
 	 * @param rescale Perform rescaling after multiplication if true.
 	 */
 	void multPt(const Ciphertext& c, const Plaintext& b, bool rescale = false);
+	void multPtMutable(const Ciphertext& c, Plaintext& b, bool rescale = false);
 
 	/**
 	 * @brief Computes `*this + (c * b)` in a single fused operation.
@@ -263,6 +270,7 @@ class Ciphertext {
 	 * @param moddown Perform modulus down‑conversion if true.
 	 */
 	void mult(const Ciphertext& b, bool rescale = false, bool moddown = true);
+	void multMutable(Ciphertext& b, bool rescale = false, bool moddown = true);
 
 	/**
 	 * @brief Multiplies two ciphertexts and stores the result in *this*.
@@ -276,6 +284,7 @@ class Ciphertext {
 	 * @param rescale Perform rescaling after multiplication if true.
 	 */
 	void mult(const Ciphertext& b, const Ciphertext& c, bool rescale = false);
+	void multMutable(Ciphertext& b, Ciphertext& c, bool rescale = false);
 
 	/**
 	 * @brief Multiplies both polynomial components by a scalar without pre‑checks.
@@ -383,8 +392,11 @@ class Ciphertext {
 	void modUp();
 
 	/** @brief Rescales the ciphertext to the next level, adjusting scaling factor. */
+	void rescaleInternal();
 	void rescale();
 
+	void addMutable(const Ciphertext& b, Ciphertext& c);
+	void addMutable(Ciphertext& b, const Ciphertext& c);
 	/**
 	 * @brief Grows the ciphertext to at least `level` by performing necessary modulus upgrades.
 	 *
@@ -466,7 +478,17 @@ class Ciphertext {
 	 * @param weights Vector of weights applied to each ciphertext.
 	 */
 	void evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*>& ctxs, std::vector<double> weights);
+	void evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+	                                   std::vector<double> weights,
+	                                   double bias,
+	                                   int limit        = 0,
+	                                   int target_level = -1,
+	                                   int rescale      = true);
 
+	static std::vector<Ciphertext> evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+	                                                                     std::vector<std::vector<double>> weights,
+	                                                                     std::vector<int> target_level,
+	                                                                     int rescale);
 	/**
 	 * @brief Adds a scaled version of `ciphertext` (multiplied by `d`) to *this*.
 	 *
@@ -499,6 +521,7 @@ class Ciphertext {
 	 * @param ciphertext1  Second operand.
 	 */
 	void add(const Ciphertext& ciphertext, const Ciphertext& ciphertext1);
+	void addMutable(Ciphertext& b, Ciphertext& c);
 
 	/**
 	 * @brief Subtracts the second ciphertext from the first and stores the result in *this*.
@@ -509,6 +532,7 @@ class Ciphertext {
 	 * @param ciphertext1  Subtrahend.
 	 */
 	void sub(const Ciphertext& ciphertext, const Ciphertext& ciphertext1);
+	void subMutable(const Ciphertext& ciphertext, Ciphertext& ciphertext1);
 	bool adjustScaleAndLevel(int scaleDegree, int level, double scaling_factor);
 
 	/**
@@ -525,6 +549,7 @@ class Ciphertext {
 	 * @param plaintext  Plaintext operand.
 	 */
 	void addPt(const Ciphertext& ciphertext, const Plaintext& plaintext);
+	void addPtMutable(const Ciphertext& ciphertext, Plaintext& plaintext);
 
 	/**
 	 * @brief Reinterprets the internal data of `ciphertext` under the current context.
@@ -576,6 +601,8 @@ class Ciphertext {
 	 * @return `true` if scaling factors match within tolerance.
 	 */
 	[[nodiscard]] bool hasSameScalingFactor(const Plaintext& b) const;
+	void negate();
+	void negate(const Ciphertext& ciphertext);
 
 	/** @brief Clears the operation record used for debugging/tracing. */
 	static void clearOpRecord();

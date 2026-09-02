@@ -18,7 +18,7 @@ class RNSPoly {
 	int level;
 	bool modUp = false;
 
-  public:
+public:
 	std::vector<LimbPartition> GPU;
 
 	explicit RNSPoly(ContextData& context, int level = -1, bool single_malloc = false, bool def_stream = false);
@@ -85,12 +85,12 @@ class RNSPoly {
 	RNSPoly& dotKSKInPlace(const KeySwitchingKey& ksk, RNSPoly* limb_src);
 
 	void hoistedRotationFused(std::vector<int> indexes,
-	  std::vector<RNSPoly*>& c0,
-	  std::vector<RNSPoly*>& c1,
-	  const std::vector<RNSPoly*>& ksk_a,
-	  const std::vector<RNSPoly*>& ksk_b,
-	  const RNSPoly& src_c0,
-	  const RNSPoly& src_c1);
+	                          std::vector<RNSPoly*>& c0,
+	                          std::vector<RNSPoly*>& c1,
+	                          const std::vector<RNSPoly*>& ksk_a,
+	                          const std::vector<RNSPoly*>& ksk_b,
+	                          const RNSPoly& src_c0,
+	                          const RNSPoly& src_c1);
 
 	/** Change the polynomial level only superficially, be very careful as this should only be used for lower
 	 * level optimizations.
@@ -107,22 +107,26 @@ class RNSPoly {
 	void dropToLevel(int level);
 	void addMult(const RNSPoly& poly, const RNSPoly& poly1);
 	void broadcastLimb0();
-	void evalLinearWSum(uint32_t i, std::vector<const RNSPoly*>& vector1, std::vector<uint64_t>& vector2);
+	void evalLinearWSum(uint32_t i, std::vector<const RNSPoly*>& vector1, std::vector<uint64_t>& vector2, bool with_bias = false);
 	void loadConstant(const std::vector<std::vector<uint64_t>>& vector1, const std::vector<uint64_t>& vector2);
 	void rotateModupDotKSK(RNSPoly& poly, RNSPoly& poly1, const KeySwitchingKey& key);
 	void squareModupDotKSK(RNSPoly& c0, RNSPoly& c1, const KeySwitchingKey& key);
 	void generatePartialSpecialLimbs();
 	void dotKSKfused(RNSPoly& out2, const RNSPoly& digitSrc, const RNSPoly& ksk_a, const RNSPoly& ksk_b, const RNSPoly* source);
-	void dotProductPt(RNSPoly& c1, const std::vector<const RNSPoly*>& c0s, const std::vector<const RNSPoly*>& c1s, const std::vector<const RNSPoly*>& pts, bool ext);
+	void dotProductPt(RNSPoly& c1,
+	                  const std::vector<const RNSPoly*>& c0s,
+	                  const std::vector<const RNSPoly*>& c1s,
+	                  const std::vector<const RNSPoly*>& pts,
+	                  bool ext);
 	RNSPoly& dotProduct(RNSPoly& c1,
-	  const RNSPoly& kskb,
-	  const RNSPoly& kska,
-	  const std::vector<const RNSPoly*>& c0in,
-	  const std::vector<const RNSPoly*>& c1in,
-	  const std::vector<const RNSPoly*>& d0in,
-	  const std::vector<const RNSPoly*>& d1in,
-	  bool ext_in,
-	  bool ext_out);
+	                    const RNSPoly& kskb,
+	                    const RNSPoly& kska,
+	                    const std::vector<const RNSPoly*>& c0in,
+	                    const std::vector<const RNSPoly*>& c1in,
+	                    const std::vector<const RNSPoly*>& d0in,
+	                    const std::vector<const RNSPoly*>& d1in,
+	                    bool ext_in,
+	                    bool ext_out);
 	void gatherAllLimbs();
 	void generateGatherLimbs();
 	void copyShallow(const RNSPoly& poly);
@@ -133,25 +137,37 @@ class RNSPoly {
 
 	void binomialMult(RNSPoly& c1, RNSPoly& in, const RNSPoly& d0, const RNSPoly& d1, bool moddown, bool square);
 
+	static void evalLinearWSumMultiple(int max_n,
+	                                   const std::vector<const RNSPoly*>& in,
+	                                   const std::vector<RNSPoly*>& out,
+	                                   const std::vector<uint64_t>& elem,
+	                                   bool isC1);
 	static void multScalarBatchManyToOne(std::vector<RNSPoly*>& polya,
-	  const std::vector<std::vector<unsigned long int>>& vector,
-	  const std::vector<std::vector<unsigned long int>>& vectors,
-	  int stride,
-	  double usage);
+	                                     const std::vector<std::vector<unsigned long int>>& vector,
+	                                     const std::vector<std::vector<unsigned long int>>& vectors,
+	                                     int stride,
+	                                     double usage);
 	static void addScalarBatchManyToOne(std::vector<RNSPoly*>& polya, const std::vector<std::vector<unsigned long int>>& vector, int stride, double usage);
 	static void multPtBatchManyToOne(std::vector<RNSPoly*>& polya, const std::vector<RNSPoly*>& polyb, int stride, double usage);
 	static void addBatchManyToOne(std::vector<RNSPoly*>& polya, const std::vector<RNSPoly*>& polyb, int stride, double usage, bool sub, bool exta, bool extb);
 
 	static void
-	LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<RNSPoly*>& in, const std::vector<RNSPoly*>& pt, int bStep, int gStep, int stride, double usage, bool ext);
+	LTdotProductPtBatch(std::vector<RNSPoly*>& out,
+	                    const std::vector<RNSPoly*>& in,
+	                    const std::vector<RNSPoly*>& pt,
+	                    int bStep,
+	                    int gStep,
+	                    int stride,
+	                    double usage,
+	                    bool ext);
 	static void fusedHoistedRotateBatch(std::vector<RNSPoly*>& out,
-	  const std::vector<RNSPoly*>& in,
-	  const std::vector<RNSPoly*>& ksk_a,
-	  const std::vector<RNSPoly*>& ksk_b,
-	  const std::vector<int>& indexes,
-	  int stride,
-	  double usage,
-	  bool c0_modup);
+	                                    const std::vector<RNSPoly*>& in,
+	                                    const std::vector<RNSPoly*>& ksk_a,
+	                                    const std::vector<RNSPoly*>& ksk_b,
+	                                    const std::vector<int>& indexes,
+	                                    int stride,
+	                                    double usage,
+	                                    bool c0_modup);
 };
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_CKKS_RNSPOLY_CUH

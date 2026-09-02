@@ -65,12 +65,12 @@ constexpr std::array<const char*, 18> opstr{ "                   Noop: ",
 std::map<OPS, int> op_count;
 
 Ciphertext::Ciphertext(Ciphertext&& ct_moved) noexcept
-	: my_range(std::move(ct_moved.my_range)), keyID(std::move(ct_moved.keyID)), cc_(ct_moved.cc_), cc(*cc_), c0(std::move(ct_moved.c0)),
+	: my_range(std::move(ct_moved.my_range)), keyID(std::move(ct_moved.keyID)), cc_(std::move(ct_moved.cc_)), cc(ct_moved.cc), c0(std::move(ct_moved.c0)),
 	  c1(std::move(ct_moved.c1)),
 	  NoiseFactor(ct_moved.NoiseFactor), NoiseLevel(ct_moved.NoiseLevel), slots(ct_moved.slots) {
 }
 
-Ciphertext::Ciphertext(Context& cc)
+Ciphertext::Ciphertext(const Context& cc)
 	: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
 	  c0(cc->getAuxilarPoly()), c1(cc->getAuxilarPoly()) {
 	c0.dropToLevel(-1);
@@ -80,16 +80,16 @@ Ciphertext::Ciphertext(Context& cc)
 	CudaNvtxStop();
 }
 
-Ciphertext::Ciphertext(Context& cc, const RawCipherText& rawct)
+Ciphertext::Ciphertext(const Context& cc, const RawCipherText& rawct)
 	: Ciphertext(cc) {
 	this->load(rawct);
 }
 
 Ciphertext::~Ciphertext() {
 	if (!c1.GPU.empty())
-		cc.returnAuxilarPoly(std::move(c1));
+		cc_->returnAuxilarPoly(std::move(c1));
 	if (!c0.GPU.empty())
-		cc.returnAuxilarPoly(std::move(c0));
+		cc_->returnAuxilarPoly(std::move(c0));
 }
 
 void Ciphertext::copyMetadata(const Ciphertext& a) {
@@ -188,7 +188,7 @@ void Ciphertext::add(const Ciphertext& b) {
 		assert(this->getLevel() == b.getLevel());
 	} else if (getLevel() > b.getLevel()) {
 
-		if (c0.isModUp() || c1.getLevel() || b.c0.isModUp() || b.c1.isModUp()) {
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp() || b.c1.isModUp()) {
 			assert(getLevel() == b.getLevel());
 			assert(NoiseLevel == b.NoiseLevel);
 		}
@@ -201,6 +201,41 @@ void Ciphertext::add(const Ciphertext& b) {
 	c1.add(b.c1);
 
 	this->addMetadata(*this, b);
+}
+
+void Ciphertext::addMutable(Ciphertext& b) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+
+	assert(keyID == b.keyID);
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp() || b.c1.isModUp()) {
+			assert(getLevel() == b.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+		}
+
+		if (!adjustForAddOrSub(b)) {
+			if (b.adjustForAddOrSub(*this))
+				add(b);
+			else
+				assert(false);
+			return;
+		}
+	}
+
+	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+		assert(this->getLevel() == b.getLevel());
+	} else if (getLevel() > b.getLevel()) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp() || b.c1.isModUp()) {
+			assert(getLevel() == b.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+		}
+		assert(this->getLevel() <= b.getLevel());
+		dropToLevel(b.getLevel());
+	}
+	add(b);
 }
 
 void Ciphertext::sub(const Ciphertext& b) {
@@ -239,6 +274,35 @@ void Ciphertext::sub(const Ciphertext& b) {
 	this->addMetadata(*this, b);
 }
 
+void Ciphertext::subMutable(Ciphertext& b) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	assert(keyID == b.keyID);
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp() || b.c1.isModUp()) {
+			assert(getLevel() == b.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+		}
+
+		if (!adjustForAddOrSub(b)) {
+			if (b.adjustForAddOrSub(*this))
+				sub(b);
+			else
+				assert(false);
+			return;
+		}
+	}
+
+	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+		assert(this->getLevel() == b.getLevel());
+	} else if (getLevel() > b.getLevel()) {
+		c0.dropToLevel(b.getLevel());
+		c1.dropToLevel(b.getLevel());
+	}
+	sub(b);
+}
+
 void Ciphertext::addPt(const Plaintext& b) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
@@ -250,7 +314,7 @@ void Ciphertext::addPt(const Plaintext& b) {
 		}
 
 		if (b.NoiseLevel == 1 && NoiseLevel == 2 && b.c0.getLevel() == getLevel() - 1) {
-			this->rescale();
+			this->rescaleInternal();
 		}
 
 		if (b.c0.getLevel() != this->getLevel()) {
@@ -271,6 +335,33 @@ void Ciphertext::addPt(const Plaintext& b) {
 	this->addMetadata(*this, b);
 }
 
+void Ciphertext::addPtMutable(Plaintext& b) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT || cc.rescaleTechnique == FIXEDAUTO) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
+			assert(getLevel() == b.c0.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+		}
+
+		if (b.NoiseLevel == 1 && NoiseLevel == 2 && b.c0.getLevel() == getLevel() - 1) {
+			this->rescaleInternal();
+		}
+
+		if (b.c0.getLevel() != this->getLevel()) {
+			if (!b.adjustPlaintextToCiphertext(b, *this)) {
+				assert(false);
+			} else {
+				addPt(b);
+			}
+			return;
+		}
+	}
+	assert(NoiseLevel == b.NoiseLevel);
+	addPt(b);
+}
+
 void Ciphertext::subPt(const Plaintext& b) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
@@ -283,7 +374,7 @@ void Ciphertext::subPt(const Plaintext& b) {
 		}
 
 		if (b.NoiseLevel == 1 && NoiseLevel == 2 && b.c0.getLevel() == getLevel() - 1) {
-			this->rescale();
+			this->rescaleInternal();
 		}
 
 		if (b.c0.getLevel() != this->getLevel()) {
@@ -291,7 +382,7 @@ void Ciphertext::subPt(const Plaintext& b) {
 			if (!b_.adjustPlaintextToCiphertext(b, *this)) {
 				assert(false);
 			} else {
-				addPt(b_);
+				subPt(b_);
 			}
 			return;
 		}
@@ -302,6 +393,34 @@ void Ciphertext::subPt(const Plaintext& b) {
 	c0.sub(b.c0);
 
 	this->addMetadata(*this, b);
+}
+
+void Ciphertext::subPtMutable(Plaintext& b) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT || cc.rescaleTechnique == FIXEDAUTO) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
+			assert(getLevel() == b.c0.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+			assert(NoiseLevel == 1);
+		}
+
+		if (b.NoiseLevel == 1 && NoiseLevel == 2 && b.c0.getLevel() == getLevel() - 1) {
+			this->rescaleInternal();
+		}
+
+		if (b.c0.getLevel() != this->getLevel()) {
+			if (!b.adjustPlaintextToCiphertext(b, *this)) {
+				assert(false);
+			} else {
+				subPt(b);
+			}
+			return;
+		}
+	}
+	assert(NoiseLevel == b.NoiseLevel);
+	subPt(b);
 }
 
 void Ciphertext::load(const RawCipherText& rawct) {
@@ -373,7 +492,7 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 			if constexpr (PRINT)
 				std::cout << "multPt: Rescale input ciphertext" << std::endl;
 			if (NoiseLevel == 2)
-				this->rescale();
+				this->rescaleInternal();
 		}
 
 		if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
@@ -396,7 +515,7 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 					assert(false);
 				} else {
 					if (NoiseLevel == 2)
-						this->rescale();
+						this->rescaleInternal();
 					if (b_.NoiseLevel == 2) {
 						if constexpr (PRINT)
 							std::cout << "multPt: Rescale input plaintext" << std::endl;
@@ -423,7 +542,63 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 	}
 }
 
-void Ciphertext::rescale() {
+void Ciphertext::multPtMutable(Plaintext& b, bool rescale) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+
+	constexpr bool PRINT = false;
+
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
+			assert(getLevel() == b.c0.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+			assert(NoiseLevel == 1);
+		}
+
+		if constexpr (PRINT)
+			std::cout << "multPt: Rescale input ciphertext" << std::endl;
+		if (NoiseLevel == 2)
+			this->rescaleInternal();
+	}
+
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
+			assert(getLevel() == b.c0.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+			assert(NoiseLevel == 1);
+		}
+
+		if (b.c0.getLevel() != this->getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
+			if constexpr (PRINT)
+				std::cout << "multPt: adjust input plaintext" << std::endl;
+
+			// if (!this->adju)
+			if (!b.adjustPlaintextToCiphertext(b, *this)) {
+				if constexpr (PRINT)
+					std::cout << "multPt: FAILED!" << std::endl;
+				assert(false);
+			} else {
+				if (NoiseLevel == 2)
+					this->rescaleInternal();
+				if (b.NoiseLevel == 2) {
+					if constexpr (PRINT)
+						std::cout << "multPt: Rescale input plaintext" << std::endl;
+					b.rescale();
+				}
+				multPt(b, rescale);
+			}
+			return;
+		}
+	}
+
+	assert(NoiseLevel < 2);
+	assert(b.NoiseLevel < 2);
+	multPt(b, rescale);
+}
+
+void Ciphertext::rescaleInternal() {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
 	// assert(this->NoiseLevel == 2);
@@ -444,6 +619,14 @@ void Ciphertext::rescale() {
 	// Manage metadata
 	NoiseLevel -= 1;
 	assert(NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[this->getLevel()] : cc.param.ScalingFactorRealBig[this->getLevel()]));
+}
+
+
+void Ciphertext::rescale() {
+	if (cc.rescaleTechnique != FIXEDMANUAL)
+		return;
+
+	rescaleInternal();
 }
 
 /** "in" needs to have Digit and Gather limbs pre-generated */
@@ -475,7 +658,8 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
 				assert(false);
 			return;
 		}
-	} else if (cc.rescaleTechnique == FIXEDMANUAL && getLevel() > b.getLevel()) {
+	}
+	if ((cc.rescaleTechnique == FIXEDMANUAL || cc.rescaleTechnique == FIXEDAUTO) && getLevel() > b.getLevel()) {
 		dropToLevel(b.getLevel(), true);
 	}
 	assert(NoiseLevel == 1);
@@ -489,194 +673,60 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
 
 	KeySwitchingKey& kskEval = cc.GetEvalKey(keyID);
 
-	if (0 && cc.GPUid.size() == 1) {
-		if constexpr (0) {
-			constexpr bool PRINT = true;
-			bool SELECT			 = true;
+	constexpr bool PRINT = false;
 
-			cc.getKeySwitchAux().setLevel(c1.getLevel());
-			cc.getKeySwitchAux().multElement(c1, b.c1);
+	if constexpr (PRINT)
+		std::cout << "Init mult" << std::endl;
+	RNSPoly& in = cc.getKeySwitchAux();
+	in.setLevel(c1.getLevel());
+	c0.binomialMult(c1, in, b.c0, b.c1, moddown, &b == this);
 
-			if constexpr (PRINT) {
-				if (SELECT) {
-					cudaDeviceSynchronize();
-					std::cout << "GPU: " << 0 << "Input data ";
-					for (size_t j = 0; j < cc.getKeySwitchAux().GPU[0].limb.size(); ++j) {
-						std::cout << cc.getKeySwitchAux().GPU[0].meta[j].id;
-						SWITCH(cc.getKeySwitchAux().GPU[0].limb[j], printThisLimb(2));
-					}
-					std::cout << std::endl;
-					cudaDeviceSynchronize();
-				}
-			}
+	RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, moddown);
+	c0.add(aux);
+	c1.add(in);
 
-			cc.getKeySwitchAux().modup();
-
-			if constexpr (PRINT) {
-				if (SELECT) {
-					cudaDeviceSynchronize();
-					std::cout << "GPU: " << 0 << "Out ModUp after NTT ";
-					for (size_t j = 0; j < cc.getKeySwitchAux().GPU[0].DIGITlimb.size(); ++j) {
-						for (size_t i = 0; i < cc.getKeySwitchAux().GPU[0].DIGITlimb[j].size(); ++i) {
-							std::cout << cc.getKeySwitchAux().GPU[0].DIGITmeta[j][i].id;
-							SWITCH(cc.getKeySwitchAux().GPU[0].DIGITlimb[j][i], printThisLimb(2));
-						}
-						std::cout << std::endl;
-					}
-					std::cout << std::endl;
-					cudaDeviceSynchronize();
-				}
-			}
-
-			auto& aux0 = cc.getKeySwitchAux().dotKSKInPlace(kskEval, nullptr);
-
-			if constexpr (PRINT) {
-				if (SELECT) {
-					cudaDeviceSynchronize();
-					std::cout << "GPU out KSK specials: ";
-					for (const auto& j : { &aux0, &cc.getKeySwitchAux() }) {
-						for (const auto& k : j->GPU) {
-							for (auto& i : k.SPECIALlimb) {
-								SWITCH(i, printThisLimb(2));
-							}
-						}
-						std::cout << std::endl;
-					}
-					std::cout << std::endl;
-					cudaDeviceSynchronize();
-				}
-			}
-			if constexpr (PRINT) {
-				if (SELECT) {
-					cudaDeviceSynchronize();
-					std::cout << "GPU out KSK limbs: ";
-					for (const auto& j : { &aux0, &cc.getKeySwitchAux() }) {
-						for (const auto& k : j->GPU) {
-							for (auto& i : k.limb) {
-								SWITCH(i, printThisLimb(2));
-							}
-						}
-						std::cout << std::endl;
-					}
-					std::cout << std::endl;
-					cudaDeviceSynchronize();
-				}
-			}
-
-			cc.getKeySwitchAux().moddown(true, false, 0);
-			aux0.moddown(true, false, 1);
-			c1.mult1AddMult23Add4(b.c0, c0, b.c1, cc.getKeySwitchAux());
-			c0.mult1Add2(b.c0, aux0);
-			// c1.binomialSquareFold(c0, aux0, cc.getKeySwitchAux());
-			if (rescale) {
-				this->rescale();
-			}
-			/*
-			cudaDeviceSynchronize();
-			cc.getKeySwitchAux().setLevel(c1.getLevel());
-			cudaDeviceSynchronize();
-			cc.getKeySwitchAux().multElement(c1, b.c1);
-			cudaDeviceSynchronize();
-			cc.getKeySwitchAux().modup();
-			cudaDeviceSynchronize();
-			auto& aux0 = cc.getKeySwitchAux().dotKSKInPlace(kskEval, c0.getLevel(), nullptr);
-			cudaDeviceSynchronize();
-			cc.getKeySwitchAux().moddown(true, false);
-			cudaDeviceSynchronize();
-			c1.mult1AddMult23Add4(b.c0, c0, b.c1, cc.getKeySwitchAux());  // Read 4 first for better cache locality.
-			cudaDeviceSynchronize();
-			aux0.moddown(true, false);
-			cudaDeviceSynchronize();
-			c0.mult1Add2(b.c0, aux0);
-			cudaDeviceSynchronize();
-
-			if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-				this->rescale();
-			}
-			 */
-		} else if (false) {
-			cc.getKeySwitchAux().setLevel(c1.getLevel());
-			cc.getKeySwitchAux().multModupDotKSK(c1, b.c1, c0, b.c0, kskEval);
-			{ // TODO MAD Figure 4: add before fused ModDown+Rescale
-			}
-			if (moddown)
-				c1.moddown(true, false);
-			if (moddown)
-				c0.moddown(true, false);
-
-			// Manage metadata
-			this->multMetadata(*this, b);
-
-			if (moddown && rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-				this->rescale();
-		} else if (false) {
-			RNSPoly& in = cc.getKeySwitchAux();
-			in.setLevel(c1.getLevel());
-			in.multElement(c1, b.c1);
-
-			RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, moddown);
-
-			if (moddown) {
-				c1.mult1AddMult23Add4(b.c0, c0, b.c1, in); // Read 4 first for better cache locality.
-				c0.mult1Add2(b.c0, aux);
-			} else {
-				c1.multNoModdownEnd(c0, b.c0, b.c1, in, aux);
-			}
-
-			// Manage metadata
-			this->multMetadata(*this, b);
-			if (moddown && rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-				this->rescale();
-			}
-		} else {
-			RNSPoly& in = cc.getKeySwitchAux();
-			in.setLevel(c1.getLevel());
-
-			c0.binomialMult(c1, in, b.c0, b.c1, moddown, &b == this);
-
-			RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, moddown);
-
-			c0.add(aux);
-			c1.add(in);
-
-			// Manage metadata
-			this->multMetadata(*this, b);
-			if (moddown && rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-				this->rescale();
-			}
-		}
-	} else {
-		constexpr bool PRINT = false;
-
-		if constexpr (PRINT)
-			std::cout << "Init mult" << std::endl;
-		RNSPoly& in = cc.getKeySwitchAux();
-		in.setLevel(c1.getLevel());
-		c0.binomialMult(c1, in, b.c0, b.c1, moddown, &b == this);
-
-		RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, moddown);
-		c0.add(aux);
-		c1.add(in);
-
-		// Manage metadata
-		this->multMetadata(*this, b);
-		if (moddown && rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-			this->rescale();
-		}
-		if constexpr (PRINT)
-			std::cout << "End mult" << std::endl;
-		if constexpr (PRINT)
-			CudaCheckErrorMod;
+	// Manage metadata
+	this->multMetadata(*this, b);
+	if (moddown && rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
+		this->rescaleInternal();
 	}
+	if constexpr (PRINT)
+		std::cout << "End mult" << std::endl;
+	if constexpr (PRINT)
+		CudaCheckErrorMod;
 
 	Out(KEYSWITCH, " finish ");
+}
+
+void Ciphertext::multMutable(Ciphertext& b, bool rescale, const bool moddown) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	assert(keyID == b.keyID);
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+
+		if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
+			assert(getLevel() == b.getLevel());
+			assert(NoiseLevel == b.NoiseLevel);
+		}
+
+		if (!adjustForMult(b)) {
+			if (b.adjustForMult(*this))
+				mult(b, rescale, moddown);
+			else
+				assert(false);
+			return;
+		}
+	} else if (cc.rescaleTechnique == FIXEDMANUAL && getLevel() > b.getLevel()) {
+		dropToLevel(b.getLevel(), true);
+	}
+	assert(NoiseLevel == 1);
+	assert(NoiseLevel == b.NoiseLevel);
+	mult(b, rescale, moddown);
 }
 
 void Ciphertext::square(bool rescale) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
-	Out(KEYSWITCH, " start ");
-
 	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT || cc.rescaleTechnique == FIXEDAUTO) {
 
 		if (c0.isModUp() || c1.isModUp()) {
@@ -684,60 +734,17 @@ void Ciphertext::square(bool rescale) {
 		}
 
 		if (NoiseLevel == 2)
-			this->rescale();
+			this->rescaleInternal();
 	}
 	assert(this->NoiseLevel == 1);
 	op_count[OPS::SQUARE]++;
 
-	KeySwitchingKey& kskEval = cc.GetEvalKey(keyID);
-
+	// TODO: optimize
 	if (cc.GPUid.size() == 1) {
-		if constexpr (0) {
-			cc.getKeySwitchAux().setLevel(c1.getLevel());
-			cc.getKeySwitchAux().squareElement(c1);
-			cc.getKeySwitchAux().modup();
-			auto& aux0 = cc.getKeySwitchAux().dotKSKInPlace(kskEval, nullptr);
-			cc.getKeySwitchAux().moddown(true, false);
-			aux0.moddown(true, false);
-			// c1.mult1AddMult23Add4(c0, c0, c1, cc.getKeySwitchAux());
-			c1.binomialSquareFold(c0, aux0, cc.getKeySwitchAux());
-			this->multMetadata(*this, *this);
-			if (rescale) {
-				this->rescale();
-			}
-		} else if constexpr (0) {
-			cc.getKeySwitchAux().setLevel(c1.getLevel());
-			cc.getKeySwitchAux().squareModupDotKSK(c0, c1, kskEval);
-
-			c1.moddown(true, false);
-
-			c0.moddown(true, false);
-			this->multMetadata(*this, *this);
-			if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL)
-				this->rescale();
-
-		} else {
-			this->mult(*this, rescale);
-		}
+		this->mult(*this, rescale);
 	} else {
-		if (0) {
-			RNSPoly& in = cc.getKeySwitchAux();
-			in.setLevel(c1.getLevel());
-			in.squareElement(c1);
-
-			RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, true);
-
-			c1.binomialSquareFold(c0, aux, in);
-			if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-				this->rescale();
-			}
-			this->multMetadata(*this, *this);
-		} else {
-			this->mult(*this, rescale);
-		}
+		this->mult(*this, rescale);
 	}
-	// Manage metadata
-	Out(KEYSWITCH, " finish ");
 }
 
 void Ciphertext::multScalarNoPrecheck(const double c, bool rescale) {
@@ -753,7 +760,7 @@ void Ciphertext::multScalarNoPrecheck(const double c, bool rescale) {
 	NoiseLevel += 1;
 	NoiseFactor *= getLevel() == cc.L + 1 ? cc.specialPrime[0].p : cc.param.ScalingFactorReal.at(c0.getLevel());
 	if (rescale && cc.rescaleTechnique == FIXEDAUTO) {
-		this->rescale();
+		this->rescaleInternal();
 	}
 }
 
@@ -767,7 +774,7 @@ void Ciphertext::multScalar(const double c, bool rescale) {
 		}
 
 		if (NoiseLevel == 2)
-			this->rescale();
+			this->rescaleInternal();
 	}
 	assert(this->NoiseLevel == 1);
 	multScalarNoPrecheck(c, rescale && cc.rescaleTechnique == FIXEDMANUAL);
@@ -1127,6 +1134,24 @@ void Ciphertext::mult(const Ciphertext& b, const Ciphertext& c, bool rescale) {
 	}
 }
 
+void Ciphertext::multMutable(Ciphertext& b, Ciphertext& c, bool rescale) {
+	if (this == &b && this == &c) {
+		this->square(rescale);
+	} else if (this == &b) {
+		this->multMutable(c, rescale);
+	} else if (this == &c) {
+		this->multMutable(b, rescale);
+	} else {
+		if (b.getLevel() <= c.getLevel()) {
+			this->copy(b);
+			this->multMutable(c, rescale);
+		} else {
+			this->copy(c);
+			this->multMutable(b, rescale);
+		}
+	}
+}
+
 void Ciphertext::square(const Ciphertext& src, bool rescale) {
 	if (this == &src) {
 		this->square(rescale);
@@ -1144,7 +1169,9 @@ void Ciphertext::dropToLevel(const int level, bool skip_adjust) {
 		assert(c1.getLevel() > level);
 		if (!skip_adjust && (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT)) {
 			assert(NoiseLevel == 1 || NoiseLevel == 2);
-			bool ok = adjustScaleAndLevel(this->NoiseLevel, level, this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : cc.param.ScalingFactorRealBig[level]);
+			bool ok = adjustScaleAndLevel(this->NoiseLevel,
+			                              level,
+			                              this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : cc.param.ScalingFactorRealBig[level]);
 			assert(ok);
 			(void)ok;
 		} else {
@@ -1214,7 +1241,7 @@ void Ciphertext::evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*
 			slots = std::max(slots, ctxs[i]->slots);
 		}
 		this->NoiseLevel  = 2;
-		this->NoiseFactor = cc.param.ScalingFactorReal.at(getLevel()) * cc.param.ScalingFactorReal.at(getLevel());
+		this->NoiseFactor = cc.param.ScalingFactorRealBig.at(getLevel());
 	} else {
 		this->multScalar(*ctxs[0], weights[0], false);
 		for (int i = 1; i < n; ++i) {
@@ -1224,6 +1251,241 @@ void Ciphertext::evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*
 			this->addMultScalar(*ctxs[i], weights[i]);
 		}
 	}
+}
+
+void Ciphertext::evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+                                               std::vector<double> weights,
+                                               double bias,
+                                               int limit,
+                                               int target_level,
+                                               int rescale) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	op_count[OPS::WSUM]++;
+
+	if (0 == limit)
+		limit = ctxs.size();
+	op_count[OPS::WSUMINPUTS] += limit;
+
+	if constexpr (1) {
+		assert(target_level != -1);
+		this->growToLevel(target_level);
+		this->dropToLevel(target_level, true);
+
+		for (int i = 0; i < limit; ++i) {
+			if (cc.rescaleTechnique == FIXEDMANUAL) {
+				assert(ctxs[i]->NoiseLevel == 1);
+				assert(getLevel() <= ctxs[i]->getLevel());
+			} else {
+				assert(ctxs[i]->NoiseLevel == 1);
+			}
+			assert(ctxs[0]->keyID == ctxs[i]->keyID);
+		}
+
+		std::vector<uint64_t> elem;
+		std::vector<Ciphertext*> ctxs_trim;
+		// #pragma omp parallel for
+		// double scalingFactor;
+		int idx = 0;
+		for (int i = 1; i <= limit; ++i) {
+			if (lbcrypto::IsNotEqualZero(weights[i])) {
+				auto aux = cc.ElemForEvalMult(target_level, weights[i], ctxs[i - 1]->getLevel());
+				elem.resize(elem.size() + MAXP);
+
+				for (size_t j            = 0; j < aux.size(); ++j)
+					elem[idx * MAXP + j] = aux[j];
+				idx += 1;
+				ctxs_trim.push_back(ctxs[i - 1]);
+			}
+		}
+		bool with_bias;
+
+		if ((with_bias = lbcrypto::IsNotEqualZero(bias))) {
+			auto aux = cc.ElemForEvalAddOrSub(target_level, std::abs(bias), 2);
+			if (bias < 0.0) {
+				for (auto i = 0u; i < aux.size(); ++i) {
+					aux[i] = cc.prime[i].p - aux[i];
+				}
+			}
+			elem.resize(elem.size() + MAXP);
+			for (size_t j            = 0; j < aux.size(); ++j)
+				elem[idx * MAXP + j] = aux[j];
+			idx += 1;
+		}
+
+		std::vector<const RNSPoly*> c0s(ctxs_trim.size()), c1s(ctxs_trim.size());
+
+		for (size_t i = 0; i < ctxs_trim.size(); ++i) {
+			c0s[i] = &ctxs_trim[i]->c0;
+			c1s[i] = &ctxs_trim[i]->c1;
+		}
+		c0.evalLinearWSum(ctxs_trim.size(), c0s, elem, with_bias);
+		c1.evalLinearWSum(ctxs_trim.size(), c1s, elem);
+
+		// this->copyMetadata(*ctxs[0]);
+
+		this->slots = ctxs[0]->slots;
+		this->keyID = ctxs[0]->keyID;
+		for (uint32_t i = 0; i < ctxs_trim.size(); ++i) {
+			assert(this->keyID == ctxs[i]->keyID);
+			slots = std::max(slots, ctxs[i]->slots);
+		}
+		this->NoiseLevel  = 2;
+		this->NoiseFactor = cc.param.ScalingFactorRealBig.at(getLevel());
+
+		if (rescale)
+			this->rescale();
+
+	}
+}
+
+struct Objective {
+	int n, target_level;
+	std::vector<double> weights;
+	Ciphertext* ctxt;
+};
+
+void evalMultiplePartialLinearWSumWithBiasInternal(const std::vector<Ciphertext*>& ctxs, const std::vector<Objective>& out_ctxt) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	Context cc_ = ctxs[0]->cc_;
+	CKKS::SetCurrentContext(cc_);
+
+	int max_n = 0;
+	for (auto j = 0u; j < out_ctxt.size(); ++j) {
+		assert(out_ctxt[j].target_level != -1);
+		max_n = std::max(max_n, out_ctxt[j].n);
+	}
+
+	for (auto i = 0u; i < ctxs.size(); ++i) {
+		for (auto j = 0u; j < out_ctxt.size(); ++j) {
+			if (cc_->rescaleTechnique == FIXEDMANUAL) {
+				assert(ctxs[i]->NoiseLevel == 1);
+				assert(out_ctxt[j].ctxt->getLevel() <= ctxs[i]->getLevel());
+			} else {
+				assert(ctxs[i]->NoiseLevel == 1);
+			}
+			assert(ctxs[0]->keyID == ctxs[i]->keyID);
+		}
+	}
+
+	std::vector<uint64_t> elem;
+	std::vector<Ciphertext*> ctxs_trim;
+	// #pragma omp parallel for
+	// double scalingFactor;
+	for (int i = 1; i <= max_n; ++i) {
+		ctxs_trim.push_back(ctxs[i - 1]);
+	}
+	int idx = 0;
+	for (auto j = 0u; j < out_ctxt.size(); ++j) {
+		for (int i = 1; i <= max_n; ++i) {
+			elem.resize(elem.size() + MAXP);
+			if ((int)out_ctxt[j].weights.size() > i) {
+				if (lbcrypto::IsNotEqualZero(out_ctxt[j].weights[i])) {
+					auto aux = cc_->ElemForEvalMult(out_ctxt[j].target_level, out_ctxt[j].weights[i], ctxs[i - 1]->getLevel());
+					for (size_t j            = 0; j < aux.size(); ++j)
+						elem[idx * MAXP + j] = aux[j];
+				}
+			}
+			idx += 1;
+		}
+
+		elem.resize(elem.size() + MAXP);
+		if (lbcrypto::IsNotEqualZero(out_ctxt[j].weights[0])) {
+			auto aux = cc_->ElemForEvalAddOrSub(out_ctxt[j].target_level, std::abs(out_ctxt[j].weights[0]), 2);
+			if (out_ctxt[j].weights[0] < 0.0) {
+				for (auto i = 0u; i < aux.size(); ++i) {
+					aux[i] = cc_->prime[i].p - aux[i];
+				}
+			}
+			for (size_t j            = 0; j < aux.size(); ++j)
+				elem[idx * MAXP + j] = aux[j];
+		}
+		idx += 1;
+	}
+
+	std::vector<const RNSPoly*> c0s(ctxs_trim.size()), c1s(ctxs_trim.size());
+	std::vector<RNSPoly*> c0s_out(out_ctxt.size()), c1s_out(out_ctxt.size());
+
+	for (size_t i = 0; i < ctxs_trim.size(); ++i) {
+		c0s[i] = &ctxs_trim[i]->c0;
+		c1s[i] = &ctxs_trim[i]->c1;
+	}
+	for (size_t i = 0; i < out_ctxt.size(); ++i) {
+		c0s_out[i] = &out_ctxt[i].ctxt->c0;
+		c1s_out[i] = &out_ctxt[i].ctxt->c1;
+	}
+	RNSPoly::evalLinearWSumMultiple(max_n, c0s, c0s_out, elem, false);
+	RNSPoly::evalLinearWSumMultiple(max_n, c1s, c1s_out, elem, true);
+
+	// this->copyMetadata(*ctxs[0]);
+
+	for (auto j = 0u; j < out_ctxt.size(); ++j) {
+		Ciphertext& c = *out_ctxt[j].ctxt;
+		c.slots       = ctxs[0]->slots;
+		c.keyID       = ctxs[0]->keyID;
+		for (uint32_t i = 0; i < ctxs_trim.size(); ++i) {
+			assert(c.keyID == ctxs[i]->keyID);
+			c.slots = std::max(c.slots, ctxs[i]->slots);
+		}
+		c.NoiseLevel  = 2;
+		c.NoiseFactor = cc_->param.ScalingFactorRealBig.at(c.getLevel());
+	}
+}
+
+std::vector<Ciphertext> Ciphertext::evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+                                                                          std::vector<std::vector<double>> weights,
+                                                                          std::vector<int> target_level,
+                                                                          int rescale) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	Context cc_ = ctxs[0]->cc_;
+	CKKS::SetCurrentContext(cc_);
+	op_count[OPS::WSUM]++;
+
+	int n_out = weights.size();
+	assert(weights.size() == target_level.size());
+	std::vector<Ciphertext> ctxs_result;
+	for (int i = 0; i < n_out; ++i) {
+		ctxs_result.emplace_back(cc_);
+		ctxs_result.back().growToLevel(target_level[i]);
+	}
+
+	std::vector<Objective> out_ctxt(n_out);
+	for (int i = 0; i < n_out; ++i) {
+		auto weights_trimmed = weights[i];
+		while (!lbcrypto::IsNotEqualZero(weights_trimmed.back()))
+			weights_trimmed.pop_back();
+
+		op_count[OPS::WSUMINPUTS] += weights_trimmed.size();
+		out_ctxt[i] = { .n = (int)weights_trimmed.size() - 1, .target_level = target_level[i], .weights = weights_trimmed, .ctxt = &ctxs_result[i] };
+	}
+
+	std::sort(out_ctxt.begin(),
+	          out_ctxt.end(),
+	          [](const Objective& lhs, const Objective& rhs) { return lhs.n < rhs.n || (lhs.n == rhs.n && lhs.ctxt < rhs.ctxt); });
+
+	constexpr int MAX_OUTPUTS = 8;
+
+	int groups = (n_out + MAX_OUTPUTS - 1) / MAX_OUTPUTS;
+	while (n_out > 0) {
+		std::vector<Objective> out_ctxt_group;
+		int group_size = (n_out + groups - 1) / groups;
+		groups -= 1;
+		n_out -= group_size;
+
+		for (int i = 0; i < group_size; ++i) {
+			out_ctxt_group.emplace_back(out_ctxt.back());
+			out_ctxt.pop_back();
+		}
+
+		evalMultiplePartialLinearWSumWithBiasInternal(ctxs, out_ctxt_group);
+	}
+
+	if (rescale) {
+		for (auto& i : ctxs_result)
+			i.rescale();
+	}
+
+	return ctxs_result;
 }
 
 void Ciphertext::addMultScalar(const Ciphertext& b, double d) {
@@ -1255,7 +1517,6 @@ void Ciphertext::addScalar(const Ciphertext& b, double c) {
 }
 
 void Ciphertext::add(const Ciphertext& b, const Ciphertext& c) {
-	assert(NoiseLevel <= 2);
 	if (this == &b && this == &c) {
 		this->add(c);
 	} else if (this == &b) {
@@ -1271,6 +1532,46 @@ void Ciphertext::add(const Ciphertext& b, const Ciphertext& c) {
 			this->add(b);
 		}
 	}
+}
+
+void Ciphertext::addMutable(Ciphertext& b, Ciphertext& c) {
+	if (this == &b && this == &c) {
+		this->addMutable(c);
+	} else if (this == &b) {
+		this->addMutable(c);
+	} else if (this == &c) {
+		this->addMutable(b);
+	} else {
+		if (b.getLevel() <= c.getLevel()) {
+			this->copy(b);
+			this->addMutable(c);
+		} else {
+			this->copy(c);
+			this->addMutable(b);
+		}
+	}
+}
+
+void Ciphertext::addMutable(const Ciphertext& b, Ciphertext& c) {
+	if (this == &b && this == &c) {
+		this->addMutable(*this);
+	} else if (this == &b) {
+		this->addMutable(c);
+	} else if (this == &c) {
+		this->add(b);
+	} else {
+		if (b.getLevel() <= c.getLevel()) {
+			this->copy(b);
+			this->addMutable(c);
+		} else {
+			this->copy(c);
+			this->add(b);
+		}
+	}
+}
+
+void Ciphertext::addMutable(Ciphertext& b, const Ciphertext& c) {
+	addMutable(c, b);
 }
 
 void Ciphertext::growToLevel(int level) {
@@ -1301,6 +1602,11 @@ void Ciphertext::multPt(const Ciphertext& c, const Plaintext& b, bool rescale) {
 	multPt(b, rescale);
 }
 
+void Ciphertext::multPtMutable(const Ciphertext& c, Plaintext& b, bool rescale) {
+	this->copy(c);
+	multPtMutable(b, rescale);
+}
+
 void Ciphertext::addMultPt(const Ciphertext& c, const Plaintext& b, bool rescale) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
@@ -1314,7 +1620,7 @@ void Ciphertext::addMultPt(const Ciphertext& c, const Plaintext& b, bool rescale
 	c1.addMult(c.c1, b.c0);
 
 	if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
-		this->rescale();
+		this->rescaleInternal();
 	}
 }
 
@@ -1323,6 +1629,13 @@ void Ciphertext::addPt(const Ciphertext& ciphertext, const Plaintext& plaintext)
 	CKKS::SetCurrentContext(cc_);
 	this->copy(ciphertext);
 	this->addPt(plaintext);
+}
+
+void Ciphertext::addPtMutable(const Ciphertext& ciphertext, Plaintext& plaintext) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	this->copy(ciphertext);
+	this->addPtMutable(plaintext);
 }
 
 void Ciphertext::reinterpretContext(const Ciphertext& ciphertext) {
@@ -1343,7 +1656,9 @@ void Ciphertext::reinterpretContext(const Ciphertext& ciphertext) {
 	assert(ciphertext.NoiseLevel <= 2);
 	{
 		// This ensures the different computation made for scaling factors in FLEXIBLE modes does not break the code
-		this->NoiseFactor = this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[ciphertext.getLevel()] : cc.param.ScalingFactorRealBig[ciphertext.getLevel()];
+		this->NoiseFactor = this->NoiseLevel == 1 ?
+			cc.param.ScalingFactorReal[ciphertext.getLevel()] :
+			cc.param.ScalingFactorRealBig[ciphertext.getLevel()];
 	}
 }
 
@@ -1367,6 +1682,14 @@ void Ciphertext::sub(const Ciphertext& ciphertext, const Ciphertext& ciphertext1
 	assert(ciphertext.getLevel() <= ciphertext1.getLevel());
 	this->copy(ciphertext);
 	this->sub(ciphertext1);
+}
+
+void Ciphertext::subMutable(const Ciphertext& ciphertext, Ciphertext& ciphertext1) {
+	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	CKKS::SetCurrentContext(cc_);
+	assert(ciphertext.getLevel() <= ciphertext1.getLevel());
+	this->copy(ciphertext);
+	this->subMutable(ciphertext1);
 }
 
 bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, const double scaling_factor) {
@@ -1395,14 +1718,14 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 				double q1   = cc.param.ModReduceFactor[c1lvl];   // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 				multScalarNoPrecheck(scf2 / scf1 * q1 / scf);
 				NoiseFactor = cc.param.ScalingFactorRealBig[getLevel() - 1] * cc.param.ModReduceFactor[getLevel()];
-				rescale();
+				rescaleInternal();
 				if (getLevel() > static_cast<int32_t>(c2lvl)) {
 					this->dropToLevel(c2lvl, true);
 				}
 				NoiseFactor = scaling_factor;
 			} else {
 				if (c1lvl - 1 == c2lvl) {
-					rescale();
+					rescaleInternal();
 				} else {
 					double scf1 = NoiseFactor;
 					double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
@@ -1410,14 +1733,14 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 					double q1   = cc.param.ModReduceFactor[sizeQl1 - 1];    // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
 					multScalarNoPrecheck(scf2 / scf1 * q1 / scf);
 					NoiseFactor = cc.param.ScalingFactorRealBig[this->getLevel() - 1] * cc.param.ModReduceFactor[c1lvl];
-					rescale();
+					rescaleInternal();
 					if (getLevel() - 1 > static_cast<int32_t>(c2lvl)) {
 						this->dropToLevel(c2lvl + 1, true);
 						// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 2);
 					}
 					NoiseFactor = cc.param.ScalingFactorRealBig[this->getLevel()];
 					// NoiseFactor *= scf2 / scf1 * q1 / scf;
-					rescale();
+					rescaleInternal();
 					// assert(std::abs((NoiseFactor * scf2 / scf1 * q1 / scf - scaling_factor) / scaling_factor) < 0.001);
 
 					NoiseFactor = scaling_factor;
@@ -1443,12 +1766,14 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
 					// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 1);
 				}
 				NoiseFactor *= scf2 / scf1 / scf;
-				rescale();
+				rescaleInternal();
 				// assert(std::abs((NoiseFactor * scf2 / scf1 / scf - scaling_factor) / scaling_factor) < 0.001);
 				NoiseFactor = scaling_factor;
 			}
 		}
-		assert(scaleDegree < 3 ? this->NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
+		assert(
+			scaleDegree < 3 ? this->NoiseFactor == (NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) :
+			true);
 		return true;
 	} else if (c1lvl < c2lvl) {
 		return false;
@@ -1477,13 +1802,13 @@ bool Ciphertext::adjustForAddOrSub(const Ciphertext& b) {
 	if (cc.rescaleTechnique == FIXEDMANUAL || cc.rescaleTechnique == FIXEDAUTO) {
 		if (getLevel() - NoiseLevel > b.getLevel() - b.NoiseLevel) {
 			if (b.NoiseLevel == 1 && NoiseLevel == 2) {
-				rescale();
+				rescaleInternal();
 			} else if (b.NoiseLevel == 2 && NoiseLevel == 1) {
 				this->multScalar(1.0);
 			}
 			return true;
 		} else if (b.NoiseLevel == 1 && NoiseLevel == 2) {
-			rescale();
+			rescaleInternal();
 			return true;
 		} else if (NoiseLevel == 1 && b.NoiseLevel == 2) {
 			return false;
@@ -1503,20 +1828,33 @@ bool Ciphertext::adjustForMult(const Ciphertext& ciphertext) {
 
 	if (adjustForAddOrSub(ciphertext)) {
 		if (NoiseLevel == 2)
-			rescale();
+			rescaleInternal();
 		if (ciphertext.NoiseLevel == 2)
 			return false;
 		else
 			return true;
 	} else {
 		if (NoiseLevel == 2)
-			rescale();
+			rescaleInternal();
 		return false;
 	}
 }
 
 bool Ciphertext::hasSameScalingFactor(const Plaintext& b) const {
 	return NoiseFactor > b.NoiseFactor * (1 - 1e-9) && NoiseFactor < b.NoiseFactor * (1 + 1e-9);
+}
+
+void Ciphertext::negate() {
+	std::vector<uint64_t> negOne(getLevel() + 1);
+	for (size_t i = 0; i < negOne.size(); ++i)
+		negOne[i] = cc.prime[i].p - 1;
+	c0.multScalar(negOne);
+	c1.multScalar(negOne);
+}
+
+void Ciphertext::negate(const Ciphertext& ciphertext) {
+	this->copy(ciphertext);
+	negate();
 }
 
 void Ciphertext::clearOpRecord() {

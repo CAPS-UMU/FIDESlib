@@ -49,14 +49,14 @@ void Plaintext::multMetadata(const Plaintext& a, const Plaintext& b) {
 }
 
 Plaintext::Plaintext(Context& cc)
-: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
-  c0(this->cc, -1, false, true) {
+	: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
+	  c0(this->cc, -1, false, true) {
 	CudaNvtxStop();
 }
 
 Plaintext::Plaintext(Context& cc, const RawPlainText& raw)
-: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
-  c0(this->cc, -1, false, true) {
+	: my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
+	  c0(this->cc, -1, false, true) {
 	load(raw);
 	CudaNvtxStop();
 }
@@ -199,7 +199,8 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 
 	if (cc.rescaleTechnique == FIXEDAUTO) {
 		if (p.c0.getLevel() - p.NoiseLevel > c.getLevel() - c.NoiseLevel) {
-			this->copy(p);
+			if (this != &p)
+				this->copy(p);
 			if (c.NoiseLevel == 1 && NoiseLevel == 2) {
 				this->c0.dropToLevel(c.getLevel() + 1);
 				rescale();
@@ -208,7 +209,8 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 			}
 			return true;
 		} else if (c.NoiseLevel == 1 && p.NoiseLevel == 2) {
-			this->copy(p);
+			if (this != &p)
+				this->copy(p);
 			rescale();
 			return true;
 		} else if (p.NoiseLevel == 1 && c.NoiseLevel == 2) {
@@ -222,94 +224,10 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 		if (p.c0.getLevel() < c.getLevel()) {
 			return false;
 		}
-		this->copy(p);
+		if (this != &p)
+			this->copy(p);
 		return adjustScaleAndLevel(c.NoiseLevel, c.getLevel(), c.NoiseFactor);
-		/* TODO remove if above code verified
-		uint32_t c1lvl	  = p.c0.getLevel();
-		uint32_t c2lvl	  = c.getLevel();
-		uint32_t c1depth = p.NoiseLevel;
-		uint32_t c2depth = c.NoiseLevel;
-		auto sizeQl1  = c1lvl + 1;
-		auto sizeQl2  = c2lvl + 1;
 
-		if (c1lvl > c2lvl) {
-			this->copy(p);
-			if (c1depth == 2) {
-				if (c2depth == 2) {
-					double scf1 = NoiseFactor;
-					double scf2 = c.NoiseFactor;
-					double scf	= cc.param.ScalingFactorReal[c1lvl];	 // cryptoParams->GetScalingFactorReal(c1lvl);
-					double q1	= cc.param.ModReduceFactor[sizeQl1 - 1]; // cryptoParams->GetModReduceFactor(sizeQl1 - 1);
-					multScalar(scf2 / scf1 * q1 / scf, false);
-					rescale();
-					if (c1lvl > c2lvl) {
-						this->c0.dropToLevel(c2lvl);
-						// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 1);
-					}
-					NoiseFactor *= scf2 / scf1 * q1 / scf;
-					assert(NoiseFactor == c.NoiseFactor);
-					NoiseFactor = c.NoiseFactor;
-				} else {
-					if (c1lvl - 1 == c2lvl) {
-						rescale();
-					} else {
-						double scf1 = NoiseFactor;
-						double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-						double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
-						double q1	= cc.param.ModReduceFactor[sizeQl1 - 1];	// cryptoParams->GetModReduceFactor(sizeQl1 - 1);
-						multScalar(scf2 / scf1 * q1 / scf, false);
-						rescale();
-						if (c1lvl - 2 > c2lvl) {
-							this->c0.dropToLevel(c2lvl + 1);
-							// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 2);
-						}
-						rescale();
-
-						NoiseFactor = c.NoiseFactor;
-					}
-				}
-			} else {
-				if (c2depth == 2) {
-					double scf1 = NoiseFactor;
-					double scf2 = c.NoiseFactor;
-					double scf	= cc.param.ScalingFactorReal[c1lvl]; // cryptoParams->GetScalingFactorReal(c1lvl);
-					multScalar(scf2 / scf1 / scf, false);
-					this->c0.dropToLevel(c2lvl);
-					// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl);
-					NoiseFactor = scf2;
-				} else {
-					if constexpr (PRINT)
-						std::cout << "Adjusting plaintext with noiseDegree 1" << std::endl;
-					double scf1 = NoiseFactor;
-					double scf2 = cc.param.ScalingFactorRealBig[c2lvl + 1]; // cryptoParams->GetScalingFactorRealBig(c2lvl - 1);
-					double scf	= cc.param.ScalingFactorReal[c1lvl];		// cryptoParams->GetScalingFactorReal(c1lvl);
-					if constexpr (PRINT)
-						std::cout << "Scale adjustment: " << scf << std::endl;
-
-					multScalar(scf2 / scf1 / scf, false);
-					if (c1lvl - 1 > c2lvl) {
-						if constexpr (PRINT)
-							std::cout << "Dropping levels: " << c1lvl - c2lvl - 1 << std::endl;
-						this->c0.dropToLevel(c2lvl + 1);
-						// LevelReduceInternalInPlace(ciphertext1, c2lvl - c1lvl - 1);
-					}
-					rescale();
-					NoiseFactor = c.NoiseFactor;
-				}
-			}
-			return true;
-		} else if (c1lvl < c2lvl) {
-			return false;
-		} else {
-			this->copy(p);
-			if (c1depth < c2depth) {
-				multScalar(1.0, false);
-			} else if (c2depth < c1depth) {
-				rescale();
-			}
-			return true;
-		}
-		*/
 	}
 	return false;
 }
@@ -464,7 +382,9 @@ void Plaintext::dropToLevel(const int level, bool skip_adjust) {
 	if (!skip_adjust && (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT)) {
 		assert(NoiseLevel == 1 || NoiseLevel == 2);
 		bool ok = adjustScaleAndLevel(
-		  this->NoiseLevel, level, this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : cc.param.ScalingFactorReal[level] * cc.param.ScalingFactorReal[level]);
+			this->NoiseLevel,
+			level,
+			this->NoiseLevel == 1 ? cc.param.ScalingFactorReal[level] : cc.param.ScalingFactorReal[level] * cc.param.ScalingFactorReal[level]);
 		assert(ok);
 	} else {
 		c0.dropToLevel(level);

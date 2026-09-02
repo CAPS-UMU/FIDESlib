@@ -88,7 +88,7 @@ BENCHMARK_DEFINE_F(GeneralFixture, Rescale)(benchmark::State& state) {
 		for (auto _ : state) {
 			auto start = std::chrono::high_resolution_clock::now();
 			for (int i = 0; i < 200; i++) {
-				GPUct1.rescale();
+				GPUct1.rescaleInternal();
 				GPUct1.c0.grow(GPUct1.c0.getLevel() + 1);
 				GPUct1.c1.grow(GPUct1.c1.getLevel() + 1);
 				GPUct1.NoiseLevel = 2;
