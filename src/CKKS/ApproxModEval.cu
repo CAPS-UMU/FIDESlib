@@ -258,25 +258,13 @@ void innerEvalChebyshevPS(const Ciphertext& x,
 			//}
 			psRecord->rev_result_ciphertexts.pop_back();
 		} else if (mode == FULL) {
-			if (T2_norescale[m - 1]->NoiseLevel == 2 && T2[m - 1]->getLevel() + (T2[m - 1]->NoiseLevel == 1) - level_offset == T2_norescale[m - 1]->
-				getLevel()) {
-				cu.evalPartialLinearWSumWithBias(T,
-				                                 divcs->q,
-				                                 divcs->q.front() / 2.0,
-				                                 divcs->q.size() - 1,
-				                                 (int)T2[m - 1]->getLevel() + (T2[m - 1]->NoiseLevel == 1) - level_offset,
-				                                 false);
-				cu.rescale();
-				cu.add(*T2[m - 1]);
-			} else {
-				cu.evalPartialLinearWSumWithBias(T,
-				                                 divcs->q,
-				                                 divcs->q.front() / 2.0,
-				                                 divcs->q.size() - 1,
-				                                 (int)T2[m - 1]->getLevel() + (T2[m - 1]->NoiseLevel == 1) - level_offset,
-				                                 true);
-				cu.add(*T2[m - 1]);
-			}
+			cu.evalPartialLinearWSumWithBias(T,
+			                                 divcs->q,
+			                                 divcs->q.front() / 2.0,
+			                                 divcs->q.size() - 1,
+			                                 (int)T2[m - 1]->getLevel() + (T2[m - 1]->NoiseLevel == 1) - level_offset,
+			                                 true);
+			cu.add(*T2[m - 1]);
 		}
 	} else {
 		if (mode != RECORD)
