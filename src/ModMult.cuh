@@ -20,10 +20,10 @@ namespace FIDESlib {
 // ------------------------------------ BASIC MODULAR MULT KERNELS ----------------------------------------
 
 /** Inplace element-wise modular mult of an array: a_i = a_i * b_i % p */
-template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const int primeid);
+template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const int primeid, const __grid_constant__ int elem_b);
 
 /** Element-wise modular mult of an array: a_i = b_i * c_i % p */
-template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const T* c, const int primeid);
+template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const T* c, const int primeid, const __grid_constant__ int elem_c);
 
 /** Inplace scalar modular mult of an array: a_i = a_i * b % p */
 template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void scalar_mult_(T* a, const T b, const int primeid, const T shoup_mu = 0);
@@ -31,12 +31,16 @@ template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void scalar_mult_(T* 
 // ------------------------------------ INLINEABLE GPU MODULAR MULT KERNELS -------------------------------
 
 /** 32-bit modular mult, to be inlined inside more complex kernels. */
-template <ALGO algo = DEFAULT_ALGO>
-__forceinline__ __device__ uint32_t modmult(const uint32_t a, const uint32_t b, const int primeid, const uint32_t shoup_b = 0);
+template <ALGO algo = DEFAULT_ALGO> __forceinline__ __device__ uint32_t modmult(const uint32_t a,
+                                                                                const uint32_t b,
+                                                                                const int primeid,
+                                                                                const uint32_t shoup_b = 0);
 
 /** 64-bit modular mult, to be inlined inside more complex kernels. */
-template <ALGO algo = DEFAULT_ALGO>
-__forceinline__ __device__ uint64_t modmult(const uint64_t a, const uint64_t b, const int primeid, const uint64_t shoup_b = 0);
+template <ALGO algo = DEFAULT_ALGO> __forceinline__ __device__ uint64_t modmult(const uint64_t a,
+                                                                                const uint64_t b,
+                                                                                const int primeid,
+                                                                                const uint64_t shoup_b = 0);
 
 /** 64-bit integer improved Barret modular multiplication implementation. (p < 2^62) */
 __forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
@@ -59,8 +63,8 @@ __forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint6
 
 */
 	__uint128_t c = (__uint128_t)op1 * op2;
-	uint64_t rx	  = c >> (qbit - 2);
-	uint64_t rb	  = __umul64hi(rx << (62 - qbit), mu) >> 1;
+	uint64_t rx   = c >> (qbit - 2);
+	uint64_t rb   = __umul64hi(rx << (62 - qbit), mu) >> 1;
 	rb *= prime;
 	uint64_t c_lo = c;
 	c_lo -= rb;
@@ -70,7 +74,7 @@ __forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint6
 
 /** 32-bit integer improved Barret modular multiplication implementation. (p < 2^30) */
 __forceinline__ __device__ uint32_t Neal_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t mu, const uint32_t prime, const uint32_t& qbit) {
-	uint64_t c	= (uint64_t)op1 * op2;
+	uint64_t c  = (uint64_t)op1 * op2;
 	uint32_t rx = c >> (qbit - 2);
 	uint32_t rb = __umulhi(rx << (30 - qbit), mu) >> 1;
 	rb *= prime;
@@ -88,9 +92,9 @@ __forceinline__ __device__ uint32_t Neal_mult_32(const uint32_t op1, const uint3
  * Output: op1 * op2 % prime
  */
 __forceinline__ __device__ uint64_t Shoup_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t psi, const uint64_t prime) {
-	uint64_t c	  = __umul64hi(op1, psi);
+	uint64_t c    = __umul64hi(op1, psi);
 	uint64_t c_lo = op1 * op2 - c * prime;
-	c_lo		  = (c_lo >= prime) ? c_lo - prime : c_lo;
+	c_lo          = (c_lo >= prime) ? c_lo - prime : c_lo;
 	return c_lo;
 }
 
@@ -102,9 +106,9 @@ __forceinline__ __device__ uint64_t Shoup_mult_64(const uint64_t op1, const uint
  * Output: op1 * op2 % prime
  */
 __forceinline__ __device__ uint32_t Shoup_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t psi, const uint32_t prime) {
-	uint32_t c	  = __umulhi(op1, psi);
+	uint32_t c    = __umulhi(op1, psi);
 	uint32_t c_lo = op1 * op2 - c * prime;
-	c_lo		  = (c_lo >= prime) ? c_lo - prime : c_lo;
+	c_lo          = (c_lo >= prime) ? c_lo - prime : c_lo;
 	return c_lo;
 }
 
@@ -126,7 +130,7 @@ __forceinline__ __device__ uint64_t fp64himult(const uint64_t a, const uint64_t 
 	// Conversión literal de los datos
 	const double da = *((double*)&aux_a), db = *((double*)&aux_b);
 	// Multiplicamos double sin redondeo (redondeo hacia abajo)
-	const double dc	 = __dmul_rd(da, db);
+	const double dc  = __dmul_rd(da, db);
 	const uint64_t c = *((uint64_t*)&dc);
 	// Eliminamos exponente y signo de la interpretación entera.
 	uint64_t res = (c & 0x000FFFFFFFFFFFFF) | (1ul << 52);
@@ -187,7 +191,7 @@ __forceinline__ __device__ uint64_t Neal_mult_53(const uint64_t op1, const uint6
   */
 
 	const uint64_t rx = fp64himult_ver2(op1 << (53 - qbit), op2 << 2);
-	uint64_t rb		  = fp64himult_ver2(rx << (51 - qbit), mu) >> 1;
+	uint64_t rb       = fp64himult_ver2(rx << (51 - qbit), mu) >> 1;
 	rb *= prime;
 	uint64_t c_lo = op1 * op2;
 	c_lo -= rb;

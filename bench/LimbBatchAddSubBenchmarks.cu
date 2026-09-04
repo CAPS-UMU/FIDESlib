@@ -43,7 +43,7 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, LimbBatchAdd)(benchmark::State& state) {
 	for (auto _ : state) {
 		auto start = std::chrono::high_resolution_clock::now();
 		for (auto& i : limb32)
-			i.first.add(i.second);
+			i.first.add(i.second, cc->N/2);
 		CudaCheckErrorMod;
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -89,7 +89,7 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, LimbBatchAdd64)(benchmark::State& state) {
 
 		auto start = std::chrono::high_resolution_clock::now();
 		for (auto& i : limb64)
-			i.first.add(i.second);
+			i.first.add(i.second, cc->N/2);
 		CudaCheckErrorMod;
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -135,7 +135,7 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, LimbBatchSub)(benchmark::State& state) {
 
 		auto start = std::chrono::high_resolution_clock::now();
 		for (auto& i : limb32)
-			i.first.sub(i.second);
+			i.first.sub(i.second, cc->N/2);
 		CudaCheckErrorMod;
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -182,7 +182,7 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, LimbBatchSub64)(benchmark::State& state) {
 
 		auto start = std::chrono::high_resolution_clock::now();
 		for (auto& i : limb64)
-			i.first.sub(i.second);
+			i.first.sub(i.second, cc->N/2);
 		CudaCheckErrorMod;
 		auto end	 = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);

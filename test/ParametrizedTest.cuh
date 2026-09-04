@@ -376,7 +376,7 @@ inline FIDESlib::CKKS::Parameters params32_15{ .logN = 15, .L = 27, .dnum = 4, .
 inline GeneralTestParams gparams32_15{ .multDepth = 28, .scaleModSize = 28, .batchSize = 8, .ringDim = 1 << 15, .dnum = 4, .GPUs = devices };
 inline std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters> tparams32_15 = std::tuple(gparams32_15, params32_15);
 
-constexpr int logNboot     = 16;
+constexpr int logNboot     = 12;
 constexpr int firstmodboot = 60;
 constexpr int scalemodboot = 59;
 constexpr int depthboot    = 23;

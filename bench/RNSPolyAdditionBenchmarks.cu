@@ -29,9 +29,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyAdd)(benchmark::State& state) {
 		FIDESlib::CKKS::RNSPoly b(*cc, state.range(1));
 
 		auto start = std::chrono::high_resolution_clock::now();
-		a.add(b);
+		a.add(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
@@ -54,9 +54,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyAddContextLimbCount)(benchmark::State
 		FIDESlib::CKKS::RNSPoly b(*cc, cc->L);
 
 		auto start = std::chrono::high_resolution_clock::now();
-		a.add(b);
+		a.add(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
@@ -86,9 +86,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyMultiAdd)(benchmark::State& state) {
 
 		auto start = std::chrono::high_resolution_clock::now();
 		for (int i = 0; i < 10; ++i)
-			a.add(b);
+			a.add(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
@@ -113,9 +113,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyMultiAddContextLimbCount)(benchmark::
 
 		auto start = std::chrono::high_resolution_clock::now();
 		for (int i = 0; i < 10; ++i)
-			a.add(b);
+			a.add(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
@@ -143,9 +143,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolySub)(benchmark::State& state) {
 		FIDESlib::CKKS::RNSPoly b(*cc, state.range(1));
 
 		auto start = std::chrono::high_resolution_clock::now();
-		a.sub(b);
+		a.sub(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
@@ -168,9 +168,9 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolySubContextLimbCount)(benchmark::State
 	for (auto _ : state) {
 
 		auto start = std::chrono::high_resolution_clock::now();
-		a.sub(b);
+		a.sub(b, cc->N/2);
 		CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 	}
