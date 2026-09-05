@@ -279,6 +279,8 @@ void Ciphertext::addPt(const Plaintext& b) {
 		}
 	}
 	assert(NoiseLevel == b.NoiseLevel);
+	if (b.c0.getLevel() < this->getLevel())   // no adjust step ran (FIXEDMANUAL): the kernels would read past the plaintext
+		throwAdjustFailure("addPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
 	op_count[OPS::ADDPT]++;
 
 	c0.add(b.c0);
@@ -312,6 +314,8 @@ void Ciphertext::subPt(const Plaintext& b) {
 		}
 	}
 	assert(NoiseLevel == b.NoiseLevel);
+	if (b.c0.getLevel() < this->getLevel())   // no adjust step ran (FIXEDMANUAL): the kernels would read past the plaintext
+		throwAdjustFailure("subPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
 	op_count[OPS::ADDPT]++;
 
 	c0.sub(b.c0);
@@ -426,6 +430,8 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 		assert(NoiseLevel < 2);
 		assert(b.NoiseLevel < 2);
 	}
+	if (b.c0.getLevel() < this->getLevel())   // no adjust step ran (FIXEDMANUAL / ignore_scale): the kernels would read past the plaintext
+		throwAdjustFailure("multPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
 	op_count[OPS::MULTPT]++;
 
 	c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL);
