@@ -9,6 +9,8 @@
 #include "CKKS/Ciphertext.cuh"
 #include "CKKS/CoeffsToSlots.cuh"
 #include "CKKS/Context.cuh"
+#include <stdexcept>
+#include <string>
 #if defined(__clang__)
 #include <experimental/source_location>
 using sc = std::experimental::source_location;
@@ -397,10 +399,21 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
 	// RAISING THE MODULUS
 	//------------------------------------------------------------------------------
 
+	// Input precondition. This used to be an assert(), i.e. absent from Release builds: the modulus raise below first
+	// consumes the pending rescale of a NoiseLevel-2 input and then one more limb (multScalar + rescale before
+	// dropToLevel(0)), so the input needs level >= NoiseLevel (NoiseLevel 1: level >= 1, NoiseLevel 2: level >= 2).
+	// Otherwise rescale() runs on a single-limb polynomial and the result is silently garbage/NaN (or a crash).
 	if (!prescaled) {
-		assert(ctxt.getLevel() - ctxt.NoiseLevel + 1 >= 1);
+		if (ctxt.getLevel() < ctxt.NoiseLevel) {
+			throw std::invalid_argument("FIDESlib::CKKS::Bootstrap: ciphertext at level " + std::to_string(ctxt.getLevel()) + " with NoiseLevel " +
+			  std::to_string(ctxt.NoiseLevel) + " cannot be bootstrapped: the modulus raise requires level >= NoiseLevel, i.e. level >= " +
+			  std::to_string(ctxt.NoiseLevel) + " for this input (rescale() a NoiseLevel-2 ciphertext or keep one more limb).");
+		}
 	} else {
-		assert(ctxt.getLevel() - ctxt.NoiseLevel + 1 == 0);
+		if (ctxt.getLevel() - ctxt.NoiseLevel + 1 != 0) {
+			throw std::invalid_argument("FIDESlib::CKKS::Bootstrap(prescaled = true): expected level == NoiseLevel - 1, got level " +
+			  std::to_string(ctxt.getLevel()) + " and NoiseLevel " + std::to_string(ctxt.NoiseLevel) + ".");
+		}
 	}
 	// In FLEXIBLEAUTO, raising the ciphertext to a larger number
 	// of towers is a bit more complex, because we need to adjust
