@@ -449,7 +449,14 @@ class Ciphertext {
 	 *
 	 * @param indexes Vector of rotation indexes.
 	 * @param results Vector to receive resulting ciphertext pointers.
-	 * @param ext     If true, extends ciphertexts before rotation.
+	 * @param ext     If true, the results are left in the extended Q*P basis
+	 *                (isModUp() == true, values scaled by P) so that several of
+	 *                them can be added and brought back with a single moddown().
+	 *                Such results are not valid inputs for any other operation
+	 *                (rescale, multPt, store, ...) until they, or the sum they
+	 *                were added into, have been moddown'ed; see Accumulate() for
+	 *                the intended pattern. If false, each result is moddown'ed
+	 *                and ready to use.
 	 */
 	void rotate_hoisted(const std::vector<int>& indexes, std::vector<Ciphertext*> results, bool ext);
 
