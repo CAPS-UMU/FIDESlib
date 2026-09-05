@@ -64,7 +64,11 @@ Plaintext::Plaintext(Context& cc, const RawPlainText& raw)
 void Plaintext::load(const RawPlainText& raw) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
-	c0.loadConstant(raw.sub_0, raw.moduli);
+	NoiseFactor = raw.Noise;
+	NoiseLevel  = raw.NoiseLevel;
+	slots       = raw.slots;
+
+	c0.loadConstant(raw.sub_0, raw.moduli, slots, true);
 
 	/*
 	cudaDeviceSynchronize();
@@ -77,9 +81,6 @@ void Plaintext::load(const RawPlainText& raw) {
 	cudaDeviceSynchronize();
 	*/
 
-	NoiseFactor = raw.Noise;
-	NoiseLevel  = raw.NoiseLevel;
-	slots       = raw.slots;
 }
 
 void Plaintext::store(RawPlainText& raw) {
@@ -233,6 +234,7 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 }
 
 void Plaintext::copy(const Plaintext& p) {
+	assert(slots == 0 || slots == p.slots);
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
 	this->c0.copy(p.c0);
@@ -274,6 +276,7 @@ void Plaintext::multScalar(double c, bool rescale) {
 void Plaintext::rotate_hoisted(const std::vector<int>& indexes, std::vector<Plaintext*>& results) {
 	assert(indexes.size() == results.size() && "rotate_hoisted: mismatched indexes and results sizes");
 	CKKS::SetCurrentContext(cc_);
+	assert(2*slots == cc.N);
 
 	for (size_t i = 0; i < indexes.size(); ++i) {
 		int index = indexes[i];
@@ -286,7 +289,7 @@ void Plaintext::rotate_hoisted(const std::vector<int>& indexes, std::vector<Plai
 			results[i]->c0.grow(this->c0.getLevel());
 			results[i]->c0.dropToLevel(this->c0.getLevel());
 			results[i]->copyMetadata(*this);
-			results[i]->c0.automorph(index, 1, &this->c0);
+			results[i]->c0.automorph(index, &this->c0, 2 * slots);
 			// results[i]->copy(*this);
 			// results[i]->automorph(index);
 		}
@@ -342,6 +345,7 @@ void Plaintext::addPt(const Plaintext& c) {
 void Plaintext::rescale() {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
+	assert(2*slots == cc.N);
 
 	assert(this->NoiseLevel >= 2);
 	/*
@@ -369,7 +373,7 @@ void Plaintext::automorph(const int index) {
 	if (index != 0) {
 		auto& aux = cc.getModdownAux(0);
 		aux.setLevel(c0.getLevel());
-		aux.automorph(index, 1, &c0);
+		aux.automorph(index, &c0, 2 * slots);
 		c0.copy(aux);
 	}
 }
@@ -433,7 +437,8 @@ void Plaintext::multPt(const Plaintext& b, bool rescale) {
 	assert(b.NoiseLevel < 2);
 	// op_count[OPS::MULTPT]++;
 
-	c0.multPt(b.c0, false);
+	assert(this->slots >= b.slots);
+	c0.multPt(b.c0, false, b.slots);
 
 	this->multMetadata(*this, b);
 
@@ -446,7 +451,9 @@ void Plaintext::subPt(const Plaintext& c) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 
 	assert(NoiseLevel == c.NoiseLevel);
-	c0.sub(c.c0);
+
+	assert(this->slots >= c.slots);
+	c0.sub(c.c0, c.slots);
 	this->addMetadata(*this, c);
 }
 

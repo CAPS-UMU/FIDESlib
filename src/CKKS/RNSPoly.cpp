@@ -23,16 +23,19 @@
 #define OMP_ASSERT(x) assert(x);
 
 namespace FIDESlib::CKKS {
-void RNSPoly::grow(int new_level, bool single_malloc, bool constant) {
+void RNSPoly::grow(int new_level, bool single_malloc, bool constant, int num_elems) {
 	if (level >= new_level)
 		return;
 	level = new_level;
 
+	if (num_elems == -1)
+		num_elems = cc.N;
 	// single_malloc = false;
 	// if (level == -1) {
 	// std::cout << "from 0" << std::endl;
 	if (!constant && (!single_malloc || (GPU.at(0).limb.size() > 0)) && GPU.at(0).bufferLIMB == nullptr) {
 		// TODO fix bug (check that limb size matches level)
+		assert(num_elems == cc.N);
 		int init = 0;
 		for (auto& g : GPU)
 			init += g.limb.size();
@@ -48,9 +51,10 @@ void RNSPoly::grow(int new_level, bool single_malloc, bool constant) {
 		for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 			//          OMP_ASSERT(omp_get_num_threads() == (int)GPU.size());
 			if (!constant) {
+				assert(num_elems == cc.N);
 				GPU.at(i).generateLimbSingleMalloc();
 			} else {
-				GPU.at(i).generateLimbConstant();
+				GPU.at(i).generateLimbConstant(num_elems);
 			}
 		}
 	}
@@ -252,7 +256,7 @@ void RNSPoly::binomialMult(RNSPoly& c1, RNSPoly& in, const RNSPoly& d0, const RN
 	in.SetModUp(!moddown);
 }
 
-void RNSPoly::add(const RNSPoly& p) {
+void RNSPoly::add(const RNSPoly& p, int slots) {
 
 	if (p.isModUp() && !this->isModUp()) {
 		// std::cout << "Adapt non modup destination add" << std::endl;
@@ -263,17 +267,17 @@ void RNSPoly::add(const RNSPoly& p) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).add(p.GPU.at(i), this->isModUp(), p.isModUp());
+		GPU.at(i).add(p.GPU.at(i), this->isModUp(), p.isModUp(), slots);
 	}
 	this->SetModUp(this->isModUp() || p.isModUp());
 }
 
-void RNSPoly::sub(const RNSPoly& p) {
+void RNSPoly::sub(const RNSPoly& p, int slots) {
 	assert(level <= p.level);
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).sub(p.GPU.at(i));
+		GPU.at(i).sub(p.GPU.at(i), slots);
 	}
 }
 
@@ -420,18 +424,18 @@ void RNSPoly::rescaleDouble(RNSPoly& poly) {
 	}
 }
 
-void RNSPoly::multPt(const RNSPoly& p, bool rescale) {
+void RNSPoly::multPt(const RNSPoly& p, bool rescale, int slots) {
 	if (rescale) {
 		if (GPU.size() == 1) {
 			for (size_t i = 0; i < GPU.size(); ++i) {
-				GPU.at(i).multPt(p.GPU.at(i));
+				GPU.at(i).multPt(p.GPU.at(i), slots);
 			}
 			--level;
 		} else {
 #pragma omp parallel for num_threads(GPU.size())
 			for (size_t i = 0; i < GPU.size(); ++i) {
 				assert(omp_get_num_threads() == (int)GPU.size());
-				GPU.at(i).multElement(p.GPU.at(i));
+				GPU.at(i).multElement(p.GPU.at(i), slots);
 				GPU.at(i).rescaleMGPU();
 			}
 			--level;
@@ -440,7 +444,7 @@ void RNSPoly::multPt(const RNSPoly& p, bool rescale) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 		for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 			assert(omp_get_num_threads() == (int)cc.GPUid.size());
-			GPU.at(i).multElement(p.GPU.at(i));
+			GPU.at(i).multElement(p.GPU.at(i), slots);
 		}
 	}
 }
@@ -506,19 +510,19 @@ std::array<RNSPoly, 2> RNSPoly::dotKSK(const KeySwitchingKey& ksk) {
 }
 */
 
-void RNSPoly::multElement(const RNSPoly& poly) {
+void RNSPoly::multElement(const RNSPoly& poly, int slots) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).multElement(poly.GPU.at(i));
+		GPU.at(i).multElement(poly.GPU.at(i), slots);
 	}
 }
 
-void RNSPoly::multElement(const RNSPoly& poly1, const RNSPoly& poly2) {
+void RNSPoly::multElement(const RNSPoly& poly1, const RNSPoly& poly2, int slots_p2) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).multElement(poly1.GPU.at(i), poly2.GPU.at(i));
+		GPU.at(i).multElement(poly1.GPU.at(i), poly2.GPU.at(i), slots_p2);
 	}
 }
 
@@ -626,12 +630,12 @@ template <ALGO algo> void RNSPoly::moddown(bool ntt, bool free, int aux_num) {
 
 #undef YY
 
-int RNSPoly::automorph_index_precomp(const int idx) const {
-	return modpow(5, 2 * cc.N - idx, cc.N * 2);
+int RNSPoly::automorph_index_precomp(const int idx, int num_elems) const {
+	return modpow(5, 2 * num_elems - idx, 2 * num_elems);
 }
 
-void RNSPoly::automorph(const int idx, const int br, RNSPoly* src) {
-	int k = automorph_index_precomp(idx);
+void RNSPoly::automorph(const int idx, RNSPoly* src, int slots, const int br) {
+	int k = automorph_index_precomp(idx, 2 * slots);
 	// int k2 = modpow(5, idx, cc.N * 2);
 
 	// std::cout << k << " " << k2 << std::endl;
@@ -641,7 +645,7 @@ void RNSPoly::automorph(const int idx, const int br, RNSPoly* src) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).automorph(k, br, src ? &src->GPU.at(i) : nullptr, src ? src->isModUp() : this->isModUp());
+		GPU.at(i).automorph(k, br, src ? &src->GPU.at(i) : nullptr, src ? src->isModUp() : this->isModUp(), 2 * slots);
 	}
 	if (src)
 		this->SetModUp(src->isModUp());
@@ -764,13 +768,13 @@ void RNSPoly::multScalar(std::vector<uint64_t>& vector1) {
 	}
 }
 
-void RNSPoly::add(const RNSPoly& a, const RNSPoly& b) {
+void RNSPoly::add(const RNSPoly& a, const RNSPoly& b, int slots_b) {
 	assert(level <= a.level);
 	assert(level <= b.level);
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).add(a.GPU.at(i), b.GPU.at(i), a.isModUp(), b.isModUp());
+		GPU.at(i).add(a.GPU.at(i), b.GPU.at(i), a.isModUp(), b.isModUp(), slots_b);
 	}
 
 	this->SetModUp(a.isModUp() || b.isModUp());
@@ -846,12 +850,12 @@ void RNSPoly::dropToLevel(int level) {
 		this->level = level;
 }
 
-void RNSPoly::addMult(const RNSPoly& poly, const RNSPoly& poly1) {
+void RNSPoly::addMult(const RNSPoly& poly, const RNSPoly& poly1, int slots) {
 	assert(level <= poly1.level && level <= poly.level);
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU.at(i).addMult(poly.GPU.at(i), poly1.GPU.at(i));
+		GPU.at(i).addMult(poly.GPU.at(i), poly1.GPU.at(i), slots);
 	}
 }
 
@@ -893,7 +897,7 @@ void RNSPoly::load(const std::vector<std::vector<uint64_t>>& data, const std::ve
 		this->setLevel(level + 1);
 }
 
-void RNSPoly::loadConstant(const std::vector<std::vector<uint64_t>>& data, const std::vector<uint64_t>& moduli) {
+void RNSPoly::loadConstant(const std::vector<std::vector<uint64_t>>& data, const std::vector<uint64_t>& moduli, int slots, bool compress) {
 	int limbsize  = 0;
 	int Slimbsize = 0;
 	for (int i = 0; i < (int)data.size(); ++i) {
@@ -904,9 +908,27 @@ void RNSPoly::loadConstant(const std::vector<std::vector<uint64_t>>& data, const
 		}
 	}
 
+	if (slots == -1) {
+		slots = cc.N / 2;
+	}
+	assert(compress == true);
+
+	auto data_ = data;
+	for (int i = 0; i < (int)data.size(); ++i) {
+		assert((int)data[i].size() >= 2*slots);
+		int stride = data[i].size() / 2 / slots;
+		if (compress && (int)data[i].size() > 2 * slots) {
+			std::vector<uint64_t> aux(2 * slots);
+			for (int j = 0; j < 2 * slots; ++j) {
+				aux[j] = data[i][j * stride];
+			}
+			data_[i] = aux;
+		}
+	}
+
 	assert(limbsize <= cc.L + 1);
 	if (level < limbsize - 1) {
-		grow(limbsize - 1, false, true);
+		grow(limbsize - 1, false, true, 2 * slots);
 	} else {
 		dropToLevel(limbsize - 1);
 	}
@@ -914,11 +936,11 @@ void RNSPoly::loadConstant(const std::vector<std::vector<uint64_t>>& data, const
 	for (int i = 0; i < limbsize; ++i) {
 		assert(moduli[i] == cc.prime.at(i).p);
 		cudaSetDevice(GPU[cc.limbGPUid[i].x].device);
-		SWITCH(GPU[cc.limbGPUid[i].x].limb[cc.limbGPUid[i].y], load_convert(data[i]));
+		SWITCH(GPU[cc.limbGPUid[i].x].limb[cc.limbGPUid[i].y], load_convert(data_[i]));
 	}
 
 	if ((int)data.size() > limbsize) {
-		generatePartialSpecialLimbs();
+		generatePartialSpecialLimbs(slots);
 		this->SetModUp(true);
 	}
 	for (size_t i = limbsize; i < data.size(); ++i) {
@@ -926,11 +948,12 @@ void RNSPoly::loadConstant(const std::vector<std::vector<uint64_t>>& data, const
 			for (size_t k = 0; k < cc.splitSpecialMeta.at(j).size(); ++k) {
 				if (cc.specialPrime.at(cc.splitSpecialMeta.at(j).at(k).id - cc.L - 1).p == moduli[i]) {
 					cudaSetDevice(GPU[j].device);
-					SWITCH(GPU[j].SPECIALlimb[k], load_convert(data[i]));
+					SWITCH(GPU[j].SPECIALlimb[k], load_convert(data_[i]));
 				}
 			}
 		}
 	}
+
 }
 
 void RNSPoly::broadcastLimb0() {
@@ -1004,11 +1027,11 @@ void RNSPoly::squareModupDotKSK(RNSPoly& c0, RNSPoly& c1, const KeySwitchingKey&
 	c1.SetModUp(true);
 }
 
-void RNSPoly::generatePartialSpecialLimbs() {
+void RNSPoly::generatePartialSpecialLimbs(int slots) {
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());
-		GPU[i].generatePartialSpecialLimb();
+		GPU[i].generatePartialSpecialLimb(slots);
 	}
 }
 
@@ -1032,7 +1055,8 @@ void RNSPoly::dotProductPt(RNSPoly& c1_,
                            const std::vector<const RNSPoly*>& c0s_,
                            const std::vector<const RNSPoly*>& c1s_,
                            const std::vector<const RNSPoly*>& pts_,
-                           const bool ext) {
+                           const bool ext,
+                           int slots) {
 
 	if (ext) {
 		generateSpecialLimbs(false, false);
@@ -1048,7 +1072,7 @@ void RNSPoly::dotProductPt(RNSPoly& c1_,
 			c1s[i] = &(c1s_[i]->GPU[j]);
 			pts[i] = &(pts_[i]->GPU[j]);
 		}
-		GPU[j].dotProductPt(c1_.GPU[j], c0s, c1s, pts, ext);
+		GPU[j].dotProductPt(c1_.GPU[j], c0s, c1s, pts, ext, slots);
 	}
 	c1_.SetModUp(ext);
 	this->SetModUp(ext);
@@ -1104,7 +1128,7 @@ void RNSPoly::hoistedRotationFused(std::vector<int> indexes,
 	for (uint32_t j = 0; j < n; ++j) {
 		c0[j]->generateSpecialLimbs(false, false);
 		c1[j]->generateSpecialLimbs(false, false);
-		indexes[j] = indexes[j] == 2 * cc.N - 1 ? 2 * cc.N - 1 : automorph_index_precomp(indexes[j]);
+		indexes[j] = indexes[j] == 2 * cc.N - 1 ? 2 * cc.N - 1 : automorph_index_precomp(indexes[j], cc.N);
 	}
 	//    assert(src_c0.isModUp() == false);
 

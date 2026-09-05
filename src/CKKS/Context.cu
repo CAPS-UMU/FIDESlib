@@ -666,7 +666,7 @@ void ContextData::AddBootPrecomputation(int slots, BootstrapPrecomputation&& pre
 						   precomp.CtS.size() * precomp.CtS.at(0).A.size() *
 							 (1 + precomp.CtS.at(0).A.at(0).c0.getLevel() + precomp.CtS.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()))) *
 			N * 8 / (1 << 20)
-			<< "MB\n";
+			<< "MB\n"; // TODO: account for compressed plaintexts
 	}
 
 	precom.boot.emplace(slots, std::move(precomp));

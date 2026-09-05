@@ -81,6 +81,8 @@ public:
 		{}
 */
 
+	uint32_t GetGridDimX() const;
+	uint32_t GetBlockDimX() const;
 	LimbPartition(LimbPartition&& l) noexcept;
 
 	LimbPartition(ContextData& cc, const uint64_t& uid, int* level, const int id, bool def_stream = false);
@@ -114,20 +116,20 @@ public:
 	              size_t offset        = 0,
 	              uint64_t* buffer_aux = nullptr,
 	              size_t offset_aux    = 0,
-	              bool noptr           = false);
+	              bool noptr           = false, int num_elems = -1);
 
 	void generateLimb();
 
 	void generateSpecialLimb(bool zero_out, bool for_communication);
 
-	void add(const LimbPartition& p, const bool exta, bool extb);
-	void add(const LimbPartition& a, const LimbPartition& b, const bool ext_a, const bool ext_b);
+	void add(const LimbPartition& p, const bool exta, bool extb, int slots);
+	void add(const LimbPartition& a, const LimbPartition& b, const bool ext_a, const bool ext_b, int slots_b);
 
-	void sub(const LimbPartition& p);
+	void sub(const LimbPartition& p, int slots);
 
-	void multElement(const LimbPartition& p);
+	void multElement(const LimbPartition& p, int slots);
 
-	void multPt(const LimbPartition& p);
+	void multPt(const LimbPartition& p, int slots);
 
 	void modup(LimbPartition& aux_partition);
 
@@ -201,13 +203,13 @@ public:
 	void mult1Add2(const LimbPartition& partition1, const LimbPartition& partition2);
 
 	void generateLimbSingleMalloc();
-	void generateLimbConstant();
+	void generateLimbConstant(int num_elems = -1);
 
 	void loadDecompDigit(const std::vector<std::vector<std::vector<uint64_t>>>& data, const std::vector<std::vector<uint64_t>>& moduli);
 
 	void dotKSK(const LimbPartition& src, const LimbPartition& ksk, const bool inplace = false, const LimbPartition* limbsrc = nullptr);
 
-	void multElement(const LimbPartition& partition1, const LimbPartition& partition2);
+	void multElement(const LimbPartition& partition1, const LimbPartition& partition2, int slots_p2);
 
 	void multModupDotKSK(LimbPartition& c1,
 	                     const LimbPartition& c1tilde,
@@ -217,7 +219,7 @@ public:
 	                     const LimbPartition& ksk_b);
 
 	size_t getLimbSize(int level) const;
-	void automorph(const int index, const int br, LimbPartition* src, bool ext);
+	void automorph(const int index, const int br, LimbPartition* src, bool ext, int num_elems);
 
 	void modupInto(LimbPartition& partition, LimbPartition& partition1);
 	void multScalar(std::vector<uint64_t>& vector);
@@ -226,19 +228,19 @@ public:
 	void addScalar(std::vector<uint64_t>& vector);
 	void subScalar(std::vector<uint64_t>& vector);
 	void dropLimb();
-	void addMult(const LimbPartition& partition, const LimbPartition& partition1);
+	void addMult(const LimbPartition& partition, const LimbPartition& partition1, int slots);
 	void broadcastLimb0();
 	void evalLinearWSum(uint32_t n, std::vector<const LimbPartition*> ps, std::vector<uint64_t>& weights, bool with_bias = false);
 	void rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
 	void squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
 	void rescaleMGPU();
 	void moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs, const std::vector<uint64_t*>& bufferSpecial_);
-	void generatePartialSpecialLimb();
+	void generatePartialSpecialLimb(int slots);
 	void dotProductPt(LimbPartition& c1,
 	                  const std::vector<const LimbPartition*>& c0s,
 	                  const std::vector<const LimbPartition*>& c1s,
 	                  const std::vector<const LimbPartition*>& pts,
-	                  bool ext);
+	                  bool ext, int slots);
 
 	void generateGatherLimb(bool iskey);
 	void dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& digitSrc, const LimbPartition& ksk_a, const LimbPartition& ksk_b, const LimbPartition& src);
@@ -304,7 +306,7 @@ public:
 	                    int gStep,
 	                    int stride,
 	                    double usage,
-	                    bool ext);
+	                    bool ext, int slots);
 
 	static void fusedHoistedRotateBatch(std::vector<LimbPartition*>& out,
 	                                    const std::vector<LimbPartition*>& in,

@@ -62,10 +62,10 @@ void RNSPoly::addScalarBatchManyToOne(std::vector<RNSPoly*>& polya, const std::v
 }
 
 void RNSPoly::multScalarBatchManyToOne(std::vector<RNSPoly*>& polya,
-  const std::vector<std::vector<unsigned long int>>& vector,
-  const std::vector<std::vector<unsigned long int>>& vectors,
-  int stride,
-  double usage) {
+                                       const std::vector<std::vector<unsigned long int>>& vector,
+                                       const std::vector<std::vector<unsigned long int>>& vectors,
+                                       int stride,
+                                       double usage) {
 #pragma omp parallel for num_threads(polya[0]->cc.GPUid.size())
 	for (size_t i = 0; i < polya[0]->cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)polya[0]->cc.GPUid.size());
@@ -78,7 +78,16 @@ void RNSPoly::multScalarBatchManyToOne(std::vector<RNSPoly*>& polya,
 	}
 }
 
-void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<RNSPoly*>& in, const std::vector<RNSPoly*>& pt, int bStep, int gStep, int stride, double usage, bool ext) {
+void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out,
+                                  const std::vector<RNSPoly*>& in,
+                                  const std::vector<RNSPoly*>& pt,
+                                  int bStep,
+                                  int gStep,
+                                  int stride,
+                                  double usage,
+                                  bool ext,
+                                  int
+                                  pt_slots) {
 	ContextData& cc = out[0]->cc;
 	if (gStep <= 8) {
 #pragma omp parallel for num_threads(out[0]->cc.GPUid.size())
@@ -103,7 +112,7 @@ void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<
 					pts.push_back(nullptr);
 			}
 
-			LimbPartition::LTdotProductPtBatch(outs, ins, pts, bStep, gStep, stride, usage, ext);
+			LimbPartition::LTdotProductPtBatch(outs, ins, pts, bStep, gStep, stride, usage, ext, pt_slots);
 		}
 
 		for (auto i : out) {
@@ -151,7 +160,7 @@ void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<
 
 					outs[0]->s.wait(out[0]->GPU[i].s);
 					pts[0]->s.wait(pt[0]->GPU[i].s);
-					LimbPartition::LTdotProductPtBatch(outs, ins, pts, bStep, g_internal, stride, usage, ext);
+					LimbPartition::LTdotProductPtBatch(outs, ins, pts, bStep, g_internal, stride, usage, ext, pt_slots);
 					out[0]->GPU[i].s.wait(outs[0]->s);
 					pt[0]->GPU[i].s.wait(pts[0]->s);
 				}
@@ -161,7 +170,8 @@ void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<
 				i->SetModUp(ext);
 			}
 
-		} else { // TODO correct for stride != 1
+		} else {
+			// TODO correct for stride != 1
 			assert(stride == 1);
 			// ---- Added safety checks ----
 			// The fallback implementation assumes an even number of output polynomials.
@@ -192,25 +202,25 @@ void RNSPoly::LTdotProductPtBatch(std::vector<RNSPoly*>& out, const std::vector<
 					pts_.emplace_back(pt[bStep * i + j]);
 				}
 
-				out[2 * i]->dotProductPt(*out[2 * i + 1], c0s, c1s, pts_, ext);
+				out[2 * i]->dotProductPt(*out[2 * i + 1], c0s, c1s, pts_, ext, pt_slots);
 			}
 		}
 	}
 }
 
 void RNSPoly::fusedHoistedRotateBatch(std::vector<RNSPoly*>& out,
-  const std::vector<RNSPoly*>& in,
-  const std::vector<RNSPoly*>& ksk_a,
-  const std::vector<RNSPoly*>& ksk_b,
-  const std::vector<int>& indexes,
-  int stride,
-  double usage,
-  bool c0_modup) {
+                                      const std::vector<RNSPoly*>& in,
+                                      const std::vector<RNSPoly*>& ksk_a,
+                                      const std::vector<RNSPoly*>& ksk_b,
+                                      const std::vector<int>& indexes,
+                                      int stride,
+                                      double usage,
+                                      bool c0_modup) {
 
 	uint32_t n = indexes.size();
 	std::vector<int> index(n);
 	for (uint32_t j = 0; j < n; ++j) {
-		index[j] = in[0]->automorph_index_precomp(indexes[j]);
+		index[j] = in[0]->automorph_index_precomp(indexes[j], out[0]->cc.N);
 	}
 
 #pragma omp parallel for num_threads(out[0]->cc.GPUid.size())

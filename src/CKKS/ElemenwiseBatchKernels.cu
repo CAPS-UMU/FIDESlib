@@ -71,39 +71,40 @@ __global__ void mult1Add2_(const __grid_constant__ int primeid_init, void** l, v
 	}
 }
 
-template <typename T> __device__ __forceinline__ void addMult__(T* l, const T* l1, const T* l2, const int primeid) {
+template <typename T> __device__ __forceinline__ void addMult__(T* l, const T* l1, const T* l2, const int primeid, const int elem_l2) {
 	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	l[idx] = modadd(l[idx], modmult<algo>(l1[idx], l2[idx], primeid), primeid);
 }
 
-template <typename T> __global__ void addMult_(T* l, const T* l1, const T* l2, const __grid_constant__ int primeid) {
-	addMult__<T>(l, l1, l2, primeid);
+template <typename T> __global__ void addMult_(T* l, const T* l1, const T* l2, const __grid_constant__ int primeid, const __grid_constant__ int elem_l2) {
+	addMult__<T>(l, l1, l2, primeid, elem_l2);
 }
 
-__global__ void addMult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init) {
+__global__ void addMult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init, const __grid_constant__ int elem_l2) {
 	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
 
 	//    if (threadIdx.x + blockDim.x * blockIdx.x == 0)
 	//        printf("%d %d\n", primeid_init + blockIdx.y, primeid);
 	if (ISU64(primeid)) {
-		addMult__<uint64_t>((uint64_t*)l[blockIdx.y], (uint64_t*)l1[blockIdx.y], (uint64_t*)l2[blockIdx.y], primeid);
+		addMult__<uint64_t>((uint64_t*)l[blockIdx.y], (uint64_t*)l1[blockIdx.y], (uint64_t*)l2[blockIdx.y], primeid, elem_l2);
 	} else {
-		addMult__<uint32_t>((uint32_t*)l[blockIdx.y], (uint32_t*)l1[blockIdx.y], (uint32_t*)l2[blockIdx.y], primeid);
+		addMult__<uint32_t>((uint32_t*)l[blockIdx.y], (uint32_t*)l1[blockIdx.y], (uint32_t*)l2[blockIdx.y], primeid, elem_l2);
 	}
 }
 
-__global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init) {
-	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx     = threadIdx.x + blockDim.x * blockIdx.x;
-
+__global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init, const __grid_constant__ int elem_l2) {
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = threadIdx.x + blockDim.x * blockIdx.x;
+	const int logstride = __ffs(blockDim.x * gridDim.x / elem_l2) - 1;
+	const int l2idx     = idx >> logstride;
 	//    if (idx == 0)
 	//        printf("%d %d\n", primeid_init + blockIdx.y, primeid);
 	if (ISU64(primeid)) {
-		((uint64_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(((uint64_t*)l1[blockIdx.y])[idx], ((uint64_t*)l2[blockIdx.y])[idx], primeid);
+		((uint64_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(((uint64_t*)l1[blockIdx.y])[idx], ((uint64_t*)l2[blockIdx.y])[l2idx], primeid);
 	} else {
-		((uint32_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(((uint32_t*)l1[blockIdx.y])[idx], ((uint32_t*)l2[blockIdx.y])[idx], primeid);
+		((uint32_t*)l[blockIdx.y])[idx] = modmult<ALGO_BARRETT>(((uint32_t*)l1[blockIdx.y])[idx], ((uint32_t*)l2[blockIdx.y])[l2idx], primeid);
 	}
 }
 
@@ -700,40 +701,48 @@ __global__ void hoistedRotateDotKSKBatched___(void*** c1, void*** din1, void*** 
 }
 */
 
-__global__ void dotProductPt_(void** c0, void** c1, void*** data, const size_t ptroffset, const int primeidInit, const int n) {
-	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+__global__ void dotProductPt_(void** c0,
+                              void** c1,
+                              void*** data,
+                              const size_t ptroffset,
+                              const int primeidInit,
+                              const int n,
+                              const __grid_constant__ int elem_data) {
+	const int idx       = threadIdx.x + blockIdx.x * blockDim.x;
+	const int logstride = __ffs(blockDim.x * gridDim.x / elem_data) - 1;
+	const int dataidx   = idx >> logstride;
 	const int primeid   = C_.primeid_flattened[primeidInit + blockIdx.y];
 	constexpr ALGO algo = ALGO_BARRETT;
 
 	uint64_t out0, out1;
-	uint64_t in = ((uint64_t*)data[n * 2][ptroffset + blockIdx.y])[idx];
+	uint64_t in = ((uint64_t*)data[n * 2][ptroffset + blockIdx.y])[dataidx];
 	if (PRINT && idx == 0 && blockIdx.y == 0)
 		printf("LT:, b: %d, g:, in pt: %lu \n", 0, in);
-	out0 = modmult<algo>(in, ((uint64_t*)data[0][ptroffset + blockIdx.y])[idx], primeid);
+	out0 = modmult<algo>(in, ((uint64_t*)data[0][ptroffset + blockIdx.y])[dataidx], primeid);
 
 	if (PRINT && idx == 0 && blockIdx.y == 0)
-		printf("LT: %d, b: %d, in c0: %lu \n", -1, 0, ((uint64_t*)data[0][ptroffset + blockIdx.y])[idx]);
+		printf("LT: %d, b: %d, in c0: %lu \n", -1, 0, ((uint64_t*)data[0][ptroffset + blockIdx.y])[dataidx]);
 
-	out1 = modmult<algo>(in, ((uint64_t*)data[n][ptroffset + blockIdx.y])[idx], primeid);
+	out1 = modmult<algo>(in, ((uint64_t*)data[n][ptroffset + blockIdx.y])[dataidx], primeid);
 
 	if (PRINT && idx == 0 && blockIdx.y == 0)
-		printf("LT: %d, b: %d, in c1: %lu \n", -1, 0, ((uint64_t*)data[n][ptroffset + blockIdx.y])[idx]);
+		printf("LT: %d, b: %d, in c1: %lu \n", -1, 0, ((uint64_t*)data[n][ptroffset + blockIdx.y])[dataidx]);
 
 	for (int i = 1; i < n; ++i) {
-		in = ((uint64_t*)data[n * 2 + i][ptroffset + blockIdx.y])[idx];
+		in = ((uint64_t*)data[n * 2 + i][ptroffset + blockIdx.y])[dataidx];
 
 		if (PRINT && idx == 0 && blockIdx.y == 0)
 			printf("LT:, b: %d, g:, in pt: %lu \n", i, in);
 
-		uint64_t aux0 = modmult<algo>(in, ((uint64_t*)data[i][ptroffset + blockIdx.y])[idx], primeid);
+		uint64_t aux0 = modmult<algo>(in, ((uint64_t*)data[i][ptroffset + blockIdx.y])[dataidx], primeid);
 
 		if (PRINT && idx == 0 && blockIdx.y == 0)
-			printf("LT: %d, b: %d, in c0: %lu \n", -1, i, ((uint64_t*)data[i][ptroffset + blockIdx.y])[idx]);
+			printf("LT: %d, b: %d, in c0: %lu \n", -1, i, ((uint64_t*)data[i][ptroffset + blockIdx.y])[dataidx]);
 
-		uint64_t aux1 = modmult<algo>(in, ((uint64_t*)data[n + i][ptroffset + blockIdx.y])[idx], primeid);
+		uint64_t aux1 = modmult<algo>(in, ((uint64_t*)data[n + i][ptroffset + blockIdx.y])[dataidx], primeid);
 
 		if (PRINT && idx == 0 && blockIdx.y == 0)
-			printf("LT: %d, b: %d, in c1: %lu \n", -1, i, ((uint64_t*)data[n + i][ptroffset + blockIdx.y])[idx]);
+			printf("LT: %d, b: %d, in c1: %lu \n", -1, i, ((uint64_t*)data[n + i][ptroffset + blockIdx.y])[dataidx]);
 		out0 = modadd(out0, aux0, primeid);
 		out1 = modadd(out1, aux1, primeid);
 	}
@@ -858,8 +867,12 @@ dotProductLtBatchedPt2___(void*** c0_out,
                           const int bStep,
                           const int gStep,
                           const int primeidInit,
-                          const int n) {
-	int idx = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
+                          const int n,
+                          const __grid_constant__ int elem_pts) {
+	const int idx       = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
+	const int logstride = __ffs(blockDim.z * blockDim.x * gridDim.x / elem_pts) - 1;
+	const int ptsidx    = idx >> logstride;
+
 	// int b = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
 	// constexpr ALGO algo = ALGO_BARRETT;
@@ -896,7 +909,7 @@ dotProductLtBatchedPt2___(void*** c0_out,
 				uint64_t mult = 0;
 				if (pt_partition != nullptr) {
 					// pt[0] = ((uint64_t*)pt_partition[blockIdx.y])[idx];
-					mult = modmult<ALGO_BARRETT>(in, ((uint64_t*)pt_partition[blockIdx.y])[idx], primeid);
+					mult = modmult<ALGO_BARRETT>(in, ((uint64_t*)pt_partition[blockIdx.y])[ptsidx], primeid);
 				}
 				if (i == 0)
 					acc_this_thread[j * in_stride] = mult;
@@ -918,8 +931,12 @@ dotProductLtBatchedPt3___(void*** c0_out,
                           const int bStep,
                           const int gStep,
                           const int primeidInit,
-                          const int n) {
-	int idx = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
+                          const int n,
+                          const __grid_constant__ int elem_pts) {
+	const int idx       = threadIdx.x + threadIdx.z * blockDim.x + blockIdx.x * blockDim.x * blockDim.z;
+	const int logstride = __ffs(blockDim.z * blockDim.x * gridDim.x / elem_pts) - 1;
+	const int ptsidx    = idx >> logstride;
+
 	// int b = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
 	// constexpr ALGO algo = ALGO_BARRETT;
@@ -956,7 +973,7 @@ dotProductLtBatchedPt3___(void*** c0_out,
 				__uint128_t mult = 0;
 				if (pt_partition != nullptr) {
 					// pt[0] = ((uint64_t*)pt_partition[blockIdx.y])[idx];
-					mult = (__uint128_t)in * (__uint128_t)((uint64_t*)pt_partition[blockIdx.y])[idx];
+					mult = (__uint128_t)in * (__uint128_t)((uint64_t*)pt_partition[blockIdx.y])[ptsidx];
 				}
 				if (i == 0)
 					acc_this_thread[j * in_stride] = mult;
@@ -981,8 +998,12 @@ dotProductLtBatchedPt___(void*** c0_out,
                          const int batch,
                          const int gStep,
                          const int primeidInit,
-                         const int n) {
-	int idx           = threadIdx.x + blockIdx.x * blockDim.x;
+                         const int n,
+                         const __grid_constant__ int elem_pts) {
+	int idx             = threadIdx.x + blockIdx.x * blockDim.x;
+	const int logstride = __ffs(blockDim.x * gridDim.x / elem_pts) - 1;
+	const int ptsidx    = idx >> logstride;
+
 	int b             = blockDim.z;
 	const int primeid = C_.primeid_flattened[primeidInit + blockIdx.y];
 	// constexpr ALGO algo = ALGO_BARRETT;
@@ -1038,7 +1059,7 @@ dotProductLtBatchedPt___(void*** c0_out,
 			void** pt_partition = pts[k * b * gStep + j * b + b_idx];
 			if (pt_partition != nullptr) {
 				if (im_c0) {
-					pt[0] = ((uint64_t*)pt_partition[blockIdx.y])[idx];
+					pt[0] = ((uint64_t*)pt_partition[blockIdx.y])[ptsidx];
 					if (PRINT && idx == 0 && blockIdx.y == 0)
 						printf("LT: %d, b: %d, g: %d, in pt: %lu %lu %p %p\n",
 						       k,
@@ -1204,12 +1225,28 @@ __global__ void dotProductLtBatchedPt___(void*** c0_out, void*** c1_out, void***
 }
 
  */
-__global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init) {
-	const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
-	const int idx     = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c) {
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = blockIdx.x * blockDim.x + threadIdx.x;
+	const int logstride = __ffs(blockDim.x * gridDim.x / elem_c) - 1;
+	const int cidx      = idx >> logstride;
+
 	if (ISU64(primeid)) {
 		uint64_t in                     = modmult<ALGO_SHOUP>(((uint64_t*)b[blockIdx.y])[idx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
-		((uint64_t*)a[blockIdx.y])[idx] = modadd(in, ((uint64_t*)c[blockIdx.y])[idx], primeid);
+		((uint64_t*)a[blockIdx.y])[idx] = modadd(in, ((uint64_t*)c[blockIdx.y])[cidx], primeid);
+	} else {
+	}
+}
+
+__global__ void addScaleC_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c) {
+	const int primeid   = C_.primeid_flattened[primeid_init + blockIdx.y];
+	const int idx       = blockIdx.x * blockDim.x + threadIdx.x;
+	const int logstride = __ffs(blockDim.x * gridDim.x / elem_c) - 1;
+	const int cidx      = idx >> logstride;
+
+	if (ISU64(primeid)) {
+		uint64_t in                     = modmult<ALGO_SHOUP>(((uint64_t*)c[blockIdx.y])[cidx], C_.P[primeid], primeid, C_.P_shoup[primeid]);
+		((uint64_t*)a[blockIdx.y])[idx] = modadd(in, ((uint64_t*)b[blockIdx.y])[idx], primeid);
 	} else {
 	}
 }
@@ -1809,6 +1846,14 @@ __global__ void binomialDotProdSpecialBatched___(const __grid_constant__ int pri
 #include "ntt_types.inc"
 #undef YY
 
-template __global__ void FIDESlib::CKKS::addMult_<uint64_t>(uint64_t* l, const uint64_t* l1, const uint64_t* l2, const __grid_constant__ int primeid);
+template __global__ void FIDESlib::CKKS::addMult_<uint64_t>(uint64_t* l,
+                                                            const uint64_t* l1,
+                                                            const uint64_t* l2,
+                                                            const __grid_constant__ int primeid,
+                                                            const __grid_constant__ int elem_l2);
 
-template __global__ void FIDESlib::CKKS::addMult_<uint32_t>(uint32_t* l, const uint32_t* l1, const uint32_t* l2, const __grid_constant__ int primeid);
+template __global__ void FIDESlib::CKKS::addMult_<uint32_t>(uint32_t* l,
+                                                            const uint32_t* l1,
+                                                            const uint32_t* l2,
+                                                            const __grid_constant__ int primeid,
+                                                            const __grid_constant__ int elem_l2);

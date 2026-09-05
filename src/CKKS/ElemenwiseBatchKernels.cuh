@@ -16,11 +16,11 @@ __global__ void multnomoddownend_(const __grid_constant__ int primeid_init, void
 
 __global__ void mult1Add2_(const __grid_constant__ int partition, void** l, void** l1, void** l2);
 
-template <typename T> __global__ void addMult_(T* l, const T* l1, const T* l2, const __grid_constant__ int primeid);
+template <typename T> __global__ void addMult_(T* l, const T* l1, const T* l2, const __grid_constant__ int primeid, const __grid_constant__ int elem_l2);
 
-__global__ void addMult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init);
+__global__ void addMult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init, const __grid_constant__ int elem_l2);
 
-__global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init);
+__global__ void Mult_(void** l, void** l1, void** l2, const __grid_constant__ int primeid_init, const __grid_constant__ int elem_l2);
 
 __global__ void square_(void** l, void** l1, const __grid_constant__ int primeid_init);
 
@@ -42,7 +42,15 @@ __global__ void eval_batched_linear_w_sum_with_bias_(const __grid_constant__ int
                                                      const __grid_constant__ int primeid_init,
                                                      const __grid_constant__ bool isC1);
 
-__global__ void fusedDotKSK_2_(void** out1, void** sout1, void** out2, void** sout2, void*** digits, int num_d, int id, int num_special, int init);
+__global__ void fusedDotKSK_2_(void** out1,
+                               void** sout1,
+                               void** out2,
+                               void** sout2,
+                               void*** digits,
+                               int num_d,
+                               int id,
+                               int num_special,
+                               int init);
 __global__ void hoistedRotateDotKSK_2_(void*** din1,
                                        void** c0,
                                        void*** out1,
@@ -75,7 +83,13 @@ __global__ void hoistedRotateDotKSKBatched___(void*** in1,
                                               int init,
                                               bool c0_modup);
 
-__global__ void dotProductPt_(void** c0, void** c1, void*** data, const size_t ptroffset, const int primeidInit, const int n);
+__global__ void dotProductPt_(void** c0,
+                              void** c1,
+                              void*** data,
+                              const size_t ptroffset,
+                              const int primeidInit,
+                              const int n,
+                              const __grid_constant__ int elem_data);
 
 __global__ void binomialMult_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2, void** d0, void** d1);
 __global__ void binomialMultExtend_(const __grid_constant__ int primeid_init, void** c0, void** c1, void** c2, void** d0, void** d1);
@@ -91,7 +105,8 @@ dotProductLtBatchedPt___(void*** c0_out,
                          const int batch,
                          const int gStep,
                          const int primeidInit,
-                         const int n);
+                         const int n,
+                         const __grid_constant__ int elem_pts);
 __global__ void
 dotProductLtBatchedPt2___(void*** c0_out,
                           void*** c1_out,
@@ -101,7 +116,8 @@ dotProductLtBatchedPt2___(void*** c0_out,
                           const int bStep,
                           const int gStep,
                           const int primeidInit,
-                          const int n);
+                          const int n,
+                          const __grid_constant__ int elem_pts);
 __global__ void
 dotProductLtBatchedPt3___(void*** c0_out,
                           void*** c1_out,
@@ -111,9 +127,11 @@ dotProductLtBatchedPt3___(void*** c0_out,
                           const int bStep,
                           const int gStep,
                           const int primeidInit,
-                          const int n);
+                          const int n,
+                          const __grid_constant__ int elem_pts);
 
-__global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init);
+__global__ void addScaleB_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c);
+__global__ void addScaleC_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c);
 __global__ void scaleByP_(void** a, const int primeid_init);
 
 __global__ void add___(void*** a, const int primeid_init, const int n);

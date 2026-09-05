@@ -25,7 +25,7 @@ public:
 	explicit RNSPoly(ContextData& context, const std::vector<std::vector<uint64_t>>& data);
 	RNSPoly(RNSPoly&& src) noexcept;
 
-	void grow(int level, bool single_malloc = false, bool constant = false);
+	void grow(int level, bool single_malloc = false, bool constant = false, int num_elems = -1);
 
 	void load(const std::vector<std::vector<uint64_t>>& data, const std::vector<uint64_t>& moduli);
 
@@ -38,17 +38,17 @@ public:
 
 	int32_t getLevel() const;
 
-	void add(const RNSPoly& p);
-	void add(const RNSPoly& a, const RNSPoly& b);
+	void add(const RNSPoly& p, int slots);
+	void add(const RNSPoly& a, const RNSPoly& b, int slots_b);
 
-	void sub(const RNSPoly& p);
+	void sub(const RNSPoly& p, int slots);
 
-	void multPt(const RNSPoly& p, bool rescale);
+	void multPt(const RNSPoly& p, bool rescale, int slots);
 
 	void modup();
 
 	template <ALGO algo = ALGO_SHOUP> void moddown(bool ntt = true, bool free = true, int aux_num = 0);
-	int automorph_index_precomp(int idx) const;
+	int automorph_index_precomp(int idx, int num_elems) const;
 
 	void rescale();
 
@@ -64,7 +64,7 @@ public:
 
 	void generateSpecialLimbs(bool zero_out, bool for_communication);
 
-	void multElement(const RNSPoly& poly);
+	void multElement(const RNSPoly& poly, int slots);
 
 	void generateDecompAndDigit(bool iskey);
 
@@ -76,11 +76,11 @@ public:
 
 	void dotKSKinto(RNSPoly& acc, const RNSPoly& ksk, const RNSPoly* limbsrc = nullptr);
 
-	void multElement(const RNSPoly& poly1, const RNSPoly& poly2);
+	void multElement(const RNSPoly& poly1, const RNSPoly& poly2, int slots_p2);
 
 	void multModupDotKSK(RNSPoly& c1, const RNSPoly& c1tilde, RNSPoly& c0, const RNSPoly& c0tilde, const KeySwitchingKey& key);
 
-	void automorph(const int idx, const int br = 1, RNSPoly* src = nullptr);
+	void automorph(const int idx, RNSPoly* src, int slots, const int br = 1);
 
 	RNSPoly& dotKSKInPlace(const KeySwitchingKey& ksk, RNSPoly* limb_src);
 
@@ -105,19 +105,24 @@ public:
 	void subScalar(std::vector<uint64_t>& vector1);
 	void copy(const RNSPoly& poly);
 	void dropToLevel(int level);
-	void addMult(const RNSPoly& poly, const RNSPoly& poly1);
+	void addMult(const RNSPoly& poly, const RNSPoly& poly1, int slots);
 	void broadcastLimb0();
 	void evalLinearWSum(uint32_t i, std::vector<const RNSPoly*>& vector1, std::vector<uint64_t>& vector2, bool with_bias = false);
-	void loadConstant(const std::vector<std::vector<uint64_t>>& vector1, const std::vector<uint64_t>& vector2);
+	void loadConstant(const std::vector<std::vector<uint64_t>>& vector1,
+	                  const std::vector<uint64_t>& vector2,
+	                  int slots = -1,
+	                  bool compress
+		                  = false);
 	void rotateModupDotKSK(RNSPoly& poly, RNSPoly& poly1, const KeySwitchingKey& key);
 	void squareModupDotKSK(RNSPoly& c0, RNSPoly& c1, const KeySwitchingKey& key);
-	void generatePartialSpecialLimbs();
+	void generatePartialSpecialLimbs(int slots);
 	void dotKSKfused(RNSPoly& out2, const RNSPoly& digitSrc, const RNSPoly& ksk_a, const RNSPoly& ksk_b, const RNSPoly* source);
 	void dotProductPt(RNSPoly& c1,
 	                  const std::vector<const RNSPoly*>& c0s,
 	                  const std::vector<const RNSPoly*>& c1s,
 	                  const std::vector<const RNSPoly*>& pts,
-	                  bool ext);
+	                  bool ext,
+	                  int slots);
 	RNSPoly& dotProduct(RNSPoly& c1,
 	                    const RNSPoly& kskb,
 	                    const RNSPoly& kska,
@@ -159,7 +164,8 @@ public:
 	                    int gStep,
 	                    int stride,
 	                    double usage,
-	                    bool ext);
+	                    bool ext,
+	                    int pt_slots);
 	static void fusedHoistedRotateBatch(std::vector<RNSPoly*>& out,
 	                                    const std::vector<RNSPoly*>& in,
 	                                    const std::vector<RNSPoly*>& ksk_a,

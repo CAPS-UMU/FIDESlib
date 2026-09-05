@@ -197,8 +197,8 @@ void Ciphertext::add(const Ciphertext& b) {
 	}
 	op_count[OPS::ADD]++;
 
-	c0.add(b.c0);
-	c1.add(b.c1);
+	c0.add(b.c0, cc.N / 2);
+	c1.add(b.c1, cc.N / 2);
 
 	this->addMetadata(*this, b);
 }
@@ -268,8 +268,8 @@ void Ciphertext::sub(const Ciphertext& b) {
 	}
 	op_count[OPS::ADD]++;
 
-	c0.sub(b.c0);
-	c1.sub(b.c1);
+	c0.sub(b.c0, cc.N / 2);
+	c1.sub(b.c1, cc.N / 2);
 
 	this->addMetadata(*this, b);
 }
@@ -330,7 +330,7 @@ void Ciphertext::addPt(const Plaintext& b) {
 	assert(NoiseLevel == b.NoiseLevel);
 	op_count[OPS::ADDPT]++;
 
-	c0.add(b.c0);
+	c0.add(b.c0, b.slots);
 
 	this->addMetadata(*this, b);
 }
@@ -390,7 +390,7 @@ void Ciphertext::subPt(const Plaintext& b) {
 	assert(NoiseLevel == b.NoiseLevel);
 	op_count[OPS::ADDPT]++;
 
-	c0.sub(b.c0);
+	c0.sub(b.c0, b.slots);
 
 	this->addMetadata(*this, b);
 }
@@ -532,8 +532,8 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 	}
 	op_count[OPS::MULTPT]++;
 
-	c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL);
-	c1.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL);
+	c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL, b.slots);
+	c1.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL, b.slots);
 
 	this->multMetadata(*this, b);
 	if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
@@ -682,8 +682,8 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
 	c0.binomialMult(c1, in, b.c0, b.c1, moddown, &b == this);
 
 	RNSPoly& aux = MGPUkeySwitchCore(in, kskEval, moddown);
-	c0.add(aux);
-	c1.add(in);
+	c0.add(aux, cc.N / 2);
+	c1.add(in, cc.N / 2);
 
 	// Manage metadata
 	this->multMetadata(*this, b);
@@ -807,8 +807,8 @@ void Ciphertext::automorph(const int index, const int br) {
 	auto& aux1 = cc.getModdownAux(1);
 	aux0.copy(c0);
 	aux1.copy(c1);
-	c0.automorph(index, br, &aux0);
-	c1.automorph(index, br, &aux1);
+	c0.automorph(index, &aux0, cc.N, br);
+	c1.automorph(index, &aux1, cc.N, br);
 }
 
 void Ciphertext::extend(bool init) {
@@ -999,14 +999,14 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 					// results[i]->c1.dropToLevel(getLevel());
 					if (!ext)
 						results[i]->c1.moddown(true, false, 0);
-					results[i]->c1.automorph(actual_index, 1);
+					results[i]->c1.automorph(actual_index, nullptr, cc.N / 2);
 
 					if (!ext)
 						aux0.moddown(true, false, 1);
 
 					// results[i]->c0.generateSpecialLimbs(true);
-					results[i]->c0.add(c0, aux0);
-					results[i]->c0.automorph(actual_index, 1);
+					results[i]->c0.add(c0, aux0, cc.N / 2);
+					results[i]->c0.automorph(actual_index, nullptr, cc.N / 2);
 					// if (!ext)
 					//     results[i]->c0.moddown(true, false);
 
@@ -1037,16 +1037,16 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 						in.moddown(true, false, 0);
 					}
 					// std::cout << "in ismodup: " << in.isModUp() << std::endl;
-					results[i]->c1.automorph(actual_index, 1, &in);
+					results[i]->c1.automorph(actual_index, &in, cc.N / 2, 1);
 					// std::cout << "results[i] c1 ismodup: " << results[i]->c1.isModUp() << std::endl;
 					if (!ext) {
 						aux0.moddown(true, false, 1);
 					}
 					// std::cout << "aux0 ismodup: " << aux0.isModUp() << std::endl;
 					// std::cout << "c0 ismodup: " << c0.isModUp() << std::endl;
-					results[i]->c0.add(c0, aux0);
+					results[i]->c0.add(c0, aux0, cc.N / 2);
 					// std::cout << "results[i] c0 ismodup: " << results[i]->c0.isModUp() << std::endl;
-					results[i]->c0.automorph(actual_index, 1, nullptr);
+					results[i]->c0.automorph(actual_index, nullptr, cc.N / 2, 1);
 					// std::cout << "results[i] c0 ismodup: " << results[i]->c0.isModUp() << std::endl;
 
 					results[i]->copyMetadata(*this);
@@ -1505,10 +1505,10 @@ void Ciphertext::addMultScalar(const Ciphertext& b, double d) {
 	RNSPoly aux1(cc);
 	aux0.copy(b.c0);
 	aux0.multScalar(elem);
-	c0.add(aux0);
+	c0.add(aux0, cc.N / 2);
 	aux1.copy(b.c1);
 	aux1.multScalar(elem);
-	c1.add(aux1);
+	c1.add(aux1, cc.N / 2);
 }
 
 void Ciphertext::addScalar(const Ciphertext& b, double c) {
@@ -1616,8 +1616,8 @@ void Ciphertext::addMultPt(const Ciphertext& c, const Plaintext& b, bool rescale
 	assert(c.NoiseLevel == 1);
 	assert(b.NoiseLevel == 1);
 
-	c0.addMult(c.c0, b.c0);
-	c1.addMult(c.c1, b.c0);
+	c0.addMult(c.c0, b.c0, b.slots);
+	c1.addMult(c.c1, b.c0, b.slots);
 
 	if (rescale && cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
 		this->rescaleInternal();
@@ -1673,7 +1673,7 @@ void Ciphertext::keySwitch(const KeySwitchingKey& ksk) {
 	RNSPoly& aux0 = MGPUkeySwitchCore(aux, ksk, true); // c1.dotKSKInPlaceFrom(aux, ksk, &aux);
 
 	c1.copy(aux);
-	c0.add(aux0);
+	c0.add(aux0, cc.N / 2);
 }
 
 void Ciphertext::sub(const Ciphertext& ciphertext, const Ciphertext& ciphertext1) {
@@ -1883,10 +1883,13 @@ void Ciphertext::dotProductPt(Ciphertext** ciphertexts, Plaintext** plaintexts, 
 	CKKS::SetCurrentContext(cc_);
 	std::vector<const RNSPoly*> c0s(n, nullptr), c1s(n, nullptr), pts(n, nullptr);
 
+	assert(n > 0);
+	int slots = plaintexts[0]->slots;
 	for (int i = 0; i < n; ++i) {
 		c0s[i] = &(ciphertexts[i]->c0);
 		c1s[i] = &(ciphertexts[i]->c1);
 		pts[i] = &(plaintexts[i]->c0);
+		assert(plaintexts[i]->slots == slots);
 		assert(getLevel() <= ciphertexts[i]->getLevel());
 		assert(getLevel() <= plaintexts[i]->c0.getLevel());
 		if (ext) {
@@ -1895,7 +1898,7 @@ void Ciphertext::dotProductPt(Ciphertext** ciphertexts, Plaintext** plaintexts, 
 		}
 		assert(ciphertexts[0]->keyID == ciphertexts[i]->keyID);
 	}
-	c0.dotProductPt(c1, c0s, c1s, pts, ext);
+	c0.dotProductPt(c1, c0s, c1s, pts, ext, slots);
 
 	// Manage metadata
 	this->multMetadata(*ciphertexts[0], *plaintexts[0]);
@@ -1948,8 +1951,8 @@ void Ciphertext::dotProduct(const std::vector<Ciphertext*>& a, const std::vector
 	}
 	RNSPoly& aux = MGPUkeySwitchCore(c2, cc.GetEvalKey(a[0]->keyID), !(ext || in_ext));
 
-	c0.add(aux);
-	c1.add(c2);
+	c0.add(aux, cc.N / 2);
+	c1.add(c2, cc.N / 2);
 
 	if (!ext && in_ext) {
 		modDown();
@@ -2023,8 +2026,8 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
 
 	RNSPoly& monomial = cc.precom.monomialCache.find(power)->second;
 
-	c0.multElement(monomial);
-	c1.multElement(monomial);
+	c0.multElement(monomial, cc.N / 2);
+	c1.multElement(monomial, cc.N / 2);
 
 	/* Based on this (OpenFHE):
 std::vector<DCRTPoly>& cv = ciphertext->GetElements();

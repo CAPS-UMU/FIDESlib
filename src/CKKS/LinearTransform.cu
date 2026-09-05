@@ -17,14 +17,13 @@ using sc = std::source_location;
 #endif
 
 namespace FIDESlib::CKKS {
-template <CiphertextPtr ptrT, PlaintextPtr ptrU>
-void DotProductPtInternal(std::vector<std::shared_ptr<Ciphertext>>& result,
-  const std::vector<ptrT>& a,
-  const std::vector<ptrU>& b,
-  const int red_n,
-  const int pt_reuse_stride,
-  const int pt_different_stride,
-  const bool ext) {
+template <CiphertextPtr ptrT, PlaintextPtr ptrU> void DotProductPtInternal(std::vector<std::shared_ptr<Ciphertext>>& result,
+                                                                           const std::vector<ptrT>& a,
+                                                                           const std::vector<ptrU>& b,
+                                                                           const int red_n,
+                                                                           const int pt_reuse_stride,
+                                                                           const int pt_different_stride,
+                                                                           const bool ext) {
 	std::vector<RNSPoly*> cts, pts, res;
 	cts.reserve(a.size() * 2);
 	for (auto& i : a) {
@@ -36,24 +35,32 @@ void DotProductPtInternal(std::vector<std::shared_ptr<Ciphertext>>& result,
 		res.push_back(&i->c0);
 		res.push_back(&i->c1);
 	}
+	int slots = -1;
 	pts.reserve(b.size());
 	for (auto& i : b) {
-		if (i)
+		if (i) {
+			if (slots == -1)
+				slots = i->slots;
+			else
+				assert(slots == i->slots);
 			pts.push_back(&i->c0);
-		else
+		} else {
 			pts.push_back(nullptr);
+		}
 	}
 
-	RNSPoly::LTdotProductPtBatch(res, cts, pts, red_n, pt_different_stride, pt_reuse_stride, 1.0, ext);
+	RNSPoly::LTdotProductPtBatch(res, cts, pts, red_n, pt_different_stride, pt_reuse_stride, 1.0, ext, slots);
 
 	for (size_t i = 0; i < result.size(); ++i) {
 		result[i]->multMetadata(
-		  *a[(i / pt_different_stride) * red_n], *b[(i % pt_different_stride + (i / (pt_reuse_stride * pt_different_stride)) * pt_different_stride) * red_n]);
+			*a[(i / pt_different_stride) * red_n],
+			*b[(i % pt_different_stride + (i / (pt_reuse_stride * pt_different_stride)) * pt_different_stride) * red_n]);
 		for (int j = 1; j < red_n; ++j) {
 			if (b[(i % pt_different_stride + (i / (pt_reuse_stride * pt_different_stride)) * pt_different_stride) * red_n + j]) {
 				result[i]->slots = std::max(result[i]->slots, a[(i / pt_different_stride) * red_n + j]->slots);
 				result[i]->slots =
-				  std::max(result[i]->slots, b[(i % pt_different_stride + (i / (pt_reuse_stride * pt_different_stride)) * pt_different_stride) * red_n + j]->slots);
+					std::max(result[i]->slots,
+					         b[(i % pt_different_stride + (i / (pt_reuse_stride * pt_different_stride)) * pt_different_stride) * red_n + j]->slots);
 			}
 		}
 	}
@@ -67,9 +74,9 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 		assert(i != nullptr);
 	}
 
-	Context& cc_	= ctxt.cc_;
+	Context& cc_    = ctxt.cc_;
 	ContextData& cc = ctxt.cc;
-	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
+	uint32_t gStep  = (rowSize + bStep - 1) / bStep;
 
 	if (ctxt.NoiseLevel == 2)
 		ctxt.rescaleInternal();
@@ -143,7 +150,7 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 				}
 
 				DotProductPtInternal<Ciphertext*, Plaintext*>(results, fastRotationPtr, Aptr, bStep, 1, gStep, MODDOWN_HOIST && ext);
-				
+
 				for (auto& i : results) {
 					for (uint32_t j = 0; j < i->c0.GPU.size(); ++j) {
 						i->c0.GPU[j].s.wait(results[0]->c0.GPU[j].s);
@@ -254,7 +261,13 @@ void FIDESlib::CKKS::LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, c
 // LinearTransform: sum then rotate (backward loop j=gStep-1 to 0)
 // ConvolutionTransform: rotate then sum (forward loop j=0 to gStep-1)
 // If gStep > 8, divides into blocks of 8, processes each block, rotates and accumulates.
-void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bStep, const std::vector<Plaintext*>& pts, int stride, const std::vector<int>& indexes, uint32_t gStep) {
+void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt,
+                                          int rowSize,
+                                          int bStep,
+                                          const std::vector<Plaintext*>& pts,
+                                          int stride,
+                                          const std::vector<int>& indexes,
+                                          uint32_t gStep) {
 
 	assert(pts.size() >= rowSize);
 	for (auto i : pts) {
@@ -312,8 +325,8 @@ void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bSt
 
 			// Process each block of INTERNAL_GSTEP
 			for (uint32_t blockIdx = 0; blockIdx < blockCount; ++blockIdx) {
-				uint32_t blockStart		   = blockIdx * INTERNAL_GSTEP;
-				uint32_t blockEnd		   = std::min(blockStart + INTERNAL_GSTEP, gStep);
+				uint32_t blockStart        = blockIdx * INTERNAL_GSTEP;
+				uint32_t blockEnd          = std::min(blockStart + INTERNAL_GSTEP, gStep);
 				uint32_t currentBlockGStep = blockEnd - blockStart;
 
 				// Build Aptr for this block
@@ -349,7 +362,13 @@ void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bSt
 				}
 
 				// Call DotProductPtInternal with the current block's gStep
-				DotProductPtInternal<Ciphertext*, Plaintext*>(results, fastRotationPtr, Aptr, bStep, 1, static_cast<int>(currentBlockGStep), MODDOWN_HOIST && ext);
+				DotProductPtInternal<Ciphertext*, Plaintext*>(results,
+				                                              fastRotationPtr,
+				                                              Aptr,
+				                                              bStep,
+				                                              1,
+				                                              static_cast<int>(currentBlockGStep),
+				                                              MODDOWN_HOIST && ext);
 
 				for (auto& i : results) {
 					for (size_t j = 0; j < i->c0.GPU.size(); ++j) {
@@ -402,7 +421,7 @@ void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bSt
 
 				for (uint32_t blockIdx = 0; blockIdx < blockCount - 1; ++blockIdx) {
 					int totalBlocks = blockCount - 1 - blockIdx;
-					int rotation	= totalBlocks * baseRotation;
+					int rotation    = totalBlocks * baseRotation;
 
 					if (ctxt.normalyzeIndex(rotation) != 0) {
 						blockResults[blockIdx]->rotate(rotation, true);
@@ -442,14 +461,14 @@ void FIDESlib::CKKS::ConvolutionTransform(Ciphertext& ctxt, int rowSize, int bSt
 // After each gStep's bStep sum: 3 rotations with additions + mask multiplication before accumulation
 // This is used for layer 0 in ResNet which has a different accumulation pattern
 void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
-  int rowSize,
-  int bStep,
-  const std::vector<Plaintext*>& pts,
-  Plaintext& mask,
-  int stride,
-  int maskRotationStride,
-  const std::vector<int>& indexes,
-  uint32_t gStep) {
+                                                 int rowSize,
+                                                 int bStep,
+                                                 const std::vector<Plaintext*>& pts,
+                                                 Plaintext& mask,
+                                                 int stride,
+                                                 int maskRotationStride,
+                                                 const std::vector<int>& indexes,
+                                                 uint32_t gStep) {
 
 	assert(pts.size() >= rowSize);
 	for (auto i : pts) {
@@ -507,8 +526,8 @@ void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
 
 			// Process each block of INTERNAL_GSTEP
 			for (uint32_t blockIdx = 0; blockIdx < blockCount; ++blockIdx) {
-				uint32_t blockStart		   = blockIdx * INTERNAL_GSTEP;
-				uint32_t blockEnd		   = std::min(blockStart + INTERNAL_GSTEP, gStep);
+				uint32_t blockStart        = blockIdx * INTERNAL_GSTEP;
+				uint32_t blockEnd          = std::min(blockStart + INTERNAL_GSTEP, gStep);
 				uint32_t currentBlockGStep = blockEnd - blockStart;
 
 				// Build Aptr for this block
@@ -544,7 +563,13 @@ void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
 				}
 
 				// Call DotProductPtInternal with the current block's gStep
-				DotProductPtInternal<Ciphertext*, Plaintext*>(results, fastRotationPtr, Aptr, bStep, 1, static_cast<int>(currentBlockGStep), MODDOWN_HOIST && ext);
+				DotProductPtInternal<Ciphertext*, Plaintext*>(results,
+				                                              fastRotationPtr,
+				                                              Aptr,
+				                                              bStep,
+				                                              1,
+				                                              static_cast<int>(currentBlockGStep),
+				                                              MODDOWN_HOIST && ext);
 
 				for (auto& i : results) {
 					for (size_t j = 0; j < i->c0.GPU.size(); ++j) {
@@ -613,7 +638,7 @@ void FIDESlib::CKKS::SpecialConvolutionTransform(Ciphertext& ctxt,
 
 				for (uint32_t blockIdx = 0; blockIdx < blockCount - 1; ++blockIdx) {
 					int totalBlocks = blockCount - 1 - blockIdx;
-					int rotation	= totalBlocks * baseRotation;
+					int rotation    = totalBlocks * baseRotation;
 
 					if (ctxt.normalyzeIndex(rotation) != 0) {
 						blockResults[blockIdx]->rotate(rotation, true);
@@ -780,14 +805,14 @@ template void LinearTransform<std::shared_ptr<Ciphertext>, std::shared_ptr<Plain
 
 #if 0
 void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
-  FIDESlib::CKKS::Ciphertext& ctxt2,
-  FIDESlib::CKKS::Ciphertext& ctxt3,
-  int rowSize,
-  int bStep,
-  std::vector<Plaintext*> pts1,
-  std::vector<Plaintext*> pts2,
-  int stride,
-  int stride3) {
+                                            FIDESlib::CKKS::Ciphertext& ctxt2,
+                                            FIDESlib::CKKS::Ciphertext& ctxt3,
+                                            int rowSize,
+                                            int bStep,
+                                            std::vector<Plaintext*> pts1,
+                                            std::vector<Plaintext*> pts2,
+                                            int stride,
+                                            int stride3) {
 	constexpr bool PRINT = false;
 	if constexpr (PRINT)
 		std::cout << std::endl << "LinearTransformSpecial ";
@@ -841,9 +866,9 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 	}
 	assert(pts2.size() >= rowSize);
 
-	Context& cc_	= ctxt1.cc_;
+	Context& cc_    = ctxt1.cc_;
 	ContextData& cc = ctxt1.cc;
-	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
+	uint32_t gStep  = ceil(static_cast<double>(rowSize) / bStep);
 
 	if (ctxt1.NoiseLevel == 2)
 		ctxt1.rescaleInternal();
@@ -915,8 +940,8 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 				if (i == 1) {
 					int size = std::min((int)bStep - 1, (int)(rowSize - (bStep * j + i)));
 					if (size < bStep - 1) {
-						auto keys3_			   = keys3;
-						auto indexes3_		   = indexes3;
+						auto keys3_            = keys3;
+						auto indexes3_         = indexes3;
 						auto fastRotationPtr3_ = fastRotationPtr3;
 
 						keys3_.resize(size);
@@ -965,14 +990,14 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 }
 #else
 void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
-  FIDESlib::CKKS::Ciphertext& ctxt2,
-  FIDESlib::CKKS::Ciphertext& ctxt3,
-  int rowSize,
-  int bStep,
-  std::vector<Plaintext*> pts1,
-  std::vector<Plaintext*> pts2,
-  int stride,
-  int stride3) {
+                                            FIDESlib::CKKS::Ciphertext& ctxt2,
+                                            FIDESlib::CKKS::Ciphertext& ctxt3,
+                                            int rowSize,
+                                            int bStep,
+                                            std::vector<Plaintext*> pts1,
+                                            std::vector<Plaintext*> pts2,
+                                            int stride,
+                                            int stride3) {
 	constexpr bool PRINT = false;
 	if constexpr (PRINT)
 		std::cout << std::endl << "LinearTransformSpecial ";
@@ -1026,9 +1051,9 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 	}
 	assert(pts2.size() >= rowSize);
 
-	Context& cc_	= ctxt1.cc_;
+	Context& cc_    = ctxt1.cc_;
 	ContextData& cc = ctxt1.cc;
-	uint32_t gStep	= (rowSize + bStep - 1) / bStep;
+	uint32_t gStep  = (rowSize + bStep - 1) / bStep;
 
 	if (ctxt1.NoiseLevel == 2)
 		ctxt1.rescaleInternal();
@@ -1099,8 +1124,8 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 				if (i == 1) {
 					int size = std::min((int)bStep - 1, (int)(rowSize - (bStep * j + i)));
 					if (size < bStep - 1) {
-						auto keys3_			   = keys3;
-						auto indexes3_		   = indexes3;
+						auto keys3_            = keys3;
+						auto indexes3_         = indexes3;
 						auto fastRotationPtr3_ = fastRotationPtr3;
 
 						keys3_.resize(size);
@@ -1163,7 +1188,7 @@ void FIDESlib::CKKS::LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
 
 std::vector<int> FIDESlib::CKKS::GetLinearTransformRotationIndices(int bStep, int stride, int offset) {
 	std::vector<int> res(bStep + (offset != 0));
-	for (int i = 1; i <= bStep; ++i)
+	for (int i     = 1; i <= bStep; ++i)
 		res[i - 1] = i * stride;
 	if (offset != 0)
 		res[bStep] = offset;
@@ -1259,14 +1284,14 @@ void FIDESlib::CKKS::LinearTransformPt(FIDESlib::CKKS::Plaintext& ptxt, FIDESlib
 */
 
 void FIDESlib::CKKS::LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
-  FIDESlib::CKKS::Ciphertext& ctxt2,
-  FIDESlib::CKKS::Plaintext& ptxt,
-  int rowSize,
-  int bStep,
-  std::vector<Plaintext*> pts1,
-  std::vector<Plaintext*> pts2,
-  int stride,
-  int stride3) {
+                                              FIDESlib::CKKS::Ciphertext& ctxt2,
+                                              FIDESlib::CKKS::Plaintext& ptxt,
+                                              int rowSize,
+                                              int bStep,
+                                              std::vector<Plaintext*> pts1,
+                                              std::vector<Plaintext*> pts2,
+                                              int stride,
+                                              int stride3) {
 
 	CudaNvtxRange r(std::string{ sc::current().function_name() });
 	assert(pts1.size() >= rowSize);
@@ -1275,9 +1300,9 @@ void FIDESlib::CKKS::LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
 	}
 	assert(pts2.size() >= rowSize);
 
-	Context& cc_	= ctxt1.cc_;
+	Context& cc_    = ctxt1.cc_;
 	ContextData& cc = ctxt1.cc;
-	uint32_t gStep	= ceil(static_cast<double>(rowSize) / bStep);
+	uint32_t gStep  = ceil(static_cast<double>(rowSize) / bStep);
 
 	if (ctxt1.NoiseLevel == 2)
 		ctxt1.rescaleInternal();

@@ -19,51 +19,59 @@ template <typename T> class Limb {
 
 	ContextData& cc;
 
-  public:
+public:
 	int primeid;
 	Stream& stream;
 	VectorGPU<T> v;
 	VectorGPU<T> aux;
 
-  private:
+private:
 	const int id;
 	const bool raw;
 	static constexpr int block = 128;
 
-  public:
+public:
 	~Limb() noexcept;
 
 	Limb(Limb<T>&& l) noexcept;
 
-	Limb(ContextData& context, const int id, Stream& stream, const int primeid = -1, bool constant = false);
+	Limb(ContextData& context, const int id, Stream& stream, const int primeid = -1, bool constant = false, int num_elem = -1);
 
 	Limb<T> clone();
 
 	//    Limb(Context &context, const int device, const int primeid = -1);
-	Limb(ContextData& context, T* data, const int offset, const int id, Stream& stream, const int primeid = -1, T* data_aux = nullptr, const int offset_aux = 0);
+	Limb(ContextData& context,
+	     T* data,
+	     const int offset,
+	     const int id,
+	     Stream& stream,
+	     const int primeid    = -1,
+	     T* data_aux          = nullptr,
+	     const int offset_aux = 0,
+	     int num_elem         = -1);
 	// void free();
 
 	Global::Globals* getGlobals();
 
-	void add(const LimbImpl& l);
+	void add(const LimbImpl& l, int slots);
 
-	void add(const Limb<uint64_t>& l);
+	void add(const Limb<uint64_t>& l, int slots);
 
-	void add(const Limb<uint32_t>& l);
+	void add(const Limb<uint32_t>& l, int slots);
 
-	void sub(const LimbImpl& l);
+	void sub(const LimbImpl& l, int slots);
 
-	void sub(const Limb<uint64_t>& l);
+	void sub(const Limb<uint64_t>& l, int slots);
 
-	void sub(const Limb<uint32_t>& l);
+	void sub(const Limb<uint32_t>& l, int slots);
 
-	void mult(const LimbImpl& l);
+	void mult(const LimbImpl& l, int slots);
 
-	void mult(const Limb<uint64_t>& l);
+	void mult(const Limb<uint64_t>& l, int slots);
 
-	void mult(const Limb<uint32_t>& l);
+	void mult(const Limb<uint32_t>& l, int slots);
 
-	void mult(const LimbImpl& _l1, const LimbImpl& _l2, const bool inplace = false);
+	void mult(const LimbImpl& _l1, const LimbImpl& _l2, int slots, const bool inplace = false);
 
 	template <typename Q> void load(const std::vector<Q>& dat_);
 
@@ -97,13 +105,27 @@ template <typename T> class Limb {
 
 	void INTT_from(LimbImpl& l);
 
-	void addMult(const LimbImpl& _l1, const LimbImpl& _l2, const bool inplace = false);
+	void addMult(const LimbImpl& _l1, const LimbImpl& _l2, int slots, const bool inplace = false);
 
 	void printThisLimb(int num = 32) const;
 
-	void INTT_from_mult(LimbImpl& res0_, LimbImpl& res1_, const LimbImpl& c1_, const LimbImpl& c1tilde_, const LimbImpl& c0_, const LimbImpl& c0tilde_, const LimbImpl& kska_, const LimbImpl& kskb_);
+	void INTT_from_mult(LimbImpl& res0_,
+	                    LimbImpl& res1_,
+	                    const LimbImpl& c1_,
+	                    const LimbImpl& c1tilde_,
+	                    const LimbImpl& c0_,
+	                    const LimbImpl& c0tilde_,
+	                    const LimbImpl& kska_,
+	                    const LimbImpl& kskb_);
 
-	void INTT_from_mult_acc(LimbImpl& res0_, LimbImpl& res1_, const LimbImpl& c1_, const LimbImpl& c1tilde_, const LimbImpl& c0_, const LimbImpl& c0tilde_, const LimbImpl& kska_, const LimbImpl& kskb_);
+	void INTT_from_mult_acc(LimbImpl& res0_,
+	                        LimbImpl& res1_,
+	                        const LimbImpl& c1_,
+	                        const LimbImpl& c1tilde_,
+	                        const LimbImpl& c0_,
+	                        const LimbImpl& c0tilde_,
+	                        const LimbImpl& kska_,
+	                        const LimbImpl& kskb_);
 
 	void NTT_and_ksk_dot(LimbImpl& res0_, LimbImpl& res1_, const LimbImpl& kska_, const LimbImpl& kskb_);
 
