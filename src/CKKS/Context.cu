@@ -18,6 +18,10 @@ using sc = std::experimental::source_location;
 using sc = std::source_location;
 #endif
 
+namespace FIDESlib {
+extern thread_local bool gpufree_presynced;   // defined in CudaUtils.cu next to GPUfree
+}
+
 namespace FIDESlib::CKKS {
 
 std::atomic_uint64_t next_uid = 0;
@@ -923,7 +927,14 @@ void ContextData::trimAuxilarPoly(size_t size) {
 }
 
 void ContextData::clearAuxilarPoly() {
+	// The pool can hold hundreds of RNSPolys with tens of pooled limb buffers each. Every pooled free records an event on
+	// the freeing stream and makes the pool stream wait on it, so a clear costs thousands of event operations (nsys, H200,
+	// N = 2^16, 104 polys: 4816 cudaEventRecord + 4816 cudaStreamWaitEvent, 12.6 ms of host time). After one device-wide
+	// synchronize no buffer is in use any more, so those waits are redundant: skip them while the pool is being cleared.
+	cudaDeviceSynchronize();
+	FIDESlib::gpufree_presynced = true;
 	precom.auxPoly.clear();
+	FIDESlib::gpufree_presynced = false;
 }
 
 void ContextData::clearAutomorphismKeys(const KeyHash& KeyID) {
