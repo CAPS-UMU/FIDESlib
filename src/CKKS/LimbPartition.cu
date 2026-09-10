@@ -662,13 +662,13 @@ void LimbPartition::multPt(const LimbPartition& p) {
 	static std::map<int, cudaGraphExec_t> exec_map;
 
 	{
-		LimbImpl& top = limb.back();
+		LimbImpl& top = limb.at(limbsize - 1);
 
 		cudaGraphExec_t& exec = exec_map[limbsize];
 
 		run_in_graph<capture>(exec, s, [&]() {
 			STREAM(top).wait(s);
-			SWITCH(top, mult(p.limb.back()));
+			SWITCH(top, mult(p.limb.at(limbsize - 1)));
 			SWITCH(top, INTT<ALGO_SHOUP>());
 
 			for (int32_t i = 0; i < limbsize - 1; i += cc.batch) {
