@@ -662,9 +662,6 @@ void LimbPartition::multPt(const LimbPartition& p) {
 	static std::map<int, cudaGraphExec_t> exec_map;
 
 	{
-		// The storage vector may hold more limbs than the current level (limbs are never popped by rescale/dropToLevel and
-		// polys are recycled through the auxiliary-poly pool); the top limb of the CURRENT level is limb[limbsize - 1], as in
-		// LimbPartition::rescale and in the fused NTT_MULTPT kernel below (ApplyNTT receives limbsize from NTT()).
 		LimbImpl& top = limb.at(limbsize - 1);
 
 		cudaGraphExec_t& exec = exec_map[limbsize];
