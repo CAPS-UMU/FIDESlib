@@ -1007,9 +1007,7 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 					// if (!ext)
 					//     results[i]->c0.moddown(true, false);
 
-					results[i]->keyID       = keyID;
-					results[i]->NoiseLevel  = NoiseLevel;
-					results[i]->NoiseFactor = NoiseFactor;
+					results[i]->copyMetadata(*this); // also copies `slots` (was keyID/NoiseLevel/NoiseFactor only -> slots stayed 0)
 				}
 			}
 		} else {
