@@ -459,6 +459,8 @@ void CUDART_CB streamCallback(void* userData) {
 	delete p;
 }
 
+thread_local bool gpufree_presynced = false;
+
 void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
 
 	if (bytes < 64 * 1024) {
@@ -481,7 +483,8 @@ void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
 		CudaCheckErrorModNoSync;
 		// cudaDeviceSynchronize();
 		//if (stream != nullptr) {
-		s[id].wait(stream);
+		if (!gpufree_presynced)   // redundant while ContextData::clearAuxilarPoly holds the device synchronized
+			s[id].wait(stream);
 		//}
 		CudaCheckErrorModNoSync;
 		mempool_lock[id].lock();
