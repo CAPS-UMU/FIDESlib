@@ -31,33 +31,7 @@ template <typename T, ALGO algo, int M> __device__ __forceinline__ void backward
 
 	const int tid = threadIdx.x;
 
-	if constexpr (0) {
-		// High bandwidth
-		for (int i = 0; i < M; i += 1) {
-			A(i)
-				[tid] = modmult<ALGO_BARRETT>(A(i)[tid], ((T*)G_->inv_psi_no[primeid])[tid * (gridDim.x * M) + M * blockIdx.x + i], primeid);
-			A(i)
-				[tid + blockDim.x] =
-				modmult<ALGO_BARRETT>(A(i)[tid + blockDim.x],
-				                      ((T*)G_->inv_psi_no[primeid])[(tid + blockDim.x) * (gridDim.x * M) + M * blockIdx.x + i],
-				                      primeid);
-			A(i)[tid]              = modmult<ALGO_SHOUP>(A(i)[tid], C_.N, primeid, C_.N_shoup[primeid]);
-			A(i)[tid + blockDim.x] = modmult<ALGO_SHOUP>(A(i)[tid + blockDim.x], C_.N, primeid, C_.N_shoup[primeid]);
-		}
-	} else if constexpr (0) {
-		// Now, try to load this from bit-reversed psi array TODO
-		T aux[2] = { ((T*)G_->psi_no[primeid])[tid * (2 * blockDim.x) + M * blockIdx.x],
-		             ((T*)G_->psi_no[primeid])[(tid + blockDim.x) * (2 * blockDim.x) + M * blockIdx.x] };
-		T root = C_.root;
-		for (int i = 0; i < M; i += 1) {
-			if (i > 0) {
-				aux[0] = modmult<4>(aux[0], root, primeid);
-				aux[1] = modmult<4>(aux[1], root, primeid);
-			}
-			A(i)[tid]              = modmult<4>(A(i)[tid], aux[0], primeid);
-			A(i)[tid + blockDim.x] = modmult<4>(A(i)[tid + blockDim.x], aux[1], primeid);
-		}
-	} else {
+	{
 		const uint32_t logBD = __clz(blockDim.x);
 		// Now, try to load this from bit-reversed psi array
 		uint32_t pos1 = tid & (~1);
@@ -66,7 +40,7 @@ template <typename T, ALGO algo, int M> __device__ __forceinline__ void backward
 
 		T aux_3 = ((T*)G_->inv_psi_no[primeid])[((tid & 1) * (gridDim.x * M) + M * blockIdx.x) << (C_.logN - logn)];
 
-		aux_3 = modmult<ALGO_SHOUP>(aux_3, C_.N, primeid, C_.N_shoup[primeid]); // TODO: optimize this somehow
+		aux_3 = modmult<ALGO_SHOUP>(aux_3, C_.N, primeid, C_.N_shoup[primeid]);
 
 		T aux;
 		if constexpr (algo == ALGO_SHOUP) {
