@@ -1,6 +1,7 @@
 //
 // Created by carlosad on 1/10/25.
 //
+#include <stdexcept>
 #include <algorithm>
 #include <array>
 #include <variant>
@@ -309,6 +310,30 @@ void LimbPartition::LTdotProductPtBatch(std::vector<LimbPartition*>& out,
 
 	dim3 sgrid = grid;
 	sgrid.y	   = slimbsize;
+
+	// The launch is sized `grid.y = limbsize`, taken from out[0]'s level, and the kernel reaches
+	// `pt_partition[blockIdx.y]` after checking only that `pt_partition` itself is non-null. So a
+	// partition that *is* present but holds fewer limbs than out[0]'s level implies gives the kernel a
+	// pointer past the end of that limb vector, and the resulting illegal access surfaces at whatever
+	// synchronises next. The plaintexts are the operand most likely to disagree, being precomputed at
+	// a level of their own.
+	//
+	// A null `pt` entry is NOT an error: DotProductPtInternal pushes nullptr for a diagonal that has no
+	// plaintext, the device pointer table carries it through, and the kernel skips those terms. An
+	// earlier version of this check rejected them and aborted a bootstrap that was working.
+	const auto checkLimbs = [limbsize](const std::vector<LimbPartition*>& v, const char* what) {
+		for (size_t k = 0; k < v.size(); ++k) {
+			if (v[k] == nullptr)
+				continue; // a diagonal with no plaintext; the kernel skips it
+			if ((int)v[k]->limb.size() < limbsize)
+				throw std::runtime_error(std::string("FIDESlib: LTdotProductPtBatch would read ") + std::to_string(limbsize) +
+										 " limbs from " + what + "[" + std::to_string(k) + "], which holds " +
+										 std::to_string(v[k]->limb.size()) + ". The operands are at different levels.");
+		}
+	};
+	checkLimbs(out, "out");
+	checkLimbs(in, "in");
+	checkLimbs(pt, "pt");
 
 	assert(out.size() % (2 * gStep * stride) == 0);
 	assert(in.size() % (2 * bStep * stride) == 0);

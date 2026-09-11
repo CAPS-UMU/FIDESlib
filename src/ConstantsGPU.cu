@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <stdexcept>
+#include <string>
 
 #include "CKKS/Parameters.cuh"
 #include "parallel_for.hpp"
@@ -133,6 +135,24 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
   const int N,
   const Scheme& parameters) {
 	CudaCheckErrorMod;
+
+	// Every constant table below is `[MAXP]`, and MAXP is also the *stride* the kernels index the
+	// flattened pointer tables with (`i * MAXP + primeid`). The special primes are written at
+	// `primes[L + i]`, so the whole scheme needs `L + K <= MAXP` - and nothing used to check it.
+	// Going over does not fail: it writes past `primes` into `prime_better_barret_mu` and onwards,
+	// so the symptom depends on how far the overflow reaches. Observed on a GV100 at N=2^16,
+	// dnum=3: silent NaN out of `EvalMultByI` first, then an illegal memory access, and finally
+	// `cudaMemcpy 'invalid argument'` here once the overrun reached the device-side copies. All
+	// three were reported as separate bugs. Fail with the numbers instead.
+	if (q.size() + p.size() > (size_t)MAXP) {
+		throw std::runtime_error(
+			"FIDESlib: this parameter set needs " + std::to_string(q.size()) + " ciphertext primes + " +
+			std::to_string(p.size()) + " special primes = " + std::to_string(q.size() + p.size()) +
+			", but the GPU constant tables hold MAXP = " + std::to_string(MAXP) +
+			". Lower `depth`, or raise `dnum` (which shrinks the special-prime count K), or raise MAXP "
+			"in src/ConstantsGPU.cuh and rebuild - note MAXP costs O(MAXP^3) constant memory through "
+			"DecompAndModUp_matrix, so raising it is not free.");
+	}
 
 	initGPUprop();
 
