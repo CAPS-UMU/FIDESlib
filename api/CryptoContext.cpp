@@ -130,8 +130,10 @@ CryptoContextImpl<DCRTPoly>::~CryptoContextImpl() {
 		FIDESlib::CKKS::DeregisterCryptoContextGPU(context_gpu);
 		this->gpu = std::any();
 	}
-	lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::ClearEvalMultKeys();
-	lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::ClearEvalAutomorphismKeys();
+	// Deliberately does NOT call ClearEvalMultKeys() / ClearEvalAutomorphismKeys(): those no-argument
+	// overloads wipe OpenFHE's *global* static key maps, i.e. every other context's keys as well.
+	// OpenFHE's own CryptoContextImpl has no such destructor. Callers who want the host key memory back
+	// can use the per-context overloads ClearEvalMultKeys(cc) / ClearEvalAutomorphismKeys(cc).
 }
 
 // ---- Enable features ----
@@ -1092,7 +1094,6 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSub(double scalar, const C
 	auto res_gpu                = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
 	res_gpu->multScalar(-1.0);
 	res_gpu->addScalar(scalar);
-	res_gpu->multScalar(-1.0);
 
 	return result;
 }
@@ -1217,7 +1218,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRT
 
 		auto& context                   = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		auto& ct1Impl                   = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
-		auto& ptImpl                    = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
+		auto& ptImpl                    = std::any_cast<const lbcrypto::Plaintext&>(pt->cpu);
 		auto ct                         = context->EvalMult(ct1Impl, ptImpl);
 		Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
 		ciphertext->cpu                 = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
@@ -1278,7 +1279,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(Ciphertext<DCRTPoly>& ct1, Pla
 		auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 		EnsureMutableCpuCiphertext(ct1);
 		auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
-		auto& ptImpl  = std::any_cast<const lbcrypto::ConstPlaintext&>(pt->cpu);
+		auto& ptImpl  = std::any_cast<const lbcrypto::Plaintext&>(pt->cpu);
 		auto res      = context->EvalMult(ct1Impl, ptImpl);
 		ct1->cpu      = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
 		return;

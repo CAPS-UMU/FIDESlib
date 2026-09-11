@@ -19,6 +19,7 @@ using sc = std::source_location;
 namespace FIDESlib::CKKS {
 void KeySwitchingKey::Initialize(RawKeySwitchKey& rkk) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+	Context cc = context();
 	CKKS::SetCurrentContext(cc);
 	keyID = rkk.keyid;
 
@@ -35,7 +36,7 @@ void KeySwitchingKey::Initialize(RawKeySwitchKey& rkk) {
 }
 
 KeySwitchingKey::KeySwitchingKey(Context& cc)
-: my_range(loc, LIFETIME), keyID(""), cc((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)),
+: my_range(loc, LIFETIME), keyID(""), cc_weak((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)),
   a(*cc, -1, false, true), b(*cc, -1, false, true) {
 	CudaNvtxStop();
 	/*

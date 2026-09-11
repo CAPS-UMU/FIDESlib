@@ -2,6 +2,7 @@
 // Created by carlosad on 24/04/24.
 //
 
+#include <stdexcept>
 #include "CKKS/Ciphertext.cuh"
 #include "CKKS/Context.cuh"
 #include "CKKS/KeySwitchingKey.cuh"
@@ -1635,12 +1636,26 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
 		monomial.dropToLevel(c0.getLevel());
 		std::vector<uint64_t> coefs(cc.N, 0);
 
+		// `limb` must actually hold every limb the level claims. RNSPoly::grow returns early when the
+		// pooled polynomial is already at or above the target level, so a mismatch here is possible in
+		// principle, and the consequence is not a clean failure: `g.limb[i]` past the end hands the
+		// kernel a garbage device pointer, and the illegal access surfaces at whatever synchronises
+		// next - typically a GPUfree several calls later, which is where it was first reported from a
+		// GV100. Check it where it is cheap and say so where it is meaningful.
+		const auto checkLimbs = [](const LimbPartition& g, int limb_size) {
+			if ((size_t)limb_size > g.limb.size())
+				throw std::runtime_error("FIDESlib: multMonomial found " + std::to_string(g.limb.size()) +
+										 " limbs where the polynomial's level requires " + std::to_string(limb_size) +
+										 ". The auxiliary polynomial was not grown to its own level.");
+		};
+
 		if (power < cc.N) {
 			coefs[power] = 1;
 
 			for (auto& g : monomial.GPU) {
 				cudaSetDevice(g.device);
 				int limb_size = g.getLimbSize(monomial.getLevel());
+				checkLimbs(g, limb_size);
 				for (int i = 0; i < limb_size; ++i) {
 					SWITCH(g.limb[i], load(coefs));
 					g.s.wait(STREAM(g.limb[i]));
@@ -1659,6 +1674,7 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
 			for (auto& g : monomial.GPU) {
 				cudaSetDevice(g.device);
 				int limb_size = g.getLimbSize(monomial.getLevel());
+				checkLimbs(g, limb_size);
 				for (int i = 0; i < limb_size; ++i) {
 					coefs[power % cc.N] = (cc.prime[PRIMEID(g.limb[i])].p - 1) /*% ctxt.cc.prime[PRIMEID(l)].p*/;
 					SWITCH(g.limb[i], load(coefs));

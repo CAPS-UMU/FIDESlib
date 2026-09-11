@@ -1028,8 +1028,8 @@ void AddSecretSwitchingKey(KeySwitchingKey&& ksk_a, KeySwitchingKey&& ksk_b) {
 
 	KeyHash id_a        = ksk_a.keyID;
 	KeyHash id_b        = ksk_b.keyID;
-	Parameters& param_a = ksk_a.cc->param;
-	Parameters& param_b = ksk_b.cc->param;
+	Parameters& param_a = ksk_a.context()->param;
+	Parameters& param_b = ksk_b.context()->param;
 
 	{
 		std::pair<std::pair<Parameters, Parameters>, std::unique_ptr<std::map<KeyHash, KeySwitchingKey>>>* entry = nullptr;
