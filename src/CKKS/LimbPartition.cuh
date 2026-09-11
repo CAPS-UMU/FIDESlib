@@ -83,6 +83,7 @@ public:
 
 	uint32_t GetGridDimX() const;
 	uint32_t GetBlockDimX() const;
+	uint32_t GetLogN();
 	LimbPartition(LimbPartition&& l) noexcept;
 
 	LimbPartition(ContextData& cc, const uint64_t& uid, int* level, const int id, bool def_stream = false);
@@ -98,7 +99,7 @@ public:
 	                        const std::vector<const LimbPartition*>& d1s,
 	                        bool ext);
 	void binomialMult(LimbPartition& c1, LimbPartition& c2, const LimbPartition& d0, const LimbPartition& d1, bool extend_ins, bool square);
-	void generateLimbToLevel(int new_level);
+	void generateLimbToLevel(int new_level, int num_elems);
 	static void evalLinearWSumMultiple(int max_n,
 	                                   const std::vector<const LimbPartition*>& in,
 	                                   const std::vector<LimbPartition*>& out,
@@ -116,7 +117,8 @@ public:
 	              size_t offset        = 0,
 	              uint64_t* buffer_aux = nullptr,
 	              size_t offset_aux    = 0,
-	              bool noptr           = false, int num_elems = -1);
+	              bool noptr           = false,
+	              int num_elems        = -1);
 
 	void generateLimb();
 
@@ -135,7 +137,7 @@ public:
 
 	template <ALGO algo = ALGO_SHOUP> void moddown(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs);
 
-	void rescale();
+	void rescale(int slots);
 
 	void freeSpecialLimbs();
 
@@ -145,6 +147,7 @@ public:
 	struct NTT_fusion_fields {
 		OptReference op2;
 		OptConstReference pt;
+		int pt_elem;
 		OptReference res0;
 		OptReference res1;
 		OptConstReference kska;
@@ -233,14 +236,15 @@ public:
 	void evalLinearWSum(uint32_t n, std::vector<const LimbPartition*> ps, std::vector<uint64_t>& weights, bool with_bias = false);
 	void rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
 	void squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, const LimbPartition& ksk_a, const LimbPartition& ksk_b);
-	void rescaleMGPU();
+	void rescaleMGPU(int slots);
 	void moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs, const std::vector<uint64_t*>& bufferSpecial_);
 	void generatePartialSpecialLimb(int slots);
 	void dotProductPt(LimbPartition& c1,
 	                  const std::vector<const LimbPartition*>& c0s,
 	                  const std::vector<const LimbPartition*>& c1s,
 	                  const std::vector<const LimbPartition*>& pts,
-	                  bool ext, int slots);
+	                  bool ext,
+	                  int slots);
 
 	void generateGatherLimb(bool iskey);
 	void dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& digitSrc, const LimbPartition& ksk_a, const LimbPartition& ksk_b, const LimbPartition& src);
@@ -306,7 +310,8 @@ public:
 	                    int gStep,
 	                    int stride,
 	                    double usage,
-	                    bool ext, int slots);
+	                    bool ext,
+	                    int slots);
 
 	static void fusedHoistedRotateBatch(std::vector<LimbPartition*>& out,
 	                                    const std::vector<LimbPartition*>& in,

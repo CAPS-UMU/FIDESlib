@@ -13,7 +13,8 @@ using namespace std::chrono;
 
 namespace FIDESlib::Testing {
 
-class BtsTimingTests : public GeneralParametrizedTest {};
+class BtsTimingTests : public GeneralParametrizedTest {
+};
 
 TEST_P(BtsTimingTests, Regular) {
 	CKKS::DeregisterAllContexts();

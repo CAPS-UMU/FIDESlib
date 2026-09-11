@@ -237,7 +237,7 @@ void Plaintext::copy(const Plaintext& p) {
 	assert(slots == 0 || slots == p.slots);
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
-	this->c0.copy(p.c0);
+	this->c0.copy(p.c0, true, p.slots * 2);
 	this->copyMetadata(p);
 }
 
@@ -262,7 +262,7 @@ void Plaintext::multScalar(double c, bool rescale) {
 	c0.multScalar(elem);
 
 	if (rescale) {
-		c0.rescale();
+		c0.rescale(slots);
 	}
 	// Manage metadata
 	NoiseLevel += 1;
@@ -345,7 +345,6 @@ void Plaintext::addPt(const Plaintext& c) {
 void Plaintext::rescale() {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
-	assert(2*slots == cc.N);
 
 	assert(this->NoiseLevel >= 2);
 	/*
@@ -355,7 +354,7 @@ void Plaintext::rescale() {
 	}
 	std::cout << std::endl;
 */
-	c0.rescale();
+	c0.rescale(slots);
 
 	// Manage metadata
 	NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
@@ -374,7 +373,7 @@ void Plaintext::automorph(const int index) {
 		auto& aux = cc.getModdownAux(0);
 		aux.setLevel(c0.getLevel());
 		aux.automorph(index, &c0, 2 * slots);
-		c0.copy(aux);
+		c0.copy(aux, true, 2 * slots);
 	}
 }
 

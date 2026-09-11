@@ -22,9 +22,11 @@ struct Scheme {
 	struct Global;
 };
 
-struct Scheme::Constants {};
+struct Scheme::Constants {
+};
 
-struct Scheme::Global {};
+struct Scheme::Global {
+};
 } // namespace CKKS
 
 struct Constants {
@@ -58,9 +60,9 @@ struct Constants {
 
 	union {
 		struct {
-			int primeid_partition[MAXD][MAXP];	 // Limb primeids
-			int primeid_digit_from[MAXD][MAXP];	 // Decomp primeids
-			int primeid_digit_to[MAXD][MAXP];	 // Digit primeids
+			int primeid_partition[MAXD][MAXP];   // Limb primeids
+			int primeid_digit_from[MAXD][MAXP];  // Decomp primeids
+			int primeid_digit_to[MAXD][MAXP];    // Digit primeids
 			int primeid_special_partition[MAXP]; // Special limb primeids
 		};
 
@@ -189,17 +191,18 @@ uint64_t shoup_precomp(uint64_t val, int primeid, Constants& host_constants_);
 
 template <typename Scheme> __global__ void printConstants();
 
-template <typename Scheme>
-std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const std::vector<PrimeRecord>& q,
-  const std::vector<std::vector<LimbRecord>>& meta,
-  const std::vector<PrimeRecord>& p,
-  const std::vector<LimbRecord>& smeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DECOMPmeta,
-  const std::vector<std::vector<std::vector<LimbRecord>>>& DIGITmeta,
-  const std::vector<std::vector<int>>& digitGPUid,
-  const std::vector<int>& GPUid,
-  const int N,
-  const Scheme& parameters);
+template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const std::vector<PrimeRecord>& q,
+                                                                                                     const std::vector<std::vector<LimbRecord>>& meta,
+                                                                                                     const std::vector<PrimeRecord>& p,
+                                                                                                     const std::vector<LimbRecord>& smeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DECOMPmeta,
+                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     DIGITmeta,
+                                                                                                     const std::vector<std::vector<int>>& digitGPUid,
+                                                                                                     const std::vector<int>& GPUid,
+                                                                                                     const int N,
+                                                                                                     const Scheme& parameters);
 
 } // namespace FIDESlib
 #endif // FIDESLIB_CONSTANTSGPU_CUH

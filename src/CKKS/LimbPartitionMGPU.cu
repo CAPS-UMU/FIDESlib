@@ -48,13 +48,16 @@ bool MEMCPY_PEER   = envMemcopyPeer(true);
 bool GRAPH_CAPTURE = envGraphCapture(false);
 bool PEER_ACCESS   = envPeerAccess(false);
 
-void LimbPartition::rescaleMGPU() {
+void LimbPartition::rescaleMGPU(int slots) {
 	const int limbsize = getLimbSize(*level);
 	cudaSetDevice(device);
 
-	Stream& stream		  = cc.top_limb_stream[id];
-	uint64_t* buffer	  = cc.top_limb_buffer[id];
+	Stream& stream        = cc.top_limb_stream[id];
+	uint64_t* buffer      = cc.top_limb_buffer[id];
 	VectorGPU<void*>& ptr = cc.top_limbptr[id];
+
+	uint32_t N    = 2 * slots;
+	uint32_t logN = std::bit_width(N) - 1;
 
 	if (cc.limbGPUid[*level].x == static_cast<uint32_t>(id)) {
 		if (limb.size() > cc.limbGPUid[*level].y && PRIMEID(limb[cc.limbGPUid[*level].y]) == *level) {
@@ -64,22 +67,28 @@ void LimbPartition::rescaleMGPU() {
 			// SWITCH(top, INTT<ALGO_SHOUP>());
 			{
 				constexpr ALGO algo = ALGO_SHOUP;
-				constexpr int M		= 4;
+				constexpr int M     = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(logN) };
+				const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				int start = 0;
 				for (int i = limbsize - 1; i < limbsize; i += cc.batch) {
 					cc.top_limb_stream.at(id).wait(s);
 					uint32_t num_limbs = 1;
 
-					INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-					  getGlobals(), limbptr.data + start + i, PARTITION(id, start + i), cc.top_limbptr.at(cc.GPUid.size() + id).data);
-					INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-					  getGlobals(), cc.top_limbptr.at(cc.GPUid.size() + id).data, PARTITION(id, start + i), cc.top_limbptr.at(id).data);
+					INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+						getGlobals(),
+						limbptr.data + start + i,
+						PARTITION(id, start + i),
+						cc.top_limbptr.at(cc.GPUid.size() + id).data);
+					INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+						getGlobals(),
+						cc.top_limbptr.at(cc.GPUid.size() + id).data,
+						PARTITION(id, start + i),
+						cc.top_limbptr.at(id).data);
 				}
 				// s.wait(cc.top_limb_stream.at(id));
 			}
@@ -117,7 +126,7 @@ void LimbPartition::rescaleMGPU() {
 					if (i == static_cast<uint32_t>(id)) {
 						// cudaSetDevice(cc.GPUid[i]);
 						stream.wait(cc.top_limb_stream[top_gpu]);
-						cudaMemcpyPeerAsync(buffer, cc.GPUid[i], cc.top_limb_buffer[top_gpu], cc.GPUid[top_gpu], cc.N * sizeof(uint64_t), stream.ptr());
+						cudaMemcpyPeerAsync(buffer, cc.GPUid[i], cc.top_limb_buffer[top_gpu], cc.GPUid[top_gpu], N * sizeof(uint64_t), stream.ptr());
 					}
 					CudaCheckErrorModNoSync;
 				}
@@ -127,16 +136,16 @@ void LimbPartition::rescaleMGPU() {
 
 #ifdef NCCL
 			if constexpr (0) {
-				NCCLCHECK(ncclBroadcast(buffer, buffer, cc.N, ncclUint64, cc.limbGPUid[*level].x, rank, stream.ptr()));
+				NCCLCHECK(ncclBroadcast(buffer, buffer, N, ncclUint64, cc.limbGPUid[*level].x, rank, stream.ptr()));
 			} else {
 				NCCLCHECK(ncclGroupStart());
 				if (static_cast<uint32_t>(id) == cc.limbGPUid[*level].x) {
 					for (uint32_t i = 0; i < cc.GPUid.size(); ++i) {
 						if (i != static_cast<uint32_t>(id))
-							ncclSend(buffer, cc.N, ncclUint64, i, rank, stream.ptr());
+							ncclSend(buffer, N, ncclUint64, i, rank, stream.ptr());
 					}
 				} else {
-					ncclRecv(buffer, cc.N, ncclUint64, cc.limbGPUid[*level].x, rank, stream.ptr());
+					ncclRecv(buffer, N, ncclUint64, cc.limbGPUid[*level].x, rank, stream.ptr());
 				}
 				NCCLCHECK(ncclGroupEnd());
 			}
@@ -156,26 +165,38 @@ void LimbPartition::rescaleMGPU() {
 		{
 			stream.wait(s);
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
+			constexpr int M     = 4;
 
-			const dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			const dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			const int bytesFirst	  = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-			const int bytesSecond	  = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-			const int size			  = getLimbSize(*level - 1);
-			const int batch			  = cc.batch;
-			const NTT_MODE mode		  = NTT_RESCALE;
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
+			const int size            = getLimbSize(*level - 1);
+			const int batch           = cc.batch;
+			const NTT_MODE mode       = NTT_RESCALE;
 
 			for (int i = 0; i < size; i += batch) {
 				uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
 
-				NTT_<false, algo, mode><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-				  getGlobals(), ptr.data, PARTITION(id, i), auxptr.data + i, nullptr, *level);
+				NTT_<false, algo, mode><<<dim3{ NTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+					getGlobals(),
+					ptr.data,
+					PARTITION(id, i),
+					auxptr.data + i,
+					nullptr,
+					-1,
+					*level);
 
 				s.wait(stream); // Data dependency on top_limb reaches only to here
 
-				NTT_<true, algo, mode><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, s.ptr()>>>(
-				  getGlobals(), auxptr.data + i, PARTITION(id, i), limbptr.data + i, nullptr, *level);
+				NTT_<true, algo, mode><<<dim3{ NTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimSecond, bytesSecond, s.ptr()>>>(
+					getGlobals(),
+					auxptr.data + i,
+					PARTITION(id, i),
+					limbptr.data + i,
+					nullptr,
+					-1,
+					*level);
 			}
 		}
 	}
@@ -202,7 +223,7 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 
 	uint64_t* buffer[2] = { cc.top_limb_buffer[id], cc.top_limb_buffer2[id] };
 
-	VectorGPU<void*>* ptr[2]	= { &cc.top_limbptr[id], &cc.top_limbptr2[id] };
+	VectorGPU<void*>* ptr[2]    = { &cc.top_limbptr[id], &cc.top_limbptr2[id] };
 	VectorGPU<void*>* ptraux[2] = { &cc.top_limbptr[cc.GPUid.size() + id], &cc.top_limbptr2[cc.GPUid.size() + id] };
 
 	LimbPartition* part[2] = { this, &partition };
@@ -211,29 +232,34 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 	for (int i = 0; i < 2; ++i) {
 		if (cc.limbGPUid[*part[i]->level].x == static_cast<uint32_t>(id)) {
 			if (part[i]->limb.size() > cc.limbGPUid[*part[i]->level].y && PRIMEID(part[i]->limb[cc.limbGPUid[*part[i]->level].y]) == *part[i]->level ||
-			  (*part[i]->level == cc.L + 1 && part[i]->SPECIALlimb.size() > 0 && PRIMEID(part[i]->SPECIALlimb.at(cc.limbGPUid[*part[i]->level].y)) == *part[i]->level)) {
+				(*part[i]->level == cc.L + 1 && part[i]->SPECIALlimb.size() > 0 && PRIMEID(part[i]->SPECIALlimb.at(cc.limbGPUid[*part[i]->level].y)) == *part[i]
+					->level)) {
 				LimbImpl& top = (*part[i]->level == cc.L + 1) ? part[i]->SPECIALlimb.at(0) : part[i]->limb.at(limbsize - 1);
 				if (1) {
 					stream[i]->wait(part[i]->s);
 					constexpr ALGO algo = ALGO_SHOUP;
-					constexpr int M		= 4;
+					constexpr int M     = 4;
 
-					dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-					dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-					int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-					int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+					const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+					const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+					const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+					const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 					int start = 0;
 					for (int i_ = limbsize - 1; i_ < limbsize; i_ += cc.batch) {
 						// stream[i]->wait(i ? partition.s : s);
 						uint32_t num_limbs = 1;
 
-						INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(getGlobals(),
-						  *part[i]->level == cc.L + 1 ? part[i]->SPECIALlimbptr.data + 0 : part[i]->limbptr.data + start + i_,
-						  *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_),
-						  ptraux[i]->data);
+						INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(
+							getGlobals(),
+							*part[i]->level == cc.L + 1 ? part[i]->SPECIALlimbptr.data + 0 : part[i]->limbptr.data + start + i_,
+							*part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_),
+							ptraux[i]->data);
 						INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, stream[i]->ptr()>>>(
-						  getGlobals(), ptraux[i]->data, *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_), ptr[i]->data);
+							getGlobals(),
+							ptraux[i]->data,
+							*part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_),
+							ptr[i]->data);
 					}
 
 					part[i]->s.wait(stream[i]->ptr());
@@ -255,7 +281,7 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 				// }
 			} else {
 				std::cout << "Cant find the top limb!!!" << part[i]->id << " " << *part[i]->level << " " << cc.limbGPUid[*part[i]->level].y << " "
-						  << part[i]->limb.size() << std::endl;
+					<< part[i]->limb.size() << std::endl;
 			}
 		} else {
 			stream[i]->wait(part[i]->s);
@@ -288,8 +314,18 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 
 								// stream_0.wait(cc.top_limb_stream[i]);
 								// stream_1.wait(cc.top_limb_stream2[i]);
-								cudaMemcpyPeerAsync(buffer[0], cc.GPUid[i], cc.top_limb_buffer[top_gpu], cc.GPUid[top_gpu], cc.N * sizeof(uint64_t), stream[0]->ptr());
-								cudaMemcpyPeerAsync(buffer[1], cc.GPUid[i], cc.top_limb_buffer2[top_gpu], cc.GPUid[top_gpu], cc.N * sizeof(uint64_t), stream[1]->ptr());
+								cudaMemcpyPeerAsync(buffer[0],
+								                    cc.GPUid[i],
+								                    cc.top_limb_buffer[top_gpu],
+								                    cc.GPUid[top_gpu],
+								                    cc.N * sizeof(uint64_t),
+								                    stream[0]->ptr());
+								cudaMemcpyPeerAsync(buffer[1],
+								                    cc.GPUid[i],
+								                    cc.top_limb_buffer2[top_gpu],
+								                    cc.GPUid[top_gpu],
+								                    cc.N * sizeof(uint64_t),
+								                    stream[1]->ptr());
 
 								CudaCheckErrorModNoSync;
 								stream[0]->record();
@@ -340,15 +376,15 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 		// stream[j]->wait(part[j]->s);
 		{
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
+			constexpr int M     = 4;
 
-			const dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			const dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			const int bytesFirst	  = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-			const int bytesSecond	  = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-			const int size			  = getLimbSize(*part[j]->level - 1 - (*part[j]->level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT));
-			const int batch			  = cc.batch;
-			const NTT_MODE mode		  = NTT_RESCALE;
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
+			const int size            = getLimbSize(*part[j]->level - 1 - (*part[j]->level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT));
+			const int batch           = cc.batch;
+			const NTT_MODE mode       = NTT_RESCALE;
 
 			int top_gpu = cc.limbGPUid[*level].x;
 
@@ -356,8 +392,14 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 				uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
 
 				NTT_<false, algo, mode>
-				  <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, id == top_gpu ? part[j]->s.ptr() : stream[j]->ptr()>>>(
-					getGlobals(), ptr[j]->data, PARTITION(part[j]->id, i), part[j]->auxptr.data + i, nullptr, *part[j]->level);
+					<<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, id == top_gpu ? part[j]->s.ptr() : stream[j]->ptr()>>>(
+						getGlobals(),
+						ptr[j]->data,
+						PARTITION(part[j]->id, i),
+						part[j]->auxptr.data + i,
+						nullptr,
+						-1,
+						*part[j]->level);
 
 				CudaCheckErrorModNoSync;
 				if (id == top_gpu) {
@@ -368,7 +410,13 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 				CudaCheckErrorModNoSync;
 
 				NTT_<true, algo, mode><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, part[j]->s.ptr()>>>(
-				  getGlobals(), part[j]->auxptr.data + i, PARTITION(part[j]->id, i), part[j]->limbptr.data + i, nullptr, *part[j]->level);
+					getGlobals(),
+					part[j]->auxptr.data + i,
+					PARTITION(part[j]->id, i),
+					part[j]->limbptr.data + i,
+					nullptr,
+					-1,
+					*part[j]->level);
 			}
 		}
 	}
@@ -393,7 +441,11 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 	*/
 } // namespace FIDESlib::CKKS
 
-void LimbPartition::dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& digitSrc, const LimbPartition& ksk_a, const LimbPartition& ksk_b, const LimbPartition& src) {
+void LimbPartition::dotKSKfusedMGPU(LimbPartition& out2,
+                                    const LimbPartition& digitSrc,
+                                    const LimbPartition& ksk_a,
+                                    const LimbPartition& ksk_b,
+                                    const LimbPartition& src) {
 	cudaSetDevice(device);
 
 	struct vector_gpu {
@@ -424,8 +476,8 @@ void LimbPartition::dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& di
 					break;
 			}
 
-			h_digits[i]				  = digitSrc.DIGITlimbptr.at(i).data;
-			h_digits[i + cc.dnum]	  = ksk_a.DIGITlimbptr.at(i).data;
+			h_digits[i]               = digitSrc.DIGITlimbptr.at(i).data;
+			h_digits[i + cc.dnum]     = ksk_a.DIGITlimbptr.at(i).data;
 			h_digits[i + 2 * cc.dnum] = ksk_b.DIGITlimbptr.at(i).data;
 			h_digits[i + 3 * cc.dnum] = src.limbptr.data;
 			h_digits[i + 4 * cc.dnum] = ksk_a.limbptr.data;
@@ -442,7 +494,15 @@ void LimbPartition::dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& di
 		if (num_special + num_limbs > 0) {
 			cudaMemcpyAsync(digits.data, h_digits.data(), cc.dnum * 6 * sizeof(void**), cudaMemcpyDefault, s.ptr());
 			fusedDotKSK_2_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)num_special + num_limbs }, 128, 0, s.ptr()>>>(
-			  out1.limbptr.data, out1.SPECIALlimbptr.data, out2.limbptr.data, out2.SPECIALlimbptr.data, digits.data, i, id, num_special, 0);
+				out1.limbptr.data,
+				out1.SPECIALlimbptr.data,
+				out2.limbptr.data,
+				out2.SPECIALlimbptr.data,
+				digits.data,
+				i,
+				id,
+				num_special,
+				0);
 		}
 	}
 	cudaFreeAsync(digits.data, s.ptr());
@@ -455,14 +515,14 @@ void LimbPartition::dotKSKfusedMGPU(LimbPartition& out2, const LimbPartition& di
 }
 
 void LimbPartition::fusedHoistRotate(int n,
-  std::vector<int> indexes,
-  std::vector<LimbPartition*>& c0,
-  std::vector<LimbPartition*>& c1,
-  const std::vector<LimbPartition*>& ksk_a,
-  const std::vector<LimbPartition*>& ksk_b,
-  const LimbPartition& src_c0,
-  const LimbPartition& src_c1,
-  bool c0_modup) {
+                                     std::vector<int> indexes,
+                                     std::vector<LimbPartition*>& c0,
+                                     std::vector<LimbPartition*>& c1,
+                                     const std::vector<LimbPartition*>& ksk_a,
+                                     const std::vector<LimbPartition*>& ksk_b,
+                                     const LimbPartition& src_c0,
+                                     const LimbPartition& src_c1,
+                                     bool c0_modup) {
 	cudaSetDevice(device);
 
 	struct vector_gpu {
@@ -476,12 +536,12 @@ void LimbPartition::fusedHoistRotate(int n,
 	// VectorGPU<void**> digits(s, n * cc.dnum * 6 + cc.dnum * 6 + 4 * n + n, device);
 	std::vector<void**> h_digits(n * cc.dnum * 6 + cc.dnum * 6 + 4 * n + n, nullptr);
 
-	int offset_c1		  = n * cc.dnum * 6;
+	int offset_c1         = n * cc.dnum * 6;
 	int offset_output_c0  = n * cc.dnum * 6 + cc.dnum * 6;
 	int offset_output_c1  = n * cc.dnum * 6 + cc.dnum * 6 + n;
 	int offset_output_c0s = n * cc.dnum * 6 + cc.dnum * 6 + n * 2;
 	int offset_output_c1s = n * cc.dnum * 6 + cc.dnum * 6 + n * 3;
-	int offset_indexes	  = n * cc.dnum * 6 + cc.dnum * 6 + n * 4;
+	int offset_indexes    = n * cc.dnum * 6 + cc.dnum * 6 + n * 4;
 
 	LimbPartition& src = *this;
 	s.wait(src_c0.getS());
@@ -509,7 +569,7 @@ void LimbPartition::fusedHoistRotate(int n,
 				}
 
 				// h_digits[offset_c1 + i] = src.DIGITlimbptr.at(i).data;
-				h_digits[k * cc.dnum * 6 + i + cc.dnum]		= ksk_a[k]->DIGITlimbptr.at(i).data;
+				h_digits[k * cc.dnum * 6 + i + cc.dnum]     = ksk_a[k]->DIGITlimbptr.at(i).data;
 				h_digits[k * cc.dnum * 6 + i + 2 * cc.dnum] = ksk_b[k]->DIGITlimbptr.at(i).data;
 				// h_digits[offset_c1 + i + 3 * cc.dnum] = src_c1.limbptr.data;
 				h_digits[k * cc.dnum * 6 + i + 4 * cc.dnum] = ksk_a[k]->limbptr.data;
@@ -540,10 +600,10 @@ void LimbPartition::fusedHoistRotate(int n,
 		}
 
 		for (int k = 0; k < n; ++k) {
-			h_digits[offset_output_c0 + k]		 = c0[k]->limbptr.data;
-			h_digits[offset_output_c1 + k]		 = c1[k]->limbptr.data;
-			h_digits[offset_output_c0s + k]		 = c0[k]->SPECIALlimbptr.data;
-			h_digits[offset_output_c1s + k]		 = c1[k]->SPECIALlimbptr.data;
+			h_digits[offset_output_c0 + k]       = c0[k]->limbptr.data;
+			h_digits[offset_output_c1 + k]       = c1[k]->limbptr.data;
+			h_digits[offset_output_c0s + k]      = c0[k]->SPECIALlimbptr.data;
+			h_digits[offset_output_c1s + k]      = c1[k]->SPECIALlimbptr.data;
 			((int*)&h_digits[offset_indexes])[k] = indexes[k];
 		}
 
@@ -556,21 +616,22 @@ void LimbPartition::fusedHoistRotate(int n,
 
 		cudaMemcpyAsync(digits.data, h_digits.data(), h_digits.size() * sizeof(void**), cudaMemcpyDefault, s.ptr());
 
-		hoistedRotateDotKSK_2_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)num_special + num_limbs }, 128, sizeof(uint64_t) * 128 * i, s.ptr()>>>(digits.data + offset_c1,
-		  src_c0.limbptr.data,
-		  digits.data + offset_output_c1,
-		  digits.data + offset_output_c1s,
-		  digits.data + offset_output_c0,
-		  digits.data + offset_output_c0s,
-		  n,
-		  (int*)(digits.data + offset_indexes),
-		  digits.data,
-		  i,
-		  id,
-		  num_special,
-		  0,
-		  src_c0.SPECIALlimbptr.data,
-		  c0_modup);
+		hoistedRotateDotKSK_2_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)num_special + num_limbs }, 128, sizeof(uint64_t) * 128 * i, s.ptr()>>>(
+			digits.data + offset_c1,
+			src_c0.limbptr.data,
+			digits.data + offset_output_c1,
+			digits.data + offset_output_c1s,
+			digits.data + offset_output_c0,
+			digits.data + offset_output_c0s,
+			n,
+			(int*)(digits.data + offset_indexes),
+			digits.data,
+			i,
+			id,
+			num_special,
+			0,
+			src_c0.SPECIALlimbptr.data,
+			c0_modup);
 	}
 
 	src_c1.getS().wait(s);
@@ -586,18 +647,18 @@ void LimbPartition::fusedHoistRotate(int n,
 }
 
 void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
-  const LimbPartition& ksk_a,
-  const LimbPartition& ksk_b,
-  LimbPartition& auxLimbs1,
-  LimbPartition& auxLimbs2,
-  const bool moddown,
-  const std::vector<uint64_t*>& bufferGather_,
-  const std::vector<uint64_t*>& bufferSpecial_c0,
-  const std::vector<uint64_t*>& bufferSpecial_c1,
-  const std::vector<Stream*>& external_s,
-  std::vector<std::vector<std::vector<std::pair<uint64_t, TimelineSemaphore*>>>>& signal,
-  std::vector<std::atomic_uint64_t*>& thread_stop,
-  const std::vector<Stream*>& external_s0) {
+                                           const LimbPartition& ksk_a,
+                                           const LimbPartition& ksk_b,
+                                           LimbPartition& auxLimbs1,
+                                           LimbPartition& auxLimbs2,
+                                           const bool moddown,
+                                           const std::vector<uint64_t*>& bufferGather_,
+                                           const std::vector<uint64_t*>& bufferSpecial_c0,
+                                           const std::vector<uint64_t*>& bufferSpecial_c1,
+                                           const std::vector<Stream*>& external_s,
+                                           std::vector<std::vector<std::vector<std::pair<uint64_t, TimelineSemaphore*>>>>& signal,
+                                           std::vector<std::atomic_uint64_t*>& thread_stop,
+                                           const std::vector<Stream*>& external_s0) {
 	struct cached_graph {
 		cudaGraph_t first;
 		cudaGraphExec_t second;
@@ -611,9 +672,9 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 	cudaSetDevice(device);
 
 	constexpr bool PRINT = false;
-	bool SELECT			 = id == 1;
-	LimbPartition& c1	 = *this;
-	int num_d			 = 0;
+	bool SELECT          = id == 1;
+	LimbPartition& c1    = *this;
+	int num_d            = 0;
 	{
 		int start = 0;
 		if constexpr (PRINT)
@@ -662,8 +723,8 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 	}
 	CudaCheckErrorModNoSync;
 	for (int32_t j = 0; j < num_d; ++j) {
-		h_digits[j]				  = DIGITlimbptr.at(j).data;
-		h_digits[j + cc.dnum]	  = ksk_a.DIGITlimbptr.at(j).data;
+		h_digits[j]               = DIGITlimbptr.at(j).data;
+		h_digits[j + cc.dnum]     = ksk_a.DIGITlimbptr.at(j).data;
 		h_digits[j + 2 * cc.dnum] = ksk_b.DIGITlimbptr.at(j).data;
 		h_digits[j + 3 * cc.dnum] = limbptr.data;
 		h_digits[j + 4 * cc.dnum] = ksk_a.limbptr.data;
@@ -708,7 +769,7 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			if (exec_old != map_exec.end()) {
 				auto& graph_data = exec_old->second;
 				if (graph_data.buffKeyA == ksk_a.uid && graph_data.buffKeyB == ksk_b.uid && graph_data.buffAux1 == auxLimbs1.uid &&
-				  graph_data.buffAux2 == auxLimbs2.uid && graph_data.buffC0 == c0.uid && graph_data.buffC1 == c1.uid) {
+					graph_data.buffAux2 == auxLimbs2.uid && graph_data.buffC0 == c0.uid && graph_data.buffC1 == c1.uid) {
 					//   std::cout << "Graph for keyswitch is the same, skip capture, level=" << *level
 					//             << " moddown=" << moddown << std::endl;
 					skip = 1;
@@ -731,8 +792,7 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 		*thread_stop[id] += 1;
 		if (id == 0) {
 			for (uint32_t peer = 1; peer < cc.GPUid.size(); ++peer) {
-				while (*thread_stop[peer] < *thread_stop[0])
-					;
+				while (*thread_stop[peer] < *thread_stop[0]);
 
 				if (SERIAL_MGPU_PRINT)
 					std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << " " << *thread_stop[peer] << std::endl;
@@ -744,8 +804,7 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			}
 			cudaStreamBeginCapture(s.ptr(), cudaStreamCaptureModeGlobal /*cudaStreamCaptureModeRelaxed*/);
 		} else {
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 
 			if (skip == 1) {
 				*thread_stop[id] += 1;
@@ -760,16 +819,14 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 			*thread_stop[id] += 1;
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 		} else {
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 			*thread_stop[id] += 1;
-			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-				;
+			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 		}
@@ -839,7 +896,8 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 
 		if constexpr (PRINT)
 			if (SELECT) {
-				std::cout << "GPU " << id << " for digits " << d << ":" << d + digits_per_it << " INTT " << size_d << " limbs starting at limb " << start_d << std::endl;
+				std::cout << "GPU " << id << " for digits " << d << ":" << d + digits_per_it << " INTT " << size_d << " limbs starting at limb " << start_d <<
+					std::endl;
 			}
 
 		Stream& stream = cc.digitStream.at(d).at(id);
@@ -848,12 +906,12 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			std::cout << "/** Intt */" << std::endl;
 		if (size_d > 0) {
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
+			constexpr int M     = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			int gather_offset = 0;
 			for (int i = 0; i < id; ++i) {
@@ -864,13 +922,19 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 				// std::cout << "Parms INTT first: digit:" << d << " device:" << id << " s:" << stream.ptr() << " glob:" << getGlobals() << " auxptr:" << auxptr.data + start_d
 				//		  << " primeid_table_offset:" << PARTITION(id, start_d) << " ptr:" << limbptr.data + start_d << std::endl;
 				INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-				  getGlobals(), limbptr.data + start_d, PARTITION(id, start_d), auxptr.data + start_d);
+					getGlobals(),
+					limbptr.data + start_d,
+					PARTITION(id, start_d),
+					auxptr.data + start_d);
 
 				CudaCheckErrorModNoSync;
 				// std::cout << "Parms INTT second: digit:" << d << " device:" << id << " s:" << stream.ptr() << " glob:" << getGlobals() << " auxptr:" << auxptr.data + start_d
 				//		  << " primeid_table_offset:" << PARTITION(id, start_d) << " GATHERptr:" << GATHERptr.data + gather_offset + start_d << std::endl;
 				INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-				  getGlobals(), auxptr.data + start_d, PARTITION(id, start_d), GATHERptr.data + gather_offset + start_d);
+					getGlobals(),
+					auxptr.data + start_d,
+					PARTITION(id, start_d),
+					GATHERptr.data + gather_offset + start_d);
 			}
 			CudaCheckErrorModNoSync;
 		}
@@ -912,13 +976,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 								std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 							*thread_stop[id] += 1;
 							if (id != 0) {
-								while (*thread_stop[id] >= *thread_stop[id - 1])
-									;
+								while (*thread_stop[id] >= *thread_stop[id - 1]);
 								if (SERIAL_MGPU_PRINT)
 									std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 							} else {
-								while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-									;
+								while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 								if (SERIAL_MGPU_PRINT)
 									std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 							}
@@ -956,7 +1018,8 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 								size_d_i++;
 							if constexpr (PRINT)
 								if (SELECT) {
-									std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" << std::endl;
+									std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" <<
+										std::endl;
 								}
 							if (size_d_i > 0) {
 
@@ -969,11 +1032,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 											if (0 && GRAPH_CAPTURE) {
 												CudaCheckErrorModNoSync;
 												transferKernel((float*)(bufferGATHER + cc.N * (start + start_d_i)),
-												  (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
-												  sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
-												  stream_.ptr(),
-												  device,
-												  cc.GPUid[j]);
+												               (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
+												               sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
+												               stream_.ptr(),
+												               device,
+												               cc.GPUid[j]);
 												CudaCheckErrorModNoSync;
 												notifyKernel(signal[d][j][i].second, signal[d][j][i].first + 2, stream_.ptr());
 												CudaCheckErrorModNoSync;
@@ -981,11 +1044,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 											} else {
 												CudaCheckErrorModNoSync;
 												transferKernel((float*)(bufferGATHER + cc.N * (start + start_d_i)),
-												  (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
-												  sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
-												  stream_.ptr(),
-												  device,
-												  cc.GPUid[j]);
+												               (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
+												               sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
+												               stream_.ptr(),
+												               device,
+												               cc.GPUid[j]);
 												// cudaMemcpyPeerAsync(
 												//     bufferGather_[j] + cc.N * (start + start_d_i), cc.GPUid[j],
 												//     bufferGATHER + cc.N * (start + start_d_i), cc.GPUid[i],
@@ -1005,13 +1068,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						*thread_stop[id] += 1;
 						if (id != 0) {
-							while (*thread_stop[id] >= *thread_stop[id - 1])
-								;
+							while (*thread_stop[id] >= *thread_stop[id - 1]);
 							if (SERIAL_MGPU_PRINT)
 								std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						} else {
-							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-								;
+							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 							if (SERIAL_MGPU_PRINT)
 								std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						}
@@ -1064,18 +1125,19 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 
 						if constexpr (PRINT)
 							if (SELECT) {
-								std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" << std::endl;
+								std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" <<
+									std::endl;
 							}
 
 						if (size_d_i > 0) {
 							NCCLCHECK(ncclBroadcast(
-							  /*bufferLIMB + cc.N * start_d*/ bufferGATHER + cc.N * (start + start_d_i),
-							  bufferGATHER + cc.N * (start + start_d_i),
-							  size_d_i * cc.N,
-							  ncclUint64,
-							  i,
-							  rank,
-							  stream.ptr()));
+								/*bufferLIMB + cc.N * start_d*/ bufferGATHER + cc.N * (start + start_d_i),
+								bufferGATHER + cc.N * (start + start_d_i),
+								size_d_i * cc.N,
+								ncclUint64,
+								i,
+								rank,
+								stream.ptr()));
 						}
 						start += cc.meta[i].size();
 					}
@@ -1093,13 +1155,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 						std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					}
@@ -1115,13 +1175,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 						std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					}
@@ -1194,7 +1252,8 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 				int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
 
 				DecompAndModUpConv<ALGO_SHOUP>
-				  <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+					<<<gridSize, blockSize, shared_bytes, stream1.ptr()>>
+					>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
 			} else {
 				dim3 blockSize{ 64, 2 };
 				dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
@@ -1202,7 +1261,8 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 				if (d_ > 0)
 					cudaStreamWaitEvent(stream1.ptr(), ev);
 				DecompAndModUpConv_spec2<ALGO_SHOUP>
-				  <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+					<<<gridSize, blockSize, shared_bytes, stream1.ptr()>>
+					>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
 				cudaEventRecord(ev, stream1.ptr());
 			}
 			CudaCheckErrorModNoSync;
@@ -1210,21 +1270,27 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			if constexpr (PRINT)
 				std::cout << "/** NTT special limbs */" << std::endl;
 			{
-				uint32_t size		= cc.splitSpecialMeta.at(id).size();
+				uint32_t size       = cc.splitSpecialMeta.at(id).size();
 				constexpr ALGO algo = ALGO_SHOUP;
-				constexpr int M		= 4;
+				constexpr int M     = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				if (size > 0) {
 					NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
-					  getGlobals(), DIGITlimbptr[d_].data, DIGIT(d_, 0), c0.DIGITlimbptr[d_].data);
+						getGlobals(),
+						DIGITlimbptr[d_].data,
+						DIGIT(d_, 0),
+						c0.DIGITlimbptr[d_].data);
 
 					NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
-					  getGlobals(), c0.DIGITlimbptr[d_].data, DIGIT(d_, 0), DIGITlimbptr[d_].data);
+						getGlobals(),
+						c0.DIGITlimbptr[d_].data,
+						DIGIT(d_, 0),
+						DIGITlimbptr[d_].data);
 				}
 			}
 		}
@@ -1268,7 +1334,15 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			if (num_special > 0) {
 
 				fusedDotKSK_2_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)num_special }, 128, 0, s.ptr()>>>(
-				  out1.limbptr.data, out1.SPECIALlimbptr.data, out2.limbptr.data, out2.SPECIALlimbptr.data, digits, num_d, id, num_special, 0);
+					out1.limbptr.data,
+					out1.SPECIALlimbptr.data,
+					out2.limbptr.data,
+					out2.SPECIALlimbptr.data,
+					digits,
+					num_d,
+					id,
+					num_special,
+					0);
 			}
 		}
 
@@ -1294,19 +1368,19 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 
 	for (int i_ = 0; i_ < 2; ++i_) {
 		if (moddown) {
-			Stream& stream			 = i_ == 0 ? s : c0.s;
-			LimbPartition& out		 = i_ == 0 ? c1 : c0;
+			Stream& stream           = i_ == 0 ? s : c0.s;
+			LimbPartition& out       = i_ == 0 ? c1 : c0;
 			LimbPartition& aux_limbs = i_ == 0 ? auxLimbs1 : auxLimbs2;
 			if constexpr (PRINT)
 				std::cout << "/** INTT specials*/" << std::endl;
 			{
 				constexpr ALGO algo = ALGO_SHOUP;
-				constexpr int M		= 4;
+				constexpr int M     = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				const uint32_t limbs = cc.splitSpecialMeta.at(id).size();
 
@@ -1314,10 +1388,16 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 					const int j = cc.splitSpecialMeta.at(id).at(0).id - cc.specialMeta.at(id).at(0).id;
 
 					INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-					  getGlobals(), out.SPECIALlimbptr.data + j, SPECIAL(id, j), out.SPECIALauxptr.data + j);
+						getGlobals(),
+						out.SPECIALlimbptr.data + j,
+						SPECIAL(id, j),
+						out.SPECIALauxptr.data + j);
 
 					INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-					  getGlobals(), out.SPECIALauxptr.data + j, SPECIAL(id, j), aux_limbs.SPECIALlimbptr.data + j);
+						getGlobals(),
+						out.SPECIALauxptr.data + j,
+						SPECIAL(id, j),
+						aux_limbs.SPECIALlimbptr.data + j);
 				}
 			}
 
@@ -1353,11 +1433,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 											if (0 && GRAPH_CAPTURE) {
 												CudaCheckErrorModNoSync;
 												transferKernel((float*)(ptr),
-												  (float*)(bufferSpecial_[j] + (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N),
-												  sizeof(uint64_t) * cc.N * num_limbs / sizeof(float),
-												  stream_.ptr(),
-												  device,
-												  cc.GPUid[j]);
+												               (float*)(bufferSpecial_[j] + (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N),
+												               sizeof(uint64_t) * cc.N * num_limbs / sizeof(float),
+												               stream_.ptr(),
+												               device,
+												               cc.GPUid[j]);
 												CudaCheckErrorModNoSync;
 												notifyKernel(signal[cc.dnum + i_][j][i].second, signal[cc.dnum + i_][j][i].first + 3, stream_.ptr());
 												CudaCheckErrorModNoSync;
@@ -1365,11 +1445,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 											} else {
 												CudaCheckErrorModNoSync;
 												transferKernel((float*)(ptr),
-												  (float*)(bufferSpecial_[j] + (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N),
-												  sizeof(uint64_t) * cc.N * num_limbs / sizeof(float),
-												  stream_.ptr(),
-												  device,
-												  cc.GPUid[j]);
+												               (float*)(bufferSpecial_[j] + (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N),
+												               sizeof(uint64_t) * cc.N * num_limbs / sizeof(float),
+												               stream_.ptr(),
+												               device,
+												               cc.GPUid[j]);
 												//   cudaMemcpyPeerAsync(
 												//       bufferSpecial_[j] +
 												//           (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N,
@@ -1389,13 +1469,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						*thread_stop[id] += 1;
 						if (id != 0) {
-							while (*thread_stop[id] >= *thread_stop[id - 1])
-								;
+							while (*thread_stop[id] >= *thread_stop[id - 1]);
 							if (SERIAL_MGPU_PRINT)
 								std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						} else {
-							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-								;
+							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 							if (SERIAL_MGPU_PRINT)
 								std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 						}
@@ -1468,13 +1546,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 						std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					}
@@ -1492,13 +1568,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 						std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						if (SERIAL_MGPU_PRINT)
 							std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 					}
@@ -1529,7 +1603,7 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 
 			// for (int i_ = 0; i_ < 2; ++i_)
 			{
-				Stream& stream			= i_ == 0 ? c1.s : c0.s;
+				Stream& stream          = i_ == 0 ? c1.s : c0.s;
 				LimbPartition& auxLimbs = i_ == 0 ? auxLimbs1 : auxLimbs2;
 				if constexpr (PRINT)
 					std::cout << "/** Conv */" << std::endl;
@@ -1541,7 +1615,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 					int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x;
 					if (limb_size > 0)
 						ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-						  auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+							auxLimbs.limbptr.data,
+							limb_size,
+							auxLimbs.SPECIALlimbptr.data,
+							PARTITION(id, 0),
+							getGlobals());
 				} else {
 
 					if (i_ == 1)
@@ -1552,7 +1630,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 					int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x * 2;
 					if (limb_size > 0)
 						ModDown3<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-						  auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+							auxLimbs.limbptr.data,
+							limb_size,
+							auxLimbs.SPECIALlimbptr.data,
+							PARTITION(id, 0),
+							getGlobals());
 				}
 			}
 
@@ -1586,19 +1668,25 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			uint32_t size  = cc.precom.constants[id].num_primeid_digit_to[d][*level] - start;
 			if (size > 0) {
 				constexpr ALGO algo = ALGO_SHOUP;
-				constexpr int M		= 4;
+				constexpr int M     = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				{
 					NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-					  getGlobals(), DIGITlimbptr[d].data + start, DIGIT(d, start), c0.DIGITlimbptr[d].data + start);
+						getGlobals(),
+						DIGITlimbptr[d].data + start,
+						DIGIT(d, start),
+						c0.DIGITlimbptr[d].data + start);
 
 					NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-					  getGlobals(), c0.DIGITlimbptr[d].data + start, DIGIT(d, start), DIGITlimbptr[d].data + start);
+						getGlobals(),
+						c0.DIGITlimbptr[d].data + start,
+						DIGIT(d, start),
+						DIGITlimbptr[d].data + start);
 				}
 			}
 		}
@@ -1640,7 +1728,15 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 				for (uint32_t start = 0; start < limb_size; start += cc.batch) {
 					uint32_t num = std::min(static_cast<uint32_t>(cc.batch), limb_size - start);
 					fusedDotKSK_2_<<<dim3{ (uint32_t)cc.N / 128, num }, 128, 0, stream.ptr()>>>(
-					  out1.limbptr.data, out1.SPECIALlimbptr.data, out2.limbptr.data, out2.SPECIALlimbptr.data, digits, i, id, num_special, num_special + start);
+						out1.limbptr.data,
+						out1.SPECIALlimbptr.data,
+						out2.limbptr.data,
+						out2.SPECIALlimbptr.data,
+						digits,
+						i,
+						id,
+						num_special,
+						num_special + start);
 				}
 			}
 		}
@@ -1665,27 +1761,33 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 		for (int i = 0; i < 2; ++i) {
 			if constexpr (PRINT)
 				std::cout << "/** Last NTT step for moddown*/" << std::endl;
-			Stream& stream			= i == 0 ? c1.s : c0.s;
-			LimbPartition& out		= i == 0 ? c1 : c0;
+			Stream& stream          = i == 0 ? c1.s : c0.s;
+			LimbPartition& out      = i == 0 ? c1 : c0;
 			LimbPartition& auxLimbs = i == 0 ? auxLimbs1 : auxLimbs2;
 
 			if (limb_size > 0) {
 				constexpr ALGO algo = ALGO_SHOUP;
-				constexpr int M		= 4;
+				constexpr int M     = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				{
 					NTT_<false, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-					  getGlobals(), auxLimbs.limbptr.data, PARTITION(id, 0), out.auxptr.data);
+						getGlobals(),
+						auxLimbs.limbptr.data,
+						PARTITION(id, 0),
+						out.auxptr.data);
 
 					stream.wait(cc.digitStream2.at(0).at(id));
 
 					NTT_<true, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-					  getGlobals(), out.auxptr.data, PARTITION(id, 0), out.limbptr.data);
+						getGlobals(),
+						out.auxptr.data,
+						PARTITION(id, 0),
+						out.limbptr.data);
 				}
 			}
 		}
@@ -1729,13 +1831,11 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 			std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 		*thread_stop[id] += 1;
 		if (id != 0) {
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 		} else {
-			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-				;
+			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 			if (SERIAL_MGPU_PRINT)
 				std::cout << "Thread " << id << " checkpoint " << *thread_stop[id] << std::endl;
 			for (uint32_t peer = 1; peer < cc.GPUid.size(); ++peer) {
@@ -1801,17 +1901,17 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 					openmp_synchronize();
 
 				exec_old = map_exec
-							 .emplace(std::tuple<int, bool>{ *level, moddown },
-							   cached_graph{ .first = graph,
-								 .second			= nullptr,
-								 .digits			= digits,
-								 .buffKeyA			= ksk_a.uid,
-								 .buffKeyB			= ksk_b.uid,
-								 .buffAux1			= auxLimbs1.uid,
-								 .buffAux2			= auxLimbs2.uid,
-								 .buffC0			= c0.uid,
-								 .buffC1			= c1.uid })
-							 .first;
+				           .emplace(std::tuple<int, bool>{ *level, moddown },
+				                    cached_graph{ .first = graph,
+				                                  .second = nullptr,
+				                                  .digits = digits,
+				                                  .buffKeyA = ksk_a.uid,
+				                                  .buffKeyB = ksk_b.uid,
+				                                  .buffAux1 = auxLimbs1.uid,
+				                                  .buffAux2 = auxLimbs2.uid,
+				                                  .buffC0 = c0.uid,
+				                                  .buffC1 = c1.uid })
+				           .first;
 			}
 
 			if (!ok) {
@@ -1828,15 +1928,15 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 					exec_old->second.second = exec;
 				} else {
 					map_exec.emplace(std::tuple<int, bool>{ *level, moddown },
-					  cached_graph{ .first = exec_old->second.first,
-						.second			   = exec,
-						.digits			   = digits,
-						.buffKeyA		   = ksk_a.uid,
-						.buffKeyB		   = ksk_b.uid,
-						.buffAux1		   = auxLimbs1.uid,
-						.buffAux2		   = auxLimbs2.uid,
-						.buffC0			   = c0.uid,
-						.buffC1			   = c1.uid });
+					                 cached_graph{ .first = exec_old->second.first,
+					                               .second = exec,
+					                               .digits = digits,
+					                               .buffKeyA = ksk_a.uid,
+					                               .buffKeyB = ksk_b.uid,
+					                               .buffAux1 = auxLimbs1.uid,
+					                               .buffAux2 = auxLimbs2.uid,
+					                               .buffC0 = c0.uid,
+					                               .buffC1 = c1.uid });
 					exec_old = map_exec.find(std::tuple<int, bool>{ *level, moddown });
 				}
 			}
@@ -1872,7 +1972,10 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
 	cudaEventDestroy(ev);
 }
 
-void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& bufferGather_, std::vector<std::atomic_uint64_t*>& thread_stop, std::vector<Stream*>& external_s) {
+void LimbPartition::modupMGPU(LimbPartition& aux,
+                              const std::vector<uint64_t*>& bufferGather_,
+                              std::vector<std::atomic_uint64_t*>& thread_stop,
+                              std::vector<Stream*>& external_s) {
 
 	struct cached_graph {
 		cudaGraph_t first;
@@ -1891,10 +1994,10 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 
 	cudaSetDevice(device);
 	constexpr bool PRINT = false;
-	bool SELECT			 = id == 1;
-	LimbPartition& c1	 = *this;
-	LimbPartition& c0	 = aux;
-	int num_d			 = 0;
+	bool SELECT          = id == 1;
+	LimbPartition& c1    = *this;
+	LimbPartition& c0    = aux;
+	int num_d            = 0;
 	{
 		int start = 0;
 		if constexpr (PRINT)
@@ -1934,8 +2037,7 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 		*thread_stop[id] += 1;
 		if (id == 0) {
 			for (uint32_t peer = 1; peer < cc.GPUid.size(); ++peer) {
-				while (*thread_stop[peer] < *thread_stop[0])
-					;
+				while (*thread_stop[peer] < *thread_stop[0]);
 
 				s.wait(*external_s[peer]);
 			}
@@ -1945,8 +2047,7 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 			}
 			cudaStreamBeginCapture(s.ptr(), cudaStreamCaptureModeGlobal /*cudaStreamCaptureModeRelaxed*/);
 		} else {
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 
 			if (skip == 1) {
 				*thread_stop[id] += 1;
@@ -1957,12 +2058,10 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 		if (id != 0) {
 			s.wait(*external_s[0]);
 			*thread_stop[id] += 1;
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 		} else {
 			*thread_stop[id] += 1;
-			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-				;
+			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 		}
 	} else {
 		if (skip == 1) {
@@ -1998,7 +2097,7 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 		stream.wait(s);
 	}
 	for (int d = 0; d < num_d; d += digits_per_it) {
-		int ds			 = std::min(num_d - d, digits_per_it);
+		int ds           = std::min(num_d - d, digits_per_it);
 		uint32_t start_d = 0;
 		while (start_d < limb_size && meta[start_d].digit < d)
 			start_d++;
@@ -2007,7 +2106,8 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 			size_d++;
 		if constexpr (PRINT)
 			if (SELECT) {
-				std::cout << "GPU " << id << " for digits " << d << ":" << d + digits_per_it << " INTT " << size_d << " limbs starting at limb " << start_d << std::endl;
+				std::cout << "GPU " << id << " for digits " << d << ":" << d + digits_per_it << " INTT " << size_d << " limbs starting at limb " << start_d <<
+					std::endl;
 			}
 		Stream& stream = cc.digitStream.at(d).at(id);
 		// stream.wait(s);
@@ -2015,20 +2115,26 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 			std::cout << "/** Intt */" << std::endl;
 		if (size_d > 0) {
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int gather_offset	= 0;
+			constexpr int M     = 4;
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
+			int gather_offset         = 0;
 			for (int i = 0; i < id; ++i) {
 				gather_offset += cc.meta.at(i).size();
 			}
 			{
 				INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-				  getGlobals(), limbptr.data + start_d, PARTITION(id, start_d), auxptr.data + start_d);
+					getGlobals(),
+					limbptr.data + start_d,
+					PARTITION(id, start_d),
+					auxptr.data + start_d);
 				INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-				  getGlobals(), auxptr.data + start_d, PARTITION(id, start_d), GATHERptr.data + gather_offset + start_d);
+					getGlobals(),
+					auxptr.data + start_d,
+					PARTITION(id, start_d),
+					GATHERptr.data + gather_offset + start_d);
 			}
 		}
 		if constexpr (PRINT) {
@@ -2054,16 +2160,14 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 
 					for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 						cc.digitStreamForMemcpyPeer.at(d).at(i).at(id).wait(
-						  s); // ensure gather buffer is created before peer memcpy, we use s as the dependency will be older than on stream
+							s); // ensure gather buffer is created before peer memcpy, we use s as the dependency will be older than on stream
 					}
 					if (MEMCPY_PEER && GRAPH_CAPTURE) {
 						*thread_stop[id] += 1;
 						if (id != 0) {
-							while (*thread_stop[id] >= *thread_stop[id - 1])
-								;
+							while (*thread_stop[id] >= *thread_stop[id - 1]);
 						} else {
-							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-								;
+							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						}
 					} else {
 						openmp_synchronize();
@@ -2084,7 +2188,8 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 								size_d_i++;
 							if constexpr (PRINT)
 								if (SELECT) {
-									std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" << std::endl;
+									std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" <<
+										std::endl;
 								}
 							if (size_d_i > 0) {
 
@@ -2096,11 +2201,11 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 											stream_.wait(stream);
 
 											transferKernel((float*)(bufferGATHER + cc.N * (start + start_d_i)),
-											  (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
-											  sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
-											  stream_.ptr(),
-											  device,
-											  cc.GPUid[j]);
+											               (float*)(bufferGather_[j] + cc.N * (start + start_d_i)),
+											               sizeof(uint64_t) * size_d_i * cc.N / sizeof(float),
+											               stream_.ptr(),
+											               device,
+											               cc.GPUid[j]);
 											// cudaMemcpyPeerAsync(bufferGather_[j] + cc.N * (start + start_d_i),
 											//                     cc.GPUid[j], bufferGATHER + cc.N * (start + start_d_i),
 											//                     cc.GPzUid[i], sizeof(uint64_t) * size_d_i * cc.N,
@@ -2126,11 +2231,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 					if (MEMCPY_PEER && GRAPH_CAPTURE) {
 						*thread_stop[id] += 1;
 						if (id != 0) {
-							while (*thread_stop[id] >= *thread_stop[id - 1])
-								;
+							while (*thread_stop[id] >= *thread_stop[id - 1]);
 						} else {
-							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-								;
+							while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 						}
 					} else {
 						openmp_synchronize();
@@ -2179,12 +2282,14 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 							size_d_i++;
 						if constexpr (PRINT)
 							if (SELECT) {
-								std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" << std::endl;
+								std::cout << "GPU " << i << " for digits " << d << ":" << d + digits_per_it << " communicate " << size_d_i << " limbs" <<
+									std::endl;
 							}
 						if (size_d_i > 0) {
 
 							NCCLCHECK(ncclBroadcast(
-							  bufferGATHER + cc.N * (start + start_d_i), bufferGATHER + cc.N * (start + start_d_i), size_d_i * cc.N, ncclUint64, i, rank, stream.ptr()));
+								bufferGATHER + cc.N * (start + start_d_i), bufferGATHER + cc.N * (start + start_d_i), size_d_i * cc.N, ncclUint64, i, rank,
+								stream.ptr()));
 						}
 						start += cc.meta[i].size();
 					}
@@ -2199,11 +2304,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 				if (MEMCPY_PEER && GRAPH_CAPTURE) {
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 					}
 				} else {
 					openmp_synchronize();
@@ -2215,11 +2318,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 				if (MEMCPY_PEER && GRAPH_CAPTURE) {
 					*thread_stop[id] += 1;
 					if (id != 0) {
-						while (*thread_stop[id] >= *thread_stop[id - 1])
-							;
+						while (*thread_stop[id] >= *thread_stop[id - 1]);
 					} else {
-						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-							;
+						while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 					}
 				} else {
 					openmp_synchronize();
@@ -2288,7 +2389,11 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 					dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
 					int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
 					DecompAndModUpConv<ALGO_SHOUP>
-					  <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+						<<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data,
+						                                                       *level + 1,
+						                                                       DIGITlimbptr[d_].data,
+						                                                       digitid[d_],
+						                                                       getGlobals());
 					cc.digitStream2.at(d_).at(id).wait(stream1); /** Get dependency for limb NTTs later */
 				} else {
 
@@ -2296,7 +2401,11 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 					dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
 					int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x * 2;
 					DecompAndModUpConv_spec2<ALGO_SHOUP>
-					  <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+						<<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data,
+						                                                       *level + 1,
+						                                                       DIGITlimbptr[d_].data,
+						                                                       digitid[d_],
+						                                                       getGlobals());
 					cc.digitStream2.at(d_).at(id).wait(stream1); /** Get dependency for limb NTTs later */
 				}
 				CudaCheckErrorModNoSync;
@@ -2306,18 +2415,24 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 					std::cout << "/** NTT special limbs */" << std::endl;
 				{
 					// uint32_t size		= cc.splitSpecialMeta.at(id).size();
-					uint32_t size		= cc.precom.constants[id].num_primeid_digit_to[d][*level];
+					uint32_t size       = cc.precom.constants[id].num_primeid_digit_to[d][*level];
 					constexpr ALGO algo = ALGO_SHOUP;
-					constexpr int M		= 4;
-					dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-					dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-					int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-					int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+					constexpr int M     = 4;
+					const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+					const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+					const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+					const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 					if (size > 0) {
 						NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
-						  getGlobals(), DIGITlimbptr[d_].data, DIGIT(d_, 0), c0.DIGITlimbptr[d_].data);
+							getGlobals(),
+							DIGITlimbptr[d_].data,
+							DIGIT(d_, 0),
+							c0.DIGITlimbptr[d_].data);
 						NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
-						  getGlobals(), c0.DIGITlimbptr[d_].data, DIGIT(d_, 0), DIGITlimbptr[d_].data);
+							getGlobals(),
+							c0.DIGITlimbptr[d_].data,
+							DIGIT(d_, 0),
+							DIGITlimbptr[d_].data);
 					}
 				}
 			}
@@ -2347,16 +2462,22 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 				uint32_t size  = cc.precom.constants[id].num_primeid_digit_to[d][*level] - start;
 				if (size > 0) {
 					constexpr ALGO algo = ALGO_SHOUP;
-					constexpr int M		= 4;
-					dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-					dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-					int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-					int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+					constexpr int M     = 4;
+					const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+					const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+					const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+					const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 					{
 						NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-						  getGlobals(), DIGITlimbptr[d].data + start, DIGIT(d, start), c0.DIGITlimbptr[d].data + start);
+							getGlobals(),
+							DIGITlimbptr[d].data + start,
+							DIGIT(d, start),
+							c0.DIGITlimbptr[d].data + start);
 						NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-						  getGlobals(), c0.DIGITlimbptr[d].data + start, DIGIT(d, start), DIGITlimbptr[d].data + start);
+							getGlobals(),
+							c0.DIGITlimbptr[d].data + start,
+							DIGIT(d, start),
+							DIGITlimbptr[d].data + start);
 					}
 				}
 				s.wait(stream);
@@ -2384,11 +2505,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 	if (MEMCPY_PEER && GRAPH_CAPTURE) {
 		*thread_stop[id] += 1;
 		if (id != 0) {
-			while (*thread_stop[id] >= *thread_stop[id - 1])
-				;
+			while (*thread_stop[id] >= *thread_stop[id - 1]);
 		} else {
-			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1])
-				;
+			while (*thread_stop[id] > *thread_stop[cc.GPUid.size() - 1]);
 			for (uint32_t i = 1; i < external_s.size(); ++i) {
 				s.wait(*external_s[i]);
 			}
@@ -2484,8 +2603,8 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
 void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs, const std::vector<uint64_t*>& bufferSpecial_) {
 	cudaSetDevice(device);
 	constexpr bool PRINT = false;
-	bool SELECT			 = id == 1;
-	LimbPartition& c1	 = *this;
+	bool SELECT          = id == 1;
+	LimbPartition& c1    = *this;
 
 	uint32_t limb_size = getLimbSize(*level);
 	CudaCheckErrorModNoSync;
@@ -2514,22 +2633,28 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 			std::cout << "/** INTT specials*/" << std::endl;
 		{
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
+			constexpr int M     = 4;
 
 			const uint32_t limbs = cc.splitSpecialMeta.at(id).size();
 			if (limbs > 0) {
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				const int i = cc.splitSpecialMeta.at(id).at(0).id - cc.specialMeta.at(id).at(0).id;
 
 				INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-				  getGlobals(), out.SPECIALlimbptr.data + i, SPECIAL(id, i), out.SPECIALauxptr.data + i);
+					getGlobals(),
+					out.SPECIALlimbptr.data + i,
+					SPECIAL(id, i),
+					out.SPECIALauxptr.data + i);
 				CudaCheckErrorModNoSync;
 				INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-				  getGlobals(), out.SPECIALauxptr.data + i, SPECIAL(id, i), auxLimbs.SPECIALlimbptr.data + i);
+					getGlobals(),
+					out.SPECIALauxptr.data + i,
+					SPECIAL(id, i),
+					auxLimbs.SPECIALlimbptr.data + i);
 				CudaCheckErrorModNoSync;
 			}
 
@@ -2561,11 +2686,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 
 									CudaCheckErrorModNoSync;
 									cudaMemcpyPeerAsync(bufferSpecial_[j] + (cc.splitSpecialMeta.at(i).at(0).id - SPECIALmeta.at(0).id) * cc.N,
-									  cc.GPUid[j],
-									  ptr,
-									  cc.GPUid[i],
-									  sizeof(uint64_t) * cc.N * num_limbs,
-									  stream_.ptr());
+									                    cc.GPUid[j],
+									                    ptr,
+									                    cc.GPUid[i],
+									                    sizeof(uint64_t) * cc.N * num_limbs,
+									                    stream_.ptr());
 									CudaCheckErrorModNoSync;
 								}
 							}
@@ -2658,7 +2783,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 			int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x;
 			if (limb_size > 0)
 				ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-				  auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+					auxLimbs.limbptr.data,
+					limb_size,
+					auxLimbs.SPECIALlimbptr.data,
+					PARTITION(id, 0),
+					getGlobals());
 		} else {
 			dim3 blockSize{ 64, 2 };
 
@@ -2666,7 +2795,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 			int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x * 2;
 			if (limb_size > 0)
 				ModDown3<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-				  auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+					auxLimbs.limbptr.data,
+					limb_size,
+					auxLimbs.SPECIALlimbptr.data,
+					PARTITION(id, 0),
+					getGlobals());
 		}
 		CudaCheckErrorModNoSync;
 	}
@@ -2689,25 +2822,31 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 	{
 		if constexpr (PRINT)
 			std::cout << "/** Last NTT step for moddown*/" << std::endl;
-		Stream& stream	   = cc.digitStream2.at(0).at(id);
+		Stream& stream     = cc.digitStream2.at(0).at(id);
 		LimbPartition& out = *this;
 
 		if (limb_size > 0) {
 			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M		= 4;
+			constexpr int M     = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst		= 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond		= 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			{
 				NTT_<false, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
-				  getGlobals(), auxLimbs.limbptr.data, PARTITION(id, 0), out.auxptr.data);
+					getGlobals(),
+					auxLimbs.limbptr.data,
+					PARTITION(id, 0),
+					out.auxptr.data);
 				CudaCheckErrorModNoSync;
 
 				NTT_<true, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
-				  getGlobals(), out.auxptr.data, PARTITION(id, 0), out.limbptr.data);
+					getGlobals(),
+					out.auxptr.data,
+					PARTITION(id, 0),
+					out.limbptr.data);
 				CudaCheckErrorModNoSync;
 			}
 
@@ -2760,8 +2899,8 @@ void LimbPartition::broadcastLimb0_mgpu() {
 	static bool parity = true;
 	const int limbsize = getLimbSize(*level);
 
-	Stream& stream		  = parity ? cc.top_limb_stream[id] : cc.top_limb_stream2[id];
-	uint64_t* buffer	  = parity ? cc.top_limb_buffer[id] : cc.top_limb_buffer2[id];
+	Stream& stream        = parity ? cc.top_limb_stream[id] : cc.top_limb_stream2[id];
+	uint64_t* buffer      = parity ? cc.top_limb_buffer[id] : cc.top_limb_buffer2[id];
 	VectorGPU<void*>& ptr = parity ? cc.top_limbptr[id] : cc.top_limbptr2[id];
 
 	stream.wait(s);
@@ -2797,7 +2936,10 @@ void LimbPartition::broadcastLimb0_mgpu() {
 	assert(false);
 #endif
 	if (limbsize - skip0 > 0) {
-		broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)limbsize - skip0 }, 128, 0, stream.ptr()>>>(limbptr.data + skip0, PARTITION(id, skip0), ptr.data);
+		broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)limbsize - skip0 }, 128, 0, stream.ptr()>>>(
+			limbptr.data + skip0,
+			PARTITION(id, skip0),
+			ptr.data);
 		if (MODRAISE_WITH_P0) {
 			if (SPECIALmeta.size() > 0 && SPECIALmeta.at(0).id == cc.L + 1)
 				broadcastLimb0_mgpu_<<<dim3{ (uint32_t)cc.N / 128, (uint32_t)1 }, 128, 0, s.ptr()>>>(SPECIALlimbptr.data, SPECIAL(id, 0), limbptr.data);

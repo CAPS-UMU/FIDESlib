@@ -11,6 +11,14 @@
 #include "Rotation.cuh"
 
 namespace FIDESlib::CKKS {
+template <typename T> uint32_t Limb<T>::GetGridDimX() const {
+	return (v.size + 127) / 128;
+}
+
+template <typename T> uint32_t Limb<T>::GetBlockDimX() const {
+	return std::min(v.size, 128);
+}
+
 template <typename T> Limb<T>::Limb(Limb<T>&& l) noexcept
 	: cc(l.cc), primeid(l.primeid), stream(l.stream), v(std::move(l.v)), aux(std::move(l.aux)), id(l.id), raw(l.raw) {
 }
@@ -169,8 +177,8 @@ template <typename T> void Limb<T>::add(const LimbImpl& l, int slots) {
 
 template <> void Limb<uint64_t>::add(const Limb<uint64_t>& l, int slots) {
 	// stream.wait(l.stream);
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	add_<uint64_t><<<gridDim, blockDim, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
@@ -184,8 +192,8 @@ template <> void Limb<uint32_t>::add(const Limb<uint64_t>& l, int slots) {
 
 template <> void Limb<uint32_t>::add(const Limb<uint32_t>& l, int slots) {
 	// stream.wait(l.stream);
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	add_<uint32_t><<<gridDim, blockDim, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
@@ -200,8 +208,8 @@ template <typename T> void Limb<T>::sub(const LimbImpl& l, int slots) {
 
 template <> void Limb<uint32_t>::sub(const Limb<uint32_t>& l, int slots) {
 	stream.wait(l.stream);
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	sub_<uint32_t><<<gridDim, blockDim, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
@@ -215,8 +223,8 @@ template <> void Limb<uint64_t>::sub(const Limb<uint32_t>& l, int slots) {
 
 template <> void Limb<uint64_t>::sub(const Limb<uint64_t>& l, int slots) {
 	stream.wait(l.stream);
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	sub_<uint64_t><<<gridDim, blockDim, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
@@ -235,7 +243,7 @@ template <> void Limb<uint64_t>::mult(const Limb<uint32_t>& l, int slots) {
 
 template <> void Limb<uint32_t>::mult(const Limb<uint32_t>& l, int slots) {
 	assert(v.size == l.v.size);
-	mult_<uint32_t, ALGO_BARRETT><<<v.size / block, block, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
+	mult_<uint32_t, ALGO_BARRETT><<<GetGridDimX(), GetBlockDimX(), 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
 template <> void Limb<uint32_t>::mult(const Limb<uint64_t>& l, int slots) {
@@ -243,8 +251,7 @@ template <> void Limb<uint32_t>::mult(const Limb<uint64_t>& l, int slots) {
 }
 
 template <> void Limb<uint64_t>::mult(const Limb<uint64_t>& l, int slots) {
-	assert(v.size == l.v.size);
-	mult_<uint64_t, ALGO_BARRETT><<<v.size / block, block, 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
+	mult_<uint64_t, ALGO_BARRETT><<<GetGridDimX(), GetBlockDimX(), 0, stream.ptr()>>>(v.data, l.v.data, primeid, 2 * slots);
 }
 
 template <> void Limb<uint64_t>::mult(const LimbImpl& _l1, const LimbImpl& _l2, int slots, const bool inplace) {
@@ -255,7 +262,7 @@ template <> void Limb<uint64_t>::mult(const LimbImpl& _l1, const LimbImpl& _l2, 
 	const Limb<T>& l1 = std::get<U64>(_l1);
 	const Limb<T>& l2 = std::get<U64>(_l2);
 
-	mult_<T, ALGO_BARRETT><<<v.size / block, block, 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
+	mult_<T, ALGO_BARRETT><<<GetGridDimX() , GetBlockDimX(), 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
 }
 
 template <> void Limb<uint32_t>::mult(const LimbImpl& _l1, const LimbImpl& _l2, int slots, const bool inplace) {
@@ -265,81 +272,88 @@ template <> void Limb<uint32_t>::mult(const LimbImpl& _l1, const LimbImpl& _l2, 
 	const Limb<T>& l1 = std::get<U32>(_l1);
 	const Limb<T>& l2 = std::get<U32>(_l2);
 
-	mult_<T, ALGO_BARRETT><<<v.size / block, block, 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
+	mult_<T, ALGO_BARRETT><<<GetGridDimX() , GetBlockDimX(), 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
 }
 
 template <typename T> template <ALGO algo> void Limb<T>::INTT() {
 	assert(primeid >= 0);
-	constexpr int M = sizeof(T) == 8 ? 4 : 8;
 
-	if constexpr (1) {
-		dim3 blockDim = 1 << ((cc.logN) / 2 - 1);
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+	int N    = this->v.size;
+	int logN = std::bit_width((uint32_t)N) - 1;
+
+	assert(aux.data != v.data);
+
+	if (N >= NTT_1D_THRESHOLD) {
+		constexpr int M = sizeof(T) == 8 ? 4 : 8;
+		dim3 blockDim{ INTT_block_dim_X<M, false>(logN) };
+		dim3 gridDim{ INTT_grid_dim_X<M, false>(logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 		INTT_<T, false, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, aux.data);
 
-		blockDim = (1 << ((cc.logN + 1) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		{
+			dim3 blockDim{ INTT_block_dim_X<M, true>(logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(logN) };
+			bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+			INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+		}
+	} else if (N > 1) {
+		constexpr int M = 1;
+		dim3 blockDim{ (uint32_t)N / 2 };
+		dim3 gridDim{ 1u };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
+
+		INTT_1D_<T, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, v.data);
 	}
+
 }
 
 template <typename T> template <ALGO algo> void Limb<T>::NTT() {
 
-	if constexpr (0) {
-		assert(primeid >= 0);
-		constexpr int M = sizeof(T) == 8 ? 4 : 8;
-		constexpr int K = 1;
-
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)), K };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-
-		// T *psi_arr = (T *) G_::psi[primeid];
-		// T *psi_arr_middle_scale = (T *) G_::psi_middle_scale[primeid];
-
-		int primeid_  = primeid;
-		void* args[6] = { getGlobals(), &v.data, (void*)&primeid_, &aux.data, (void*)&primeid_, (void*)&primeid_ };
-		cudaLaunchCooperativeKernel(get_NTT_reference(false) /*(void *) test_kernel*/ /*(void *) NTT_<T, false, algo>*/,
-		                            gridDim,
-		                            blockDim,
-		                            args,
-		                            bytes,
-		                            stream.ptr());
-		// CudaCheckErrorModNoSync;
-	} else if constexpr (1) {
+	int N    = this->v.size;
+	int logN = std::bit_width((uint32_t)N) - 1;
+	assert(aux.data != v.data);
+	{
 		static std::map<int, cudaGraphExec_t> exec;
 
-		run_in_graph<false>(exec[primeid],
-		                    stream,
-		                    [&]() {
-			                    assert(primeid >= 0);
-			                    constexpr int M = sizeof(T) == 8 ? 4 : 8;
+		if (N >= NTT_1D_THRESHOLD) {
+			run_in_graph<false>(exec[primeid],
+			                    stream,
+			                    [&]() {
+				                    assert(primeid >= 0);
+				                    constexpr int M = sizeof(T) == 8 ? 4 : 8;
 
-			                    dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1 + (cc.logN > 13 ? 0 : 0)) / 2 - 1)) };
-			                    dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			                    int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				                    dim3 blockDim{ NTT_block_dim_X<M, false>(logN) };
+				                    dim3 gridDim{ NTT_grid_dim_X<M, false>(logN) };
+				                    int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
-			                    NTT_<T, false, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, aux.data);
+				                    NTT_<T, false, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, aux.data);
 
-			                    {
-				                    blockDim = dim3{ (uint32_t)(1 << ((cc.logN + (cc.logN > 13 ? 0 : 0)) / 2 - 1)) };
-				                    gridDim  = { v.size / blockDim.x / 2 / M };
-				                    bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				                    {
+					                    dim3 blockDim{ NTT_block_dim_X<M, true>(logN) };
+					                    dim3 gridDim{ NTT_grid_dim_X<M, true>(logN) };
+					                    bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-				                    NTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
-			                    }
-		                    });
+					                    NTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+				                    }
+			                    });
+		} else if (N > 1) {
+			constexpr int M = 1;
+			dim3 blockDim{ (uint32_t)N / 2 };
+			dim3 gridDim{ 1u };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
-		// aux.free(stream);
+			NTT_1D_<T, algo, NTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, v.data);
+		}
+
 	}
 }
 
 template <> void Limb<uint64_t>::NTT_rescale_fused(const Limb<uint64_t>& l) {
 
+	int N               = this->v.size;
+	int logN            = std::bit_width((uint32_t)N) - 1;
 	constexpr ALGO algo = ALGO_SHOUP;
 	using T             = uint64_t;
 	constexpr int M     = sizeof(T) == 8 ? 4 : 8;
@@ -347,16 +361,18 @@ template <> void Limb<uint64_t>::NTT_rescale_fused(const Limb<uint64_t>& l) {
 	assert(primeid >= 0);
 	assert(l.primeid >= 0);
 
-	dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-	dim3 gridDim{ v.size / blockDim.x / 2 / M };
-	int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+	dim3 blockDim{ NTT_block_dim_X<M, false>(logN) };
+	dim3 gridDim{ NTT_grid_dim_X<M, false>(logN) };
+	int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
-	NTT_<T, false, algo, NTT_RESCALE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, l.primeid);
-	blockDim = (1 << ((cc.logN) / 2 - 1));
-	gridDim  = { v.size / blockDim.x / 2 / M };
-	bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+	NTT_<T, false, algo, NTT_RESCALE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, -1, l.primeid);
+	{
+		dim3 blockDim{ NTT_block_dim_X<M, true>(logN) };
+		dim3 gridDim{ NTT_grid_dim_X<M, true>(logN) };
+		bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-	NTT_<T, true, algo, NTT_RESCALE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, nullptr, l.primeid);
+		NTT_<T, true, algo, NTT_RESCALE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, nullptr, -1, l.primeid);
+	}
 }
 
 template <> void Limb<uint32_t>::NTT_rescale_fused(const Limb<uint32_t>& l) {
@@ -391,16 +407,19 @@ template <> void Limb<uint64_t>::NTT_moddown_fused(const LimbImpl& _l) {
 		constexpr int M     = sizeof(T) == 8 ? 4 : 8;
 
 		assert(primeid >= 0);
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+		dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 		NTT_<T, false, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data);
-		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		NTT_<T, true, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+		{
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+			NTT_<T, true, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+		}
 	}
 }
 
@@ -414,16 +433,20 @@ template <> void Limb<uint32_t>::NTT_moddown_fused(const LimbImpl& _l) {
 		constexpr int M     = sizeof(T) == 8 ? 4 : 8;
 
 		assert(primeid >= 0);
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+		dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+		dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 		NTT_<T, false, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data);
-		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		NTT_<T, true, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+		{
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+			NTT_<T, true, algo, NTT_MODDOWN><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data);
+		}
 	}
 }
 
@@ -433,6 +456,7 @@ template <> void Limb<uint64_t>::NTT_multpt_fused(const LimbImpl& _l, const Limb
 
 	static std::map<int, cudaGraphExec_t> exec;
 
+	assert((_pt.index() == U32 ? std::get<U32>(_pt).v.size : std::get<U64>(_pt).v.size) == cc.N);
 	// run_in_graph<false>(exec[primeid], stream, [&]()
 	{
 		const Limb<uint64_t>& l  = std::get<U64>(_l);
@@ -443,16 +467,19 @@ template <> void Limb<uint64_t>::NTT_multpt_fused(const LimbImpl& _l, const Limb
 		constexpr int M     = sizeof(T) == 8 ? 4 : 8;
 
 		assert(primeid >= 0);
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		NTT_<T, false, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, l.primeid);
-		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+		dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
-		NTT_<T, true, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, pt.v.data, l.primeid);
+		NTT_<T, false, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, -1, l.primeid);
+		{
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+			NTT_<T, true, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, pt.v.data, -1, l.primeid);
+		}
 	}
 	//);
 }
@@ -467,17 +494,23 @@ template <> void Limb<uint32_t>::NTT_multpt_fused(const LimbImpl& _l, const Limb
 	using T             = uint32_t;
 	constexpr int M     = sizeof(T) == 8 ? 4 : 8;
 
+	assert((_pt.index() == U32 ? std::get<U32>(_pt).v.size : std::get<U64>(_pt).v.size) == cc.N);
+
 	assert(primeid >= 0);
-	dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-	dim3 gridDim{ v.size / blockDim.x / 2 / M };
-	int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-	NTT_<T, false, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, l.primeid);
-	blockDim = (1 << ((cc.logN) / 2 - 1));
-	gridDim  = { v.size / blockDim.x / 2 / M };
-	bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+	dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+	dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+	int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
-	NTT_<T, true, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, pt.v.data, l.primeid);
+	NTT_<T, false, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, aux.data, nullptr, -1, l.primeid);
+
+	{
+		dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+		dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+		bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+		NTT_<T, true, algo, NTT_MULTPT><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), aux.data, primeid, v.data, pt.v.data, -1, l.primeid);
+	}
 }
 
 template <typename T> Limb<T> Limb<T>::clone() {
@@ -524,28 +557,36 @@ template <> void Limb<uint64_t>::INTT_from(LimbImpl& _l) {
 	assert(_l.index() == U64);
 	constexpr ALGO algo = ALGO_SHOUP;
 	using T             = uint64_t;
+	int N               = this->v.size;
+	int logN            = std::bit_width((uint32_t)N) - 1;
+
 	{
 		const Limb<uint64_t>& l = std::get<U64>(_l);
 
+		assert(v.size == l.v.size);
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 
 		assert(primeid >= 0);
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		dim3 blockDim{ INTT_block_dim_X<M, false>(cc.logN) };
+		dim3 gridDim{ INTT_grid_dim_X<M, false>(cc.logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 		INTT_<T, false, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, l.aux.data);
-		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.aux.data, primeid, v.data);
+		{
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			bytes = NTT_shmem<M, T, algo>(blockDim.x);
+			INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.aux.data, primeid, v.data);
+		}
 	}
 }
 
 template <> void Limb<uint32_t>::INTT_from(LimbImpl& _l) {
 	assert(primeid == PRIMEID(_l));
 	assert(_l.index() == U32);
+	int N               = this->v.size;
+	int logN            = std::bit_width((uint32_t)N) - 1;
 	using T             = uint32_t;
 	constexpr ALGO algo = ALGO_SHOUP;
 	{
@@ -553,16 +594,19 @@ template <> void Limb<uint32_t>::INTT_from(LimbImpl& _l) {
 
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
-		dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		dim3 gridDim{ v.size / blockDim.x / 2 / M };
-		int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		dim3 blockDim{ INTT_block_dim_X<M, false>(logN) };
+		dim3 gridDim{ INTT_grid_dim_X<M, false>(logN) };
+		int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 		INTT_<T, false, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.v.data, primeid, l.aux.data);
-		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim  = { v.size / blockDim.x / 2 / M };
-		bytes    = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
 
-		INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.aux.data, primeid, v.data);
+		{
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			bytes = NTT_shmem<M, T, algo>(blockDim.x);
+
+			INTT_<T, true, algo><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), l.aux.data, primeid, v.data);
+		}
 	}
 }
 
@@ -571,8 +615,8 @@ template <> void Limb<uint64_t>::addMult(const LimbImpl& _l1, const LimbImpl& _l
 	const Limb<T>& l1 = std::get<U64>(_l1);
 	const Limb<T>& l2 = std::get<U64>(_l2);
 
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	addMult_<T><<<gridDim, blockDim, 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
 }
 
@@ -581,8 +625,8 @@ template <> void Limb<uint32_t>::addMult(const LimbImpl& _l1, const LimbImpl& _l
 	const Limb<T>& l1 = std::get<U32>(_l1);
 	const Limb<T>& l2 = std::get<U32>(_l2);
 
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 	addMult_<T><<<gridDim, blockDim, 0, stream.ptr()>>>(inplace ? aux.data : v.data, l1.v.data, l2.v.data, primeid, 2 * slots);
 }
 
@@ -618,9 +662,9 @@ template <typename T> void Limb<T>::INTT_from_mult(LimbImpl& res0_,
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, false, algo, INTT_MODE::INTT_MULT_AND_SAVE><<<gridDim, blockDim, bytes, stream.ptr()>>>(
 				getGlobals(),
@@ -636,9 +680,9 @@ template <typename T> void Limb<T>::INTT_from_mult(LimbImpl& res0_,
 				c0tilde.v.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, true, algo, INTT_MODE::INTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), c1.aux.data, primeid, v.data);
 		}
@@ -655,9 +699,9 @@ template <typename T> void Limb<T>::INTT_from_mult(LimbImpl& res0_,
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, false, algo, INTT_MODE::INTT_MULT_AND_SAVE><<<gridDim, blockDim, bytes, stream.ptr()>>>(
 				getGlobals(),
@@ -673,9 +717,9 @@ template <typename T> void Limb<T>::INTT_from_mult(LimbImpl& res0_,
 				c0tilde.v.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, true, algo, INTT_MODE::INTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), c1.aux.data, primeid, v.data);
 		}
@@ -705,9 +749,9 @@ template <typename T> void Limb<T>::INTT_from_mult_acc(LimbImpl& res0_,
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, false, algo, INTT_MODE::INTT_MULT_AND_ACC><<<gridDim, blockDim, bytes, stream.ptr()>>>(
 				getGlobals(),
@@ -723,9 +767,9 @@ template <typename T> void Limb<T>::INTT_from_mult_acc(LimbImpl& res0_,
 				nullptr);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, true, algo, INTT_MODE::INTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), c1.aux.data, primeid, v.data);
 		}
@@ -742,9 +786,10 @@ template <typename T> void Limb<T>::INTT_from_mult_acc(LimbImpl& res0_,
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+			dim3 blockDim{ INTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, false, algo, INTT_MODE::INTT_MULT_AND_ACC><<<gridDim, blockDim, bytes, stream.ptr()>>>(
 				getGlobals(),
@@ -760,9 +805,9 @@ template <typename T> void Limb<T>::INTT_from_mult_acc(LimbImpl& res0_,
 				c0tilde.v.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ INTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ INTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			INTT_<T, true, algo, INTT_MODE::INTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), c1.aux.data, primeid, v.data);
 		}
@@ -781,19 +826,27 @@ template <typename T> void Limb<T>::NTT_and_ksk_dot(LimbImpl& res0_, LimbImpl& r
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, false, algo, NTT_MODE::NTT_NONE><<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(), v.data, primeid, res0.aux.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, true, algo, NTT_MODE::NTT_KSK_DOT>
-				<<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, 0, res1.v.data, kskb.v.data);
+				<<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(),
+				                                                  res0.aux.data,
+				                                                  primeid,
+				                                                  res0.v.data,
+				                                                  kska.v.data,
+				                                                  -1,
+				                                                  0,
+				                                                  res1.v.data,
+				                                                  kskb.v.data);
 		}
 	} else {
 		Limb<T>& res0       = std::get<U32>(res0_);
@@ -804,19 +857,20 @@ template <typename T> void Limb<T>::NTT_and_ksk_dot(LimbImpl& res0_, LimbImpl& r
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+
+			dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, false, algo, NTT_MODE::NTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, res0.aux.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, true, algo, NTT_MODE::NTT_KSK_DOT>
-				<<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, 0, res1.v.data, kskb.v.data);
+				<<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, -1, 0, res1.v.data, kskb.v.data);
 		}
 	}
 }
@@ -833,19 +887,27 @@ template <typename T> void Limb<T>::NTT_and_ksk_dot_acc(LimbImpl& res0_, LimbImp
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, false, algo, NTT_MODE::NTT_NONE><<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(), v.data, primeid, res0.aux.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, true, algo, NTT_MODE::NTT_KSK_DOT_ACC>
-				<<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, 0, res1.v.data, kskb.v.data);
+				<<<gridDim, blockDim, bytes, res0.stream.ptr()>>>(getGlobals(),
+				                                                  res0.aux.data,
+				                                                  primeid,
+				                                                  res0.v.data,
+				                                                  kska.v.data,
+				                                                  -1,
+				                                                  0,
+				                                                  res1.v.data,
+				                                                  kskb.v.data);
 		}
 	} else {
 		Limb<T>& res0       = std::get<U32>(res0_);
@@ -856,27 +918,27 @@ template <typename T> void Limb<T>::NTT_and_ksk_dot_acc(LimbImpl& res0_, LimbImp
 		constexpr int M = sizeof(T) == 8 ? 4 : 8;
 		assert(primeid >= 0);
 		{
-			dim3 blockDim{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			dim3 gridDim{ v.size / blockDim.x / 2 / M };
-			int bytes = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, false>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, false>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, false, algo, NTT_MODE::NTT_NONE><<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), v.data, primeid, res0.aux.data);
 		}
 		{
-			dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
-			dim3 gridDim  = { v.size / blockDim.x / 2 / M };
-			int bytes     = sizeof(T) * blockDim.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			dim3 blockDim{ NTT_block_dim_X<M, true>(cc.logN) };
+			dim3 gridDim{ NTT_grid_dim_X<M, true>(cc.logN) };
+			int bytes = NTT_shmem<M, T, algo>(blockDim.x);
 
 			NTT_<T, true, algo, NTT_MODE::NTT_KSK_DOT_ACC>
-				<<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, 0, res1.v.data, kskb.v.data);
+				<<<gridDim, blockDim, bytes, stream.ptr()>>>(getGlobals(), res0.aux.data, primeid, res0.v.data, kska.v.data, -1, 0, res1.v.data, kskb.v.data);
 		}
 	}
 }
 
 template <typename T> void Limb<T>::automorph(const int index, const int br) {
 
-	dim3 blockDim{ block };
-	dim3 gridDim{ (uint32_t)(cc.N) / block };
+	dim3 blockDim{ GetBlockDimX() };
+	dim3 gridDim{ GetGridDimX() };
 
 	int n_bits = std::bit_width((uint32_t)v.size) - 1;
 	automorph_<T><<<gridDim, blockDim, 0, stream.ptr()>>>(v.data, aux.data, n_bits, index, br);

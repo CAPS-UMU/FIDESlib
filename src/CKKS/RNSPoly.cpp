@@ -35,13 +35,13 @@ void RNSPoly::grow(int new_level, bool single_malloc, bool constant, int num_ele
 	// std::cout << "from 0" << std::endl;
 	if (!constant && (!single_malloc || (GPU.at(0).limb.size() > 0)) && GPU.at(0).bufferLIMB == nullptr) {
 		// TODO fix bug (check that limb size matches level)
-		assert(num_elems == cc.N);
+		//assert(num_elems == cc.N);
 		int init = 0;
 		for (auto& g : GPU)
 			init += g.limb.size();
 
 		for (auto& g : GPU) {
-			g.generateLimbToLevel(new_level);
+			g.generateLimbToLevel(new_level, num_elems);
 		}
 		// for (int i = init; i <= new_level; ++i) {
 		//     GPU.at(cc.limbGPUid.at(i).x).generateLimb();
@@ -331,11 +331,11 @@ void RNSPoly::sync() {
 	}
 }
 
-void RNSPoly::rescale() {
+void RNSPoly::rescale(int slots) {
 	//    assert(GPU.size() == 1 && "Rescale Multi-GPU not implemented.");
 	if (GPU.size() == 1) {
 		for (auto& i : GPU) {
-			i.rescale();
+			i.rescale(slots);
 		}
 		level -= 1;
 	} else {
@@ -347,7 +347,7 @@ void RNSPoly::rescale() {
 		if (more_than_0 == 1) {
 			for (auto& i : GPU) {
 				if (i.getLimbSize(level) > 0)
-					i.rescale();
+					i.rescale(slots);
 			}
 		} else {
 #pragma omp parallel num_threads(GPU.size())
@@ -357,7 +357,7 @@ void RNSPoly::rescale() {
 					if (omp_get_num_threads() != (int)GPU.size())
 						throw std::invalid_argument("OMP didn't create enough threads");
 					assert(omp_get_num_threads() == (int)GPU.size());
-					GPU[i].rescaleMGPU();
+					GPU[i].rescaleMGPU(slots);
 				}
 			}
 		}
@@ -366,62 +366,21 @@ void RNSPoly::rescale() {
 }
 
 void RNSPoly::rescaleDouble(RNSPoly& poly) {
-	//    assert(GPU.size() == 1 && "Rescale Multi-GPU not implemented.");
-	if (0 && GPU.size() == 1) {
-		for (auto& i : GPU) {
-			i.rescale();
-		}
-		level -= 1;
-		for (auto& i : poly.GPU) {
-			i.rescale();
-		}
-		poly.level -= 1;
-	} else {
 
-		int more_than_0 = 0;
-		for (size_t i = 0; i < GPU.size(); ++i)
-			if (GPU[i].getLimbSize(level) > 0)
-				more_than_0++;
-
-		if (0 && more_than_0 == 1) {
-			for (size_t i = 0; i < GPU.size(); ++i) {
-				if (GPU[i].getLimbSize(level) > 0) {
-					GPU[i].rescale();
-					poly.GPU[i].rescale();
-				}
-			}
-		} else {
-
-			if (0 && MEMCPY_PEER) {
-
-				int id = cc.limbGPUid[level].x;
-				GPU[id].doubleRescaleMGPU(poly.GPU[id]);
-				for (size_t i = 0; i < GPU.size(); ++i) {
-
-					// if (omp_get_num_threads() != (int)GPU.size())
-					//     throw std::invalid_argument("OMP didn't create enough threads");
-					// assert(omp_get_num_threads() == (int)GPU.size());
-					// GPU[i].rescaleMGPU();
-					if ((int32_t)i != id)
-						GPU[i].doubleRescaleMGPU(poly.GPU[i]);
-				}
-			} else {
 #pragma omp parallel num_threads(GPU.size())
-				{
-					int i = omp_get_thread_num();
+	{
+		int i = omp_get_thread_num();
 
-					if (omp_get_num_threads() != (int)GPU.size())
-						throw std::invalid_argument("OMP didn't create enough threads");
-					assert(omp_get_num_threads() == (int)GPU.size());
-					assert(static_cast<size_t>(i) < GPU.size());
-					// GPU[i].rescaleMGPU();
-					GPU[i].doubleRescaleMGPU(poly.GPU[i]);
-				}
-			}
-			level -= 1 + (level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT);
-			poly.level -= 1 + (poly.level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT);
-		}
+		if (omp_get_num_threads() != (int)GPU.size())
+			throw std::invalid_argument("OMP didn't create enough threads");
+		assert(omp_get_num_threads() == (int)GPU.size());
+		assert(static_cast<size_t>(i) < GPU.size());
+		// GPU[i].rescaleMGPU();
+		GPU[i].doubleRescaleMGPU(poly.GPU[i]);
 	}
+
+	level -= 1 + (level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT);
+	poly.level -= 1 + (poly.level == cc.L + 1 && cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT);
 }
 
 void RNSPoly::multPt(const RNSPoly& p, bool rescale, int slots) {
@@ -436,7 +395,7 @@ void RNSPoly::multPt(const RNSPoly& p, bool rescale, int slots) {
 			for (size_t i = 0; i < GPU.size(); ++i) {
 				assert(omp_get_num_threads() == (int)GPU.size());
 				GPU.at(i).multElement(p.GPU.at(i), slots);
-				GPU.at(i).rescaleMGPU();
+				GPU.at(i).rescaleMGPU(slots);
 			}
 			--level;
 		}
@@ -717,7 +676,7 @@ void RNSPoly::modupInto(RNSPoly& poly) {
 	aux.setLevel(level);
 
 	if (GPU.size() > 1 || true) {
-		poly.copy(*this);
+		poly.copy(*this, false, cc.N);
 		poly.modup();
 	} else {
 #pragma omp parallel for num_threads(cc.GPUid.size())
@@ -812,10 +771,10 @@ void RNSPoly::subScalar(std::vector<uint64_t>& vector1) {
 	}
 }
 
-void RNSPoly::copy(const RNSPoly& poly) {
+void RNSPoly::copy(const RNSPoly& poly, bool constant, int num_elems) {
 	// std::cout << "Copy level: " << poly.level << std::endl;
 	this->dropToLevel(poly.level);
-	this->grow(poly.level);
+	this->grow(poly.level, false, constant, num_elems);
 #pragma omp parallel for num_threads(cc.GPUid.size())
 	for (size_t i = 0; i < cc.GPUid.size(); ++i) {
 		assert(omp_get_num_threads() == (int)cc.GPUid.size());

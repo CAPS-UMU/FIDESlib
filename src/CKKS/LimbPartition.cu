@@ -43,6 +43,12 @@ uint32_t LimbPartition::GetBlockDimX() const {
 	return 0;
 }
 
+uint32_t LimbPartition::GetLogN() {
+	uint32_t N = (limb[0].index() == U32) ? std::get<U32>(limb[0]).v.size : std::get<U64>(limb[0]).v.size;
+	return std::bit_width(N) - 1;
+}
+
+
 LimbPartition::LimbPartition(LimbPartition&& l) noexcept
 	: cc(l.cc), uid(l.uid), level(l.level), id(l.id), device((cudaSetDevice(l.device), l.device)), rank(l.rank), s(std::move(l.s)), meta(l.meta),
 	  SPECIALmeta(l.SPECIALmeta), digitid(l.digitid), DECOMPmeta(l.DECOMPmeta), DIGITmeta(l.DIGITmeta), GATHERmeta(l.GATHERmeta), limb(std::move(l.limb)),
@@ -299,11 +305,11 @@ void LimbPartition::generateLimb() {
 }
 */
 
-void LimbPartition::generateLimbToLevel(int new_level) {
+void LimbPartition::generateLimbToLevel(int new_level, int num_elems) {
 	cudaSetDevice(device);
 	int new_size = getLimbSize(new_level);
 	if (static_cast<size_t>(new_size) > limb.size()) {
-		generate(meta, limb, limbptr, new_size - 1, &auxptr);
+		generate(meta, limb, limbptr, new_size - 1, &auxptr, nullptr, 0, nullptr, 0, false, num_elems);
 	}
 }
 
@@ -393,36 +399,68 @@ template <ALGO algo, NTT_MODE mode> void LimbPartition::ApplyNTT(int batch,
                                                                  const int limbsize) {
 	constexpr int M = 4;
 
-	const dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-	const dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-	const int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-	const int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == ALGO_SHOUP ? 1 : 0));
-	const int size            = (limbsize != -1 ? limbsize : limb.size()) - (mode == NTT_RESCALE || mode == NTT_MULTPT);
+	const int logN = GetLogN();
 
-	for (int i = 0; i < size; i += batch) {
-		uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
+	if (logN >= NTT_1D_LOG_THRESHOLD) {
+		const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(logN) };
+		const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(logN) };
+		const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+		const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
+		const int size            = (limbsize != -1 ? limbsize : limb.size()) - (mode == NTT_RESCALE || mode == NTT_MULTPT);
 
-		NTT_<false, algo, mode><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
-			(mode == NTT_RESCALE || mode == NTT_MULTPT) ?
-			limbptr.data + size :
-			(mode == NTT_MODDOWN) ?
-			fields.op2->limbptr.data + i :
-			limbptr.data + i,
-			primeid_init + i,
-			auxptr.data + i,
-			nullptr,
-			(mode == NTT_RESCALE || mode == NTT_MULTPT) ? PRIMEID(limb[size]) : 0,
-			nullptr,
-			nullptr);
+		for (int i = 0; i < size; i += batch) {
+			uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
 
-		NTT_<true, algo, mode><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
-			auxptr.data + i,
-			primeid_init + i,
-			limbptr.data + i,
-			mode == NTT_MULTPT ? fields.pt->limbptr.data + i : nullptr,
-			(mode == NTT_RESCALE || mode == NTT_MULTPT) ? PRIMEID(limb[size]) : 0,
-			nullptr,
-			nullptr);
+			NTT_<false, algo, mode><<<dim3{ NTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
+				(mode == NTT_RESCALE || mode == NTT_MULTPT) ?
+				limbptr.data + size :
+				(mode == NTT_MODDOWN) ?
+				fields.op2->limbptr.data + i :
+				limbptr.data + i,
+				primeid_init + i,
+				auxptr.data + i,
+				nullptr,
+				-1,
+				(mode == NTT_RESCALE || mode == NTT_MULTPT) ? PRIMEID(limb[size]) : 0,
+				nullptr,
+				nullptr);
+
+			NTT_<true, algo, mode><<<dim3{ NTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
+				auxptr.data + i,
+				primeid_init + i,
+				limbptr.data + i,
+				mode == NTT_MULTPT ? fields.pt->limbptr.data + i : nullptr,
+				fields.pt_elem,
+				(mode == NTT_RESCALE || mode == NTT_MULTPT) ? PRIMEID(limb[size]) : 0,
+				nullptr,
+				nullptr);
+		}
+	} else if (logN > 0) {
+		const dim3 blockDimFirst{ 1u << (logN - 1) };
+		const int bytesFirst = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+		const int size       = (limbsize != -1 ? limbsize : limb.size()) - (mode == NTT_RESCALE || mode == NTT_MULTPT);
+
+		for (int i = 0; i < size; i += batch) {
+			uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
+
+			NTT_1D_<algo, mode><<<dim3{ 1u, num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
+				(mode == NTT_RESCALE || mode == NTT_MULTPT) ?
+				limbptr.data + size :
+				(mode == NTT_MODDOWN) ?
+				fields.op2->limbptr.data + i :
+				limbptr.data + i,
+				primeid_init + i,
+				limbptr.data + i,
+				mode == NTT_MULTPT ? fields.pt->limbptr.data + i : nullptr,
+				fields.pt_elem,
+				(mode == NTT_RESCALE || mode == NTT_MULTPT) ? PRIMEID(limb[size]) : 0,
+				nullptr,
+				nullptr);
+		}
+	} else {
+		if (mode != NTT_NONE) {
+			assert(false && "size 1 NTT fusion not supported, sorry :( ");
+		}
 	}
 }
 
@@ -469,25 +507,41 @@ template <ALGO algo, INTT_MODE mode> void LimbPartition::ApplyINTT(int batch,
                                                                    const int limbsize) {
 	constexpr int M = 4;
 
-	dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN - (cc.logN > 13 ? 0 : 0)) / 2 - 1)) };
-	dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1 + (cc.logN > 13 ? 0 : 0)) / 2 - 1)) };
-	int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-	int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+	const uint32_t logN = GetLogN();
+	if (logN >= NTT_1D_LOG_THRESHOLD) {
+		const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(logN) };
+		const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(logN) };
+		const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+		const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
-	for (int i = 0; i < limbsize; i += batch) {
-		uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(limbsize - i));
+		for (int i = 0; i < limbsize; i += batch) {
+			uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(limbsize - i));
 
-		INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(
-			getGlobals(),
-			limbptr.data + i,
-			primeid_init + i,
-			auxptr.data + i);
+			INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(
+				getGlobals(),
+				limbptr.data + i,
+				primeid_init + i,
+				auxptr.data + i);
 
-		INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(
-			getGlobals(),
-			auxptr.data + i,
-			primeid_init + i,
-			limbptr.data + i);
+			INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(
+				getGlobals(),
+				auxptr.data + i,
+				primeid_init + i,
+				limbptr.data + i);
+		}
+	} else if (logN > 0) {
+		const dim3 blockDimFirst{ 1u << (logN - 1) };
+		const int bytesFirst = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+
+		for (int i = 0; i < limbsize; i += batch) {
+			uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(limbsize - i));
+
+			INTT_1D_<algo, INTT_NONE><<<dim3{ 1u, num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(
+				getGlobals(),
+				limbptr.data + i,
+				primeid_init + i,
+				limbptr.data + i);
+		}
 	}
 }
 
@@ -672,7 +726,7 @@ void LimbPartition::multElement(const LimbPartition& partition1, const LimbParti
 	partition2.getS().wait(s);
 }
 
-void LimbPartition::rescale() {
+void LimbPartition::rescale(int slots) {
 	const int limbsize = getLimbSize(*level);
 	assert(cc.GPUid.size() > 1 || limbsize > 1);
 	if (limbsize == 0)
@@ -682,72 +736,77 @@ void LimbPartition::rescale() {
 
 	LimbImpl& top = limb.at(limbsize - 1);
 
+	int N    = 2 * slots;
+	int logN = std::bit_width((uint32_t)N) - 1;
+	assert(logN == GetLogN());
+
 	int aux_size = 0;
 	SWITCH_RET(top, aux.size, aux_size);
-	if (aux_size == 0) {
-		{
-			constexpr ALGO algo = ALGO_SHOUP;
-			constexpr int M     = 4;
+	if (logN >= NTT_1D_LOG_THRESHOLD && aux_size == 0) {
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		constexpr ALGO algo = ALGO_SHOUP;
 
-			int start = 0;
-			for (int i = limbsize - 1; i < limbsize; i += cc.batch) {
-				cc.top_limb_stream.at(id).wait(s);
-				uint32_t num_limbs = 1;
+		constexpr int M = 4;
+		const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(logN) };
+		const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(logN) };
+		const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+		const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
-				INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, cc.top_limb_stream.at(id).ptr()
-					>>>(
-						getGlobals(),
-						limbptr.data + start + i,
-						PARTITION(id, start + i),
-						cc.top_limbptr.at(id).data);
+		int start = 0;
+		for (int i = limbsize - 1; i < limbsize; i += cc.batch) {
+			cc.top_limb_stream.at(id).wait(s);
+			uint32_t num_limbs = 1;
 
-				INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).
-					ptr()>>>(
-						getGlobals(),
-						cc.top_limbptr.at(id).data,
-						PARTITION(id, start + i),
-						limbptr.data + start + i);
-			}
-			s.wait(cc.top_limb_stream.at(id));
+			INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, cc.top_limb_stream.at(id).ptr()
+				>>>(
+					getGlobals(),
+					limbptr.data + start + i,
+					PARTITION(id, start + i),
+					cc.top_limbptr.at(id).data);
+
+			INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, cc.top_limb_stream.at(id).ptr()>>>(
+				getGlobals(),
+				cc.top_limbptr.at(id).data,
+				PARTITION(id, start + i),
+				limbptr.data + start + i);
 		}
+		s.wait(cc.top_limb_stream.at(id));
 	} else {
 		STREAM(top).wait(s);
 		SWITCH(top, INTT<ALGO_SHOUP>());
 	}
-	if (aux_size == 0) {
+
+	if (logN >= NTT_1D_LOG_THRESHOLD && aux_size == 0) {
 		auto& auxLimbs = cc.getModdownAux(0).GPU.at(id);
 		s.wait(auxLimbs.getS());
 		if (limbsize > 0) {
 			constexpr ALGO algo = ALGO_SHOUP;
 			constexpr int M     = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			{
 				NTT_<false, algo, NTT_RESCALE>
-					<<<dim3{ cc.N / (blockDimFirst.x * M * 2), static_cast<unsigned int>(limbsize - 1) }, blockDimFirst, bytesFirst, s.ptr()>>>(
+					<<<dim3{ NTT_grid_dim_X<M, false>(logN), static_cast<unsigned int>(limbsize - 1) }, blockDimFirst, bytesFirst, s.ptr()>>>(
 						getGlobals(),
 						limbptr.data + limbsize - 1,
 						PARTITION(id, 0),
 						auxLimbs.limbptr.data,
 						nullptr /*limbptr.data*/,
+						-1,
 						PRIMEID(top));
 
 				NTT_<true, algo, NTT_RESCALE>
-					<<<dim3{ cc.N / (blockDimSecond.x * M * 2), static_cast<unsigned int>(limbsize - 1) }, blockDimSecond, bytesSecond, s.ptr()>>>(
+					<<<dim3{ INTT_grid_dim_X<M, true>(logN), static_cast<unsigned int>(limbsize - 1) }, blockDimSecond, bytesSecond, s.ptr()>>>(
 						getGlobals(),
 						auxLimbs.limbptr.data,
 						PARTITION(id, 0),
 						limbptr.data,
 						nullptr,
+						-1,
 						PRIMEID(top));
 			}
 		}
@@ -760,7 +819,6 @@ void LimbPartition::rescale() {
 		for (int32_t i = 0; i < limbsize - 1; i += cc.batch) {
 			STREAM(top).wait(STREAM(limb[i]));
 		}
-
 		s.wait(STREAM(top));
 	}
 	// while (bufferLIMB == nullptr && limb.size() > limbsize - 1) {
@@ -780,7 +838,7 @@ void LimbPartition::multPt(const LimbPartition& p, int slots) {
 	static std::map<int, cudaGraphExec_t> exec_map;
 
 	{
-		LimbImpl& top = limb.back();
+		LimbImpl& top = limb.at(limbsize - 1);
 
 		cudaGraphExec_t& exec = exec_map[limbsize];
 
@@ -788,14 +846,14 @@ void LimbPartition::multPt(const LimbPartition& p, int slots) {
 		                      s,
 		                      [&]() {
 			                      STREAM(top).wait(s);
-			                      SWITCH(top, mult(p.limb.back(), slots));
+			                      SWITCH(top, mult(p.limb.at(limbsize -1), slots));
 			                      SWITCH(top, INTT<ALGO_SHOUP>());
 
 			                      for (int32_t i = 0; i < limbsize - 1; i += cc.batch) {
 				                      STREAM(limb.at(i)).wait(STREAM(top));
 			                      }
 			                      if (limbsize > 1)
-				                      NTT<ALGO_SHOUP, NTT_MULTPT>(cc.batch, false, NTT_fusion_fields{ .pt = &p });
+				                      NTT<ALGO_SHOUP, NTT_MULTPT>(cc.batch, false, NTT_fusion_fields{ .pt = &p, .pt_elem = 2 * slots });
 			                      for (int32_t i = 0; i < limbsize - 1; i += cc.batch) {
 				                      STREAM(top).wait(STREAM(limb.at(i)));
 			                      }
@@ -854,10 +912,10 @@ void LimbPartition::modup(LimbPartition& aux_partition) {
 		{
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			for (int i = 0; i < size; i += cc.batch) {
 				STREAM(limb.at(start + i)).wait(s_d);
@@ -1538,10 +1596,10 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			for (int i = 0; i < size; i += cc.batch) {
 				STREAM(limb.at(start + i)).wait(s);
@@ -1592,10 +1650,10 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			int size = c0.SPECIALlimb.size();
 			for (int i = 0; i < size; i += cc.batch) {
@@ -1609,6 +1667,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 						SPECIAL(id, i),
 						c1.SPECIALauxptr.data + i,
 						nullptr,
+						-1,
 						0,
 						nullptr,
 						nullptr);
@@ -1621,6 +1680,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -1632,6 +1692,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -1671,10 +1732,10 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 
 				constexpr int M = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				for (int i = 0; i < size; i += cc.batch) {
 					STREAM(c0.limb.at(Lstart + i)).wait(s);
@@ -1687,6 +1748,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 							Lstart + i,
 							c1.auxptr.data + Lstart + i,
 							nullptr,
+							-1,
 							0,
 							nullptr,
 							nullptr);
@@ -1698,6 +1760,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1,
 							Lstart + i,
 							c0.limbptr.data + Lstart + i,
 							ksk_a.DIGITlimbptr[d].data + Dstart + i,
+							-1,
 							0,
 							c1.limbptr.data + Lstart + i,
 							ksk_b.DIGITlimbptr[d].data + Dstart + i);
@@ -1771,10 +1834,10 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			for (int i = 0; i < size; i += cc.batch) {
 				STREAM(limb.at(start + i)).wait(s);
@@ -1825,10 +1888,10 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			int size = c0.SPECIALlimb.size();
 			for (int i = 0; i < size; i += cc.batch) {
@@ -1842,6 +1905,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 						SPECIAL(id, i),
 						c1.SPECIALauxptr.data + i,
 						nullptr,
+						-1,
 						0,
 						nullptr,
 						nullptr);
@@ -1854,6 +1918,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -1865,6 +1930,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -1902,10 +1968,10 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 
 				constexpr int M = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				for (int i = 0; i < size; i += cc.batch) {
 					STREAM(c0.limb.at(Lstart + i)).wait(s);
@@ -1918,6 +1984,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							Lstart + i,
 							c1.auxptr.data + Lstart + i,
 							nullptr,
+							-1,
 							0,
 							nullptr,
 							nullptr);
@@ -1929,6 +1996,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							Lstart + i,
 							c0.limbptr.data + Lstart + i,
 							ksk_a.DIGITlimbptr[d].data + Dstart + i,
+							-1,
 							0,
 							c1.limbptr.data + Lstart + i,
 							ksk_b.DIGITlimbptr[d].data + Dstart + i);
@@ -1989,10 +2057,10 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			for (int i = 0; i < size; i += cc.batch) {
 				STREAM(limb.at(start + i)).wait(s);
@@ -2043,10 +2111,10 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 			// Batched
 			constexpr int M = 4;
 
-			dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-			dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-			int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-			int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+			const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+			const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+			const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+			const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 			int size = c0.SPECIALlimb.size();
 			for (int i = 0; i < size; i += cc.batch) {
@@ -2060,6 +2128,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 						SPECIAL(id, i),
 						c1.SPECIALauxptr.data + i,
 						nullptr,
+						-1,
 						0,
 						nullptr,
 						nullptr);
@@ -2072,6 +2141,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -2083,6 +2153,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							SPECIAL(id, i),
 							c0.SPECIALlimbptr.data + i,
 							ksk_a.DIGITlimbptr[d].data + i,
+							-1,
 							0,
 							c1.SPECIALlimbptr.data + i,
 							ksk_b.DIGITlimbptr[d].data + i);
@@ -2120,10 +2191,10 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 
 				constexpr int M = 4;
 
-				dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-				dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-				int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-				int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+				const dim3 blockDimFirst{ NTT_block_dim_X<M, false>(cc.logN) };
+				const dim3 blockDimSecond = dim3{ NTT_block_dim_X<M, true>(cc.logN) };
+				const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+				const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 				for (int i = 0; i < size; i += cc.batch) {
 					STREAM(c0.limb.at(Lstart + i)).wait(s);
@@ -2136,6 +2207,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							Lstart + i,
 							c1.auxptr.data + Lstart + i,
 							nullptr,
+							-1,
 							0,
 							nullptr,
 							nullptr);
@@ -2147,6 +2219,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
 							Lstart + i,
 							c0.limbptr.data + Lstart + i,
 							ksk_a.DIGITlimbptr[d].data + Dstart + i,
+							-1,
 							0,
 							c1.limbptr.data + Lstart + i,
 							ksk_b.DIGITlimbptr[d].data + Dstart + i);
@@ -2348,10 +2421,10 @@ void LimbPartition::modupInto(LimbPartition& partition, LimbPartition& aux_parti
 
 		constexpr int M = 4;
 
-		dim3 blockDimFirst{ (uint32_t)(1 << ((cc.logN) / 2 - 1)) };
-		dim3 blockDimSecond = dim3{ (uint32_t)(1 << ((cc.logN + 1) / 2 - 1)) };
-		int bytesFirst      = 8 * blockDimFirst.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
-		int bytesSecond     = 8 * blockDimSecond.x * (2 * M + 1 + (algo == 2 || algo == 3 ? 1 : 0));
+		const dim3 blockDimFirst{ INTT_block_dim_X<M, false>(cc.logN) };
+		const dim3 blockDimSecond = dim3{ INTT_block_dim_X<M, true>(cc.logN) };
+		const int bytesFirst      = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
+		const int bytesSecond     = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
 		for (int i = 0; i < size; i += cc.batch) {
 			STREAM(limb.at(start + i)).wait(s);

@@ -33,6 +33,8 @@ private:
 public:
 	~Limb() noexcept;
 
+	uint32_t GetGridDimX() const;
+	uint32_t GetBlockDimX() const;
 	Limb(Limb<T>&& l) noexcept;
 
 	Limb(ContextData& context, const int id, Stream& stream, const int primeid = -1, bool constant = false, int num_elem = -1);

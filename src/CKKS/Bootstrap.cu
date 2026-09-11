@@ -170,6 +170,7 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
 void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool prescaled) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() });
 
+	constexpr bool SPARSE_PLAINTEXT_BOOT = true;
 	assert(slots >= ctxt.slots);
 	int old_slots = ctxt.slots;
 
@@ -299,6 +300,9 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 		approxModReduction(ctxt, ctxtEncI, cc.GetEvalKey(ctxt.keyID), scalar);
 	} else {
 		aux.conjugate(ctxt);
+		if (SPARSE_PLAINTEXT_BOOT) {
+
+		}
 		ctxt.add(aux);
 
 		if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)

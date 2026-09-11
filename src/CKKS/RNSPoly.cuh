@@ -50,7 +50,7 @@ public:
 	template <ALGO algo = ALGO_SHOUP> void moddown(bool ntt = true, bool free = true, int aux_num = 0);
 	int automorph_index_precomp(int idx, int num_elems) const;
 
-	void rescale();
+	void rescale(int slots);
 
 	void sync();
 
@@ -103,7 +103,7 @@ public:
 	void binomialSquareFold(RNSPoly& c0_res, const RNSPoly& c2_key_switched_0, const RNSPoly& c2_key_switched_1);
 	void addScalar(std::vector<uint64_t>& vector1);
 	void subScalar(std::vector<uint64_t>& vector1);
-	void copy(const RNSPoly& poly);
+	void copy(const RNSPoly& poly, bool constant, int num_elems);
 	void dropToLevel(int level);
 	void addMult(const RNSPoly& poly, const RNSPoly& poly1, int slots);
 	void broadcastLimb0();

@@ -252,8 +252,6 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 
 			for (int j = 0; j < N; ++j) {
 				int pow = 1 << (std::bit_width((uint32_t)j));
-				pow++;
-				pow--;
 				if (!HISU64(i)) {
 					((uint32_t*)hG_.psi[i])[j]     = ((uint32_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
 					((uint32_t*)hG_.inv_psi[i])[j] = ((uint32_t*)hG_.inv_psi_no[i])[bit_reverse(j, hC_.logN)];

@@ -16,7 +16,7 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyRescale)(benchmark::State& state) {
 	std::vector<int> GPUs;
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
-	fideslibParams.batch	   = state.range(2);
+	fideslibParams.batch       = state.range(2);
 	FIDESlib::CKKS::Context cc = FIDESlib::CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
 	CudaCheckErrorMod;
 	state.counters["p_limbs"] = state.range(1);
@@ -28,10 +28,10 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyRescale)(benchmark::State& state) {
 		}
 		FIDESlib::CKKS::RNSPoly a(*cc, state.range(1));
 		auto start = std::chrono::high_resolution_clock::now();
-		a.rescale();
+		a.rescale(cc->N / 2);
 		if constexpr (SYNC)
 			CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 		if constexpr (SYNC)
@@ -48,17 +48,17 @@ BENCHMARK_DEFINE_F(FIDESlibFixture, RNSPolyRescaleContextLimbCount)(benchmark::S
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	fideslibParams.batch	   = state.range(2);
+	fideslibParams.batch       = state.range(2);
 	FIDESlib::CKKS::Context cc = FIDESlib::CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
 	state.counters["p_batch"]  = state.range(2);
 	CudaCheckErrorMod;
 	FIDESlib::CKKS::RNSPoly a(*cc, cc->L - state.range(3));
 	for (auto _ : state) {
 		auto start = std::chrono::high_resolution_clock::now();
-		a.rescale();
+		a.rescale(cc->N / 2);
 		if constexpr (SYNC)
 			CudaCheckErrorMod;
-		auto end	 = std::chrono::high_resolution_clock::now();
+		auto end     = std::chrono::high_resolution_clock::now();
 		auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 		state.SetIterationTime(elapsed.count());
 		a.grow(cc->L);

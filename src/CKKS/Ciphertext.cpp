@@ -612,8 +612,8 @@ void Ciphertext::rescaleInternal() {
 	if constexpr (RESCALE_DOUBLE) {
 		c0.rescaleDouble(c1);
 	} else {
-		c0.rescale();
-		c1.rescale();
+		c0.rescale(cc.N / 2);
+		c1.rescale(cc.N / 2);
 	}
 
 	// Manage metadata
@@ -805,8 +805,8 @@ void Ciphertext::automorph(const int index, const int br) {
 	CKKS::SetCurrentContext(cc_);
 	auto& aux0 = cc.getModdownAux(0);
 	auto& aux1 = cc.getModdownAux(1);
-	aux0.copy(c0);
-	aux1.copy(c1);
+	aux0.copy(c0, false, cc.N);
+	aux1.copy(c1, false, cc.N);
 	c0.automorph(index, &aux0, cc.N, br);
 	c1.automorph(index, &aux1, cc.N, br);
 }
@@ -862,10 +862,10 @@ void Ciphertext::rotate(const int index__, const bool moddown) {
 
 		auto& in0 = cc.getKeySwitchAux2();
 		auto& in1 = cc.getKeySwitchAux();
-		in1.copy(c1);
+		in1.copy(c1, false, cc.N);
 		in1.modup();
 		// c1.modupInto(cc.getKeySwitchAux());
-		in0.copy(c0);
+		in0.copy(c0, false, cc.N);
 
 		std::vector<int> index_;
 		std::vector<RNSPoly*> c0_out;
@@ -905,7 +905,7 @@ void Ciphertext::conjugate(const Ciphertext& c) {
 	int index = 2 * cc.N - 1;
 	// auto& in0 = cc.getKeySwitchAux2();
 	auto& in1 = cc.getKeySwitchAux();
-	in1.copy(c.c1);
+	in1.copy(c.c1, false, cc.N);
 	in1.modup();
 	// c1.modupInto(cc.getKeySwitchAux());
 	// in0.copy(c0);
@@ -1019,7 +1019,7 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 
 			RNSPoly& in = cc.getKeySwitchAux();
 			in.setLevel(c1.getLevel());
-			in.copy(c1);
+			in.copy(c1, false, cc.N);
 			in.modup();
 
 			for (size_t i = 0; i < indexes.size(); ++i) {
@@ -1060,7 +1060,7 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
 			c1.modupInto(in);
 		} else {
 			in.setLevel(c1.getLevel());
-			in.copy(c1);
+			in.copy(c1, false, cc.N);
 			in.modup();
 		}
 
@@ -1503,10 +1503,10 @@ void Ciphertext::addMultScalar(const Ciphertext& b, double d) {
 
 	RNSPoly aux0(cc);
 	RNSPoly aux1(cc);
-	aux0.copy(b.c0);
+	aux0.copy(b.c0, false, cc.N);
 	aux0.multScalar(elem);
 	c0.add(aux0, cc.N / 2);
-	aux1.copy(b.c1);
+	aux1.copy(b.c1, false, cc.N);
 	aux1.multScalar(elem);
 	c1.add(aux1, cc.N / 2);
 }
@@ -1592,8 +1592,8 @@ void Ciphertext::copy(const Ciphertext& ciphertext) {
 	}
 	assert(this != &ciphertext);
 	op_count[OPS::COPY]++;
-	c0.copy(ciphertext.c0);
-	c1.copy(ciphertext.c1);
+	c0.copy(ciphertext.c0, false, cc.N);
+	c1.copy(ciphertext.c1, false, cc.N);
 	this->copyMetadata(ciphertext);
 }
 
@@ -1668,11 +1668,11 @@ void Ciphertext::keySwitch(const KeySwitchingKey& ksk) {
 	assert(ksk.keyID == this->keyID);
 
 	RNSPoly& aux = cc.getKeySwitchAux();
-	aux.copy(c1); // This is to save on memory allocations for keyswitching, not best performance but not expected for relinearize or rotation
+	aux.copy(c1, false, cc.N); // This is to save on memory allocations for keyswitching, not best performance but not expected for relinearize or rotation
 
 	RNSPoly& aux0 = MGPUkeySwitchCore(aux, ksk, true); // c1.dotKSKInPlaceFrom(aux, ksk, &aux);
 
-	c1.copy(aux);
+	c1.copy(aux, false, cc.N);
 	c0.add(aux0, cc.N / 2);
 }
 

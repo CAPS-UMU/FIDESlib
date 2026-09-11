@@ -16,13 +16,17 @@
 #include <iomanip>
 
 namespace FIDESlib::Testing {
-class NTTTest : public FIDESlibParametrizedTest {};
+class NTTTest : public FIDESlibParametrizedTest {
+};
 
-class NTTTest32 : public FIDESlibParametrizedTest {};
+class NTTTest32 : public FIDESlibParametrizedTest {
+};
 
-class FailNTTTest : public FIDESlibParametrizedTest {};
+class FailNTTTest : public FIDESlibParametrizedTest {
+};
 
-class FailNTTTest32 : public FIDESlibParametrizedTest {};
+class FailNTTTest32 : public FIDESlibParametrizedTest {
+};
 
 TEST_P(NTTTest, TestCpuNTT) {
 	CudaCheckErrorMod;
@@ -48,13 +52,13 @@ TEST_P(FailNTTTest, TestConstantsSmall) {
 
 	std::vector<int> GPUs = devices;
 
-	FIDESlib::CKKS::Parameters custom	= fideslibParams;
-	custom.logN							= 3;
-	custom.primes[0].p					= 17;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(custom, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Parameters custom   = fideslibParams;
+	custom.logN                         = 3;
+	custom.primes[0].p                  = 17;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(custom, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -77,7 +81,7 @@ TEST_P(FailNTTTest, TestConstantsSmall) {
 	}
 
 	for (int i = 0; i < 2 * cc.N; ++i) {
-		int pow	  = cc.N;
+		int pow   = cc.N;
 		int aux_i = i;
 		while ((aux_i & 1) == 0 && aux_i != 0) {
 			pow >>= 1;
@@ -92,7 +96,7 @@ TEST_P(FailNTTTest, TestConstantsSmall) {
 	}
 
 	for (int i = 0; i < 2 * cc.N; ++i) {
-		int pow	  = cc.N;
+		int pow   = cc.N;
 		int aux_i = i;
 		while ((aux_i & 1) == 0 && aux_i != 0) {
 			pow >>= 1;
@@ -115,10 +119,10 @@ TEST_P(NTTTest, TestConstants) {
 
 	if (fideslibParams.logN == 17)
 		return;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -137,7 +141,7 @@ TEST_P(NTTTest, TestConstants) {
 		// std::cout << std::endl;
 
 		for (int i = 0; i < cc.N; ++i) {
-			int pow	  = cc.N;
+			int pow   = cc.N;
 			int aux_i = i;
 			while ((aux_i & 1) == 0 && aux_i != 0) {
 				pow >>= 1;
@@ -163,7 +167,7 @@ TEST_P(NTTTest, TestConstants) {
 		}
 
 		for (int i = 0; i < 2 * cc.N; ++i) {
-			int pow	  = cc.N;
+			int pow   = cc.N;
 			int aux_i = i;
 			while ((aux_i & 1) == 0 && aux_i != 0) {
 				pow >>= 1;
@@ -181,7 +185,9 @@ TEST_P(NTTTest, TestConstants) {
 		ASSERT_TRUE(FIDESlib::modprod(hG_.root[j], hG_.inv_root[j], hC_.primes[j]) == 1);
 		for (int i = 0; i < 2 * cc.N; ++i) {
 			// if(modprod(((uint64_t *) hG_.inv_psi_no[j])[i], ((uint64_t *) hG_.psi_no[j])[i] , hC_.primes[j]) != 1) std::cout << i << std::endl;
-			ASSERT_TRUE(FIDESlib::modprod(FIDESlib::modprod(((uint64_t*)hG_.inv_psi_no[j])[i], hC_.N, hC_.primes[j]), ((uint64_t*)hG_.psi_no[j])[i], hC_.primes[j]) == 1);
+			ASSERT_TRUE(
+				FIDESlib::modprod(FIDESlib::modprod(((uint64_t*)hG_.inv_psi_no[j])[i], hC_.N, hC_.primes[j]), ((uint64_t*)hG_.psi_no[j])[i], hC_.primes[j]) ==
+				1);
 		}
 		for (int i = 0; i < cc.N / 2; ++i) {
 			ASSERT_TRUE(FIDESlib::modprod(((uint64_t*)hG_.inv_psi[j])[i], ((uint64_t*)hG_.psi[j])[i], hC_.primes[j]) == 1);
@@ -195,10 +201,10 @@ TEST_P(NTTTest32, TestConstants32) {
 
 	std::vector<int> GPUs = devices;
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -213,7 +219,7 @@ TEST_P(NTTTest32, TestConstants32) {
 		}
 
 		for (int i = 0; i < 2 * cc.N; ++i) {
-			int pow	  = cc.N;
+			int pow   = cc.N;
 			int aux_i = i;
 			while ((aux_i & 1) == 0 && aux_i != 0) {
 				pow >>= 1;
@@ -238,7 +244,7 @@ TEST_P(NTTTest32, TestConstants32) {
 		}
 
 		for (int i = 0; i < 2 * cc.N; ++i) {
-			int pow	  = cc.N;
+			int pow   = cc.N;
 			int aux_i = i;
 			while ((aux_i & 1) == 0 && aux_i != 0) {
 				pow >>= 1;
@@ -258,7 +264,9 @@ TEST_P(NTTTest32, TestConstants32) {
 		ASSERT_TRUE(FIDESlib::modprod(hG_.root[j], hG_.inv_root[j], hC_.primes[j]) == 1);
 		for (int i = 0; i < cc.N; ++i) {
 			// if(modprod(((uint32_t *) hG_.inv_psi_no[j])[i], ((uint32_t *) hG_.psi_no[j])[i] , hC_.primes[j]) != 1) std::cout << i << std::endl;
-			ASSERT_TRUE(FIDESlib::modprod(FIDESlib::modprod(((uint32_t*)hG_.inv_psi_no[j])[i], hC_.N, hC_.primes[j]), ((uint32_t*)hG_.psi_no[j])[i], hC_.primes[j]) == 1);
+			ASSERT_TRUE(
+				FIDESlib::modprod(FIDESlib::modprod(((uint32_t*)hG_.inv_psi_no[j])[i], hC_.N, hC_.primes[j]), ((uint32_t*)hG_.psi_no[j])[i], hC_.primes[j]) ==
+				1);
 		}
 		for (int i = 0; i < cc.N / 2; ++i) {
 			ASSERT_TRUE(FIDESlib::modprod(((uint32_t*)hG_.inv_psi[j])[i], ((uint32_t*)hG_.psi[j])[i], hC_.primes[j]) == 1);
@@ -274,13 +282,13 @@ TEST_P(FailNTTTest, TestLimbNTT_1D_small) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Parameters custom	= fideslibParams;
-	custom.logN							= 3;
-	custom.primes[0].p					= 17;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(custom, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Parameters custom   = fideslibParams;
+	custom.logN                         = 3;
+	custom.primes[0].p                  = 17;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(custom, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -291,7 +299,7 @@ TEST_P(FailNTTTest, TestLimbNTT_1D_small) {
 
 		std::vector<uint64_t> v2{ 1, 2, 3, 7, 5, 4, 1, 2 };
 
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 
 		// std::vector<uint64_t> vRev(v2);
 
@@ -300,13 +308,13 @@ TEST_P(FailNTTTest, TestLimbNTT_1D_small) {
 
 		// GPU SETUP
 		int primeid = 0;
-		auto& v		= limb2.v;
+		auto& v     = limb2.v;
 		// uint64_t *psi_arr = (uint64_t *) hG_.psi[primeid];
 
 		dim3 blockDim = N / 2;
 
 		dim3 gridDim = { 1 };
-		int bytes	 = sizeof(uint64_t) * blockDim.x * 3;
+		int bytes    = sizeof(uint64_t) * blockDim.x * 3;
 
 		FIDESlib::NTT_1D<uint64_t><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), v.data, nullptr, 2 * blockDim.x, primeid, 3);
 
@@ -338,7 +346,13 @@ TEST_P(FailNTTTest, TestLimbNTT_1D_small) {
 		ASSERT_EQ(res_cpu, res_gpu);
 
 		FIDESlib::INTT_1D<uint64_t><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(
-		  limb2.getGlobals(), v.data, nullptr, 2 * blockDim.x, primeid, FIDESlib::modinv(N, hC_.primes[primeid]), 3);
+			limb2.getGlobals(),
+			v.data,
+			nullptr,
+			2 * blockDim.x,
+			primeid,
+			FIDESlib::modinv(N, hC_.primes[primeid]),
+			3);
 		cudaDeviceSynchronize();
 
 		limb2.store(res_gpu);
@@ -359,10 +373,10 @@ TEST_P(NTTTest, TestLimbNTT_1D) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -375,24 +389,24 @@ TEST_P(NTTTest, TestLimbNTT_1D) {
 		for (auto& i : v2)
 			i = rand();
 
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 		int logN = 8;
-		int N	 = 1 << logN;
+		int N    = 1 << logN;
 
 		// GPU SETUP
 		int primeid = 0;
-		auto& v		= limb2.v;
+		auto& v     = limb2.v;
 		// uint64_t *psi_arr = (uint64_t *) G_::psi[primeid];
 
 		dim3 blockDim = N / 2;
 
 		dim3 gridDim = { 1 };
-		int bytes	 = sizeof(uint64_t) * blockDim.x * 3;
+		int bytes    = sizeof(uint64_t) * blockDim.x * 3;
 
 		FIDESlib::NTT_1D<uint64_t><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), v.data, nullptr, blockDim.x, primeid, logN);
 
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.store(res_gpu);
 		cudaDeviceSynchronize();
 		res_gpu.resize(blockDim.x * 2);
@@ -408,25 +422,25 @@ TEST_P(NTTTest, TestLimbNTT_1D) {
 		// fft_forPrime(res_cpu, true, 0
 
 		fft(res_cpu,
-		  false,
-		  FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  hC_.primes[primeid]);
+		    false,
+		    FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    hC_.primes[primeid]);
 		fft(res_cpu,
-		  true,
-		  FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  hC_.primes[primeid]);
+		    true,
+		    FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    hC_.primes[primeid]);
 
 		ASSERT_EQ(res_cpu, v2_small);
 
 		// fft_forPrime(res_cpu, false, 0);
 
 		fft(res_cpu,
-		  false,
-		  FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
-		  hC_.primes[primeid]);
+		    false,
+		    FIDESlib::modpow(hG_.root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    FIDESlib::modpow(hG_.inv_root[primeid], cc.N / (blockDim.x), hC_.primes[primeid]),
+		    hC_.primes[primeid]);
 
 		// std::sort(res_gpu.begin(), res_gpu.end());
 		// std::sort(res_cpu.begin(), res_cpu.end());
@@ -447,10 +461,10 @@ TEST_P(NTTTest, TestLimbBitReverse) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -463,12 +477,12 @@ TEST_P(NTTTest, TestLimbBitReverse) {
 		for (auto& i : v2)
 			i = rand();
 
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		FIDESlib::Bit_Reverse<<<cc.N / 128, 128, 0, limb2.stream.ptr()>>>(limb2.v.data, cc.N);
 
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.store(res_gpu);
 		cudaDeviceSynchronize();
 		FIDESlib::bit_reverse_vector(v2);
@@ -481,7 +495,7 @@ TEST_P(NTTTest, TestLimbBitReverse) {
 		// std::sort(res_gpu.begin(), res_gpu.end());
 		// std::sort(v2.begin(), v2.end());
 
-		std::vector<uint64_t> res_gpu2;
+		std::vector<uint64_t> res_gpu2(cc.N);
 		limb2.store(res_gpu2);
 		cudaDeviceSynchronize();
 		FIDESlib::bit_reverse_vector(v2);
@@ -500,10 +514,10 @@ TEST_P(NTTTest, TestLimbNTTSecondHalf) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -517,12 +531,12 @@ TEST_P(NTTTest, TestLimbNTTSecondHalf) {
 		for (auto& i : v2)
 			i = j++; // rand();
 
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		// GPU SETUP
 		int primeid = 0;
-		auto& v		= limb2.v;
+		auto& v     = limb2.v;
 		// uint64_t *psi_arr = (uint64_t *) G_::psi[primeid];
 
 		dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
@@ -536,7 +550,7 @@ TEST_P(NTTTest, TestLimbNTTSecondHalf) {
 		auto* globals = limb2.getGlobals();
 		FIDESlib::NTT_<uint64_t, true, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(globals, v.data, primeid, aux.data);
 		CudaCheckErrorMod;
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.load(aux);
 		aux.free(limb2.stream);
 		limb2.store(res_gpu);
@@ -579,10 +593,10 @@ TEST_P(FailNTTTest32, TestLimbNTTSecondHalf32) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -596,12 +610,12 @@ TEST_P(FailNTTTest32, TestLimbNTTSecondHalf32) {
 		for (auto& i : v2)
 			i = j++; // rand();
 
-		FIDESlib::CKKS::Limb<uint32_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint32_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		// GPU SETUP
 		int primeid = 0;
-		auto& v		= limb2.v;
+		auto& v     = limb2.v;
 
 		dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
 
@@ -613,7 +627,7 @@ TEST_P(FailNTTTest32, TestLimbNTTSecondHalf32) {
 
 		FIDESlib::NTT_<uint32_t, true, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), v.data, primeid, aux.data);
 
-		std::vector<uint32_t> res_gpu;
+		std::vector<uint32_t> res_gpu(cc.N);
 		limb2.load(aux);
 		aux.free(limb2.stream);
 		limb2.store(res_gpu);
@@ -646,7 +660,7 @@ TEST_P(FailNTTTest32, TestLimbNTTSecondHalf32) {
 		}
 		CudaCheckErrorMod;
 		std::vector<uint64_t> res_gpu64(res_gpu.size());
-		for (size_t i = 0; i < res_gpu.size(); ++i)
+		for (size_t i    = 0; i < res_gpu.size(); ++i)
 			res_gpu64[i] = res_gpu[i];
 		ASSERT_EQ(res_cpu, res_gpu64);
 
@@ -664,11 +678,11 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalfSmall) {
 		GPUs.push_back(i);
 
 	FIDESlib::CKKS::Parameters aux_params{ fideslibParams };
-	aux_params.logN						= 4;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	aux_params.logN                     = 4;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -684,12 +698,12 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalfSmall) {
 			if (v2[i] == 0)
 				std::cout << i << std::endl;
 		}
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		// GPU SETUP
-		int primeid	  = 1;
-		auto& v		  = limb2.v;
+		int primeid   = 1;
+		auto& v       = limb2.v;
 		dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
 
 		constexpr FIDESlib::ALGO algo = FIDESlib::ALGO_NATIVE;
@@ -700,7 +714,7 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalfSmall) {
 
 		FIDESlib::INTT_<uint64_t, false, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), v.data, primeid, aux.data);
 
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		cudaDeviceSynchronize();
 		limb2.load(aux);
 		cudaDeviceSynchronize();
@@ -760,10 +774,10 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalf) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -779,12 +793,12 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalf) {
 			if (v2[i] == 0)
 				std::cout << i << std::endl;
 		}
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		// GPU SETUP
 		int primeid = 0;
-		auto& v		= limb2.v;
+		auto& v     = limb2.v;
 
 		dim3 blockDim = (1 << ((cc.logN) / 2 - 1));
 
@@ -796,7 +810,7 @@ TEST_P(FailNTTTest, TestLimbINTTSecondHalf) {
 
 		FIDESlib::INTT_<uint64_t, true, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), v.data, primeid, aux.data);
 
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.load(aux);
 		aux.free(limb2.stream);
 		limb2.store(res_gpu);
@@ -856,74 +870,77 @@ TEST_P(NTTTest, TestLimbNTTsmall) {
 		GPUs.push_back(i);
 
 	FIDESlib::CKKS::Parameters aux_params{ fideslibParams };
-	aux_params.logN						= 4;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(aux_params, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	aux_params.logN                     = 5;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(aux_params, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 	CudaCheckErrorMod;
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		for (int l : { 0 }) {
+			cudaSetDevice(GPUs[0]);
+			FIDESlib::Stream s;
+			s.init();
 
-	for (int l : { 0 }) {
-		cudaSetDevice(GPUs[0]);
-		FIDESlib::Stream s;
-		s.init();
+			std::vector<uint64_t> v2{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+			v2.resize(n);
+			// for(auto & i : v2) i = rand();
 
-		std::vector<uint64_t> v2{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
-		// for(auto & i : v2) i = rand();
+			// GPU
+			FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, n);
+			limb2.load(v2);
 
-		// GPU
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
-		limb2.load(v2);
+			int primeid = 0;
 
-		int primeid = 0;
+			CudaCheckErrorMod;
+			limb2.NTT<FIDESlib::ALGO_NATIVE>();
+			CudaCheckErrorMod;
+			std::vector<uint64_t> res_gpu(n);
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			CudaCheckErrorMod;
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			for (size_t i = 0; i < res_gpu.size(); ++i) {
+				if (res_gpu[i] == 0)
+					std::cout << i << std::endl;
+			}
+			sleep(1);
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			FIDESlib::bit_reverse_vector(res_gpu);
+			// CPU
+			std::vector<uint64_t> res_cpu(v2);
+			ASSERT_EQ(res_cpu, v2);
 
-		CudaCheckErrorMod;
-		limb2.NTT<FIDESlib::ALGO_NATIVE>();
-		CudaCheckErrorMod;
-		std::vector<uint64_t> res_gpu;
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		CudaCheckErrorMod;
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		for (size_t i = 0; i < res_gpu.size(); ++i) {
-			if (res_gpu[i] == 0)
-				std::cout << i << std::endl;
+			nega_fft2_forPrime(res_cpu, false, primeid);
+			nega_fft2_forPrime(res_cpu, true, primeid);
+
+			ASSERT_EQ(res_cpu, v2);
+
+			nega_fft2_forPrime(res_cpu, false, primeid);
+
+			ASSERT_EQ(res_cpu.size(), res_gpu.size());
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			if constexpr (VERBOSE)
+				std::cout << "Better Barrett" << std::endl;
+			limb2.load(v2);
+
+			limb2.NTT<FIDESlib::ALGO_BARRETT>();
+			CudaCheckErrorMod;
+
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			FIDESlib::bit_reverse_vector(res_gpu);
+			CudaCheckErrorMod;
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			// destructor implícito
 		}
-		sleep(1);
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		FIDESlib::bit_reverse_vector(res_gpu);
-		// CPU
-		std::vector<uint64_t> res_cpu(v2);
-		ASSERT_EQ(res_cpu, v2);
-
-		nega_fft2_forPrime(res_cpu, false, primeid);
-		nega_fft2_forPrime(res_cpu, true, primeid);
-
-		ASSERT_EQ(res_cpu, v2);
-
-		nega_fft2_forPrime(res_cpu, false, primeid);
-
-		ASSERT_EQ(res_cpu.size(), res_gpu.size());
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		if constexpr (VERBOSE)
-			std::cout << "Better Barrett" << std::endl;
-		limb2.load(v2);
-
-		limb2.NTT<FIDESlib::ALGO_BARRETT>();
 		CudaCheckErrorMod;
-
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		FIDESlib::bit_reverse_vector(res_gpu);
-		CudaCheckErrorMod;
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		// destructor implícito
 	}
-	CudaCheckErrorMod;
 }
 
 TEST_P(NTTTest, TestLimbNTT) {
@@ -934,104 +951,107 @@ TEST_P(NTTTest, TestLimbNTT) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		for (int l : { 0 }) {
+			cudaSetDevice(GPUs[0]);
+			FIDESlib::Stream s;
+			s.init();
 
-	for (int l : { 0 }) {
-		cudaSetDevice(GPUs[0]);
-		FIDESlib::Stream s;
-		s.init();
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
 
-		std::vector<uint64_t> v2(cc.N, 10);
-		for (auto& i : v2)
-			i = rand();
+			// GPU
+			FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, n);
+			limb2.load(v2);
 
-		// GPU
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
-		limb2.load(v2);
+			int primeid = 0;
 
-		int primeid = 0;
-
-		limb2.NTT<FIDESlib::ALGO_NATIVE>();
-		CudaCheckErrorMod;
-		std::vector<uint64_t> res_gpu;
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		for (size_t i = 0; i < res_gpu.size(); ++i) {
-			if (res_gpu[i] == 0)
-				std::cout << i << std::endl;
-		}
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		FIDESlib::bit_reverse_vector(res_gpu);
-		// CPU
-		std::vector<uint64_t> res_cpu(v2);
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, v2);
-
-		nega_fft2_forPrime(res_cpu, false, primeid);
-		nega_fft2_forPrime(res_cpu, true, primeid);
-
-		ASSERT_EQ(res_cpu, v2);
-
-		nega_fft2_forPrime(res_cpu, false, primeid);
-
-		ASSERT_EQ(res_cpu.size(), res_gpu.size());
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		if constexpr (VERBOSE)
-			std::cout << "Better Barrett" << std::endl;
-		limb2.load(v2);
-
-		limb2.NTT<FIDESlib::ALGO_BARRETT>();
-
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		FIDESlib::bit_reverse_vector(res_gpu);
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		if constexpr (VERBOSE)
-			std::cout << "Shoup" << std::endl;
-		limb2.load(v2);
-
-		limb2.NTT<FIDESlib::ALGO_SHOUP>();
-
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		FIDESlib::bit_reverse_vector(res_gpu);
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		if constexpr (VERBOSE)
-			std::cout << "Barrett fp64" << std::endl;
-		limb2.load(v2);
-
-		if (cc.prime.at(limb2.primeid).bits <= 51) {
-			limb2.NTT<FIDESlib::ALGO_BARRETT_FP64>();
-		} else {
 			limb2.NTT<FIDESlib::ALGO_NATIVE>();
+			CudaCheckErrorMod;
+			std::vector<uint64_t> res_gpu(n);
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			for (size_t i = 0; i < res_gpu.size(); ++i) {
+				if (res_gpu[i] == 0)
+					std::cout << i << std::endl;
+			}
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			FIDESlib::bit_reverse_vector(res_gpu);
+			// CPU
+			std::vector<uint64_t> res_cpu(v2);
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, v2);
+
+			nega_fft2_forPrime(res_cpu, false, primeid);
+			nega_fft2_forPrime(res_cpu, true, primeid);
+
+			ASSERT_EQ(res_cpu, v2);
+
+			nega_fft2_forPrime(res_cpu, false, primeid);
+
+			ASSERT_EQ(res_cpu.size(), res_gpu.size());
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			if constexpr (VERBOSE)
+				std::cout << "Better Barrett" << std::endl;
+			limb2.load(v2);
+
+			limb2.NTT<FIDESlib::ALGO_BARRETT>();
+
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			FIDESlib::bit_reverse_vector(res_gpu);
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			if constexpr (VERBOSE)
+				std::cout << "Shoup" << std::endl;
+			limb2.load(v2);
+
+			limb2.NTT<FIDESlib::ALGO_SHOUP>();
+
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			FIDESlib::bit_reverse_vector(res_gpu);
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			if constexpr (VERBOSE)
+				std::cout << "Barrett fp64" << std::endl;
+			limb2.load(v2);
+
+			if (cc.prime.at(limb2.primeid).bits <= 51) {
+				limb2.NTT<FIDESlib::ALGO_BARRETT_FP64>();
+			} else {
+				limb2.NTT<FIDESlib::ALGO_NATIVE>();
+			}
+
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			FIDESlib::bit_reverse_vector(res_gpu);
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			// destructor implícito
 		}
-
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		FIDESlib::bit_reverse_vector(res_gpu);
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		// destructor implícito
 	}
+
 	CudaCheckErrorMod;
 }
 
@@ -1043,10 +1063,10 @@ TEST_P(FailNTTTest32, TestLimbNTT32) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -1060,14 +1080,14 @@ TEST_P(FailNTTTest32, TestLimbNTT32) {
 			i = rand();
 
 		// GPU
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
+		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, cc.N);
 		limb2.load(v2);
 
 		int primeid = 0;
 
 		limb2.NTT<FIDESlib::ALGO_NATIVE>();
 		CudaCheckErrorMod;
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.store(res_gpu);
 		cudaDeviceSynchronize();
 
@@ -1119,10 +1139,10 @@ TEST_P(FailNTTTest, TestLimbNTTtoINTT) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -1151,14 +1171,14 @@ TEST_P(FailNTTTest, TestLimbNTTtoINTT) {
 		FIDESlib::NTT_<uint64_t, false, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), limb2.v.data, primeid, limb2.aux.data);
 		CudaCheckErrorMod;
 		blockDim = (1 << ((cc.logN) / 2 - 1));
-		gridDim	 = { limb2.v.size / blockDim.x / 2 / 4 };
-		bytes	 = sizeof(uint64_t) * blockDim.x * (9 + (algo == 2 || algo == 3 ? 1 : 0));
+		gridDim  = { limb2.v.size / blockDim.x / 2 / 4 };
+		bytes    = sizeof(uint64_t) * blockDim.x * (9 + (algo == 2 || algo == 3 ? 1 : 0));
 
 		FIDESlib::NTT_<uint64_t, true, algo><<<gridDim, blockDim, bytes, limb2.stream.ptr()>>>(limb2.getGlobals(), limb2.aux.data, primeid, limb2.v.data);
 		///
 		CudaCheckErrorMod;
 
-		std::vector<uint64_t> res_gpu;
+		std::vector<uint64_t> res_gpu(cc.N);
 		limb2.store(res_gpu);
 		cudaDeviceSynchronize();
 
@@ -1196,10 +1216,10 @@ TEST_P(FailNTTTest, TestCPUntt_2d) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
 	CudaCheckErrorMod;
 
@@ -1252,49 +1272,52 @@ TEST_P(NTTTest, TestLimbInverseNTTsmall) {
 		GPUs.push_back(i);
 
 	FIDESlib::CKKS::Parameters aux_params{ fideslibParams };
-	aux_params.logN						= 4;
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	aux_params.logN                     = 5;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(aux_params, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 	CudaCheckErrorMod;
 
-	for (int l : { 0 }) {
-		cudaSetDevice(GPUs[0]);
-		FIDESlib::Stream s;
-		s.init();
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		for (int l : { 0 }) {
+			cudaSetDevice(GPUs[0]);
+			FIDESlib::Stream s;
+			s.init();
 
-		std::vector<uint64_t> v2(cc.N, 10);
-		for (auto& i : v2)
-			i = rand();
-		FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0);
-		limb2.load(v2);
-		limb2.NTT<FIDESlib::ALGO_NATIVE>();
-		std::vector<uint64_t> res_gpu;
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		std::vector<uint64_t> res_cpu(v2);
-		nega_fft2_forPrime(res_cpu, false, 0);
-		FIDESlib::bit_reverse_vector(res_cpu);
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
+			FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, 0, false, n);
+			limb2.load(v2);
+			limb2.NTT<FIDESlib::ALGO_NATIVE>();
+			std::vector<uint64_t> res_gpu(n);
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			std::vector<uint64_t> res_cpu(v2);
+			nega_fft2_forPrime(res_cpu, false, 0);
+			FIDESlib::bit_reverse_vector(res_cpu);
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			limb2.INTT<FIDESlib::ALGO_NATIVE>();
+
+			limb2.store(res_gpu);
+			cudaDeviceSynchronize();
+			FIDESlib::bit_reverse_vector(res_cpu);
+			nega_fft2_forPrime(res_cpu, true, 0);
+
+			// std::sort(res_cpu.begin(), res_cpu.end());
+			// std::sort(res_gpu.begin(), res_gpu.end());
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+			ASSERT_EQ(v2, res_gpu);
+
+			// destructor implícito
+		}
 		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-
-		limb2.INTT<FIDESlib::ALGO_NATIVE>();
-
-		limb2.store(res_gpu);
-		cudaDeviceSynchronize();
-		FIDESlib::bit_reverse_vector(res_cpu);
-		nega_fft2_forPrime(res_cpu, true, 0);
-
-		// std::sort(res_cpu.begin(), res_cpu.end());
-		// std::sort(res_gpu.begin(), res_gpu.end());
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-		ASSERT_EQ(v2, res_gpu);
-
-		// destructor implícito
 	}
-	CudaCheckErrorMod;
 }
 
 TEST_P(NTTTest, TestLimbInverseNTT) {
@@ -1305,144 +1328,228 @@ TEST_P(NTTTest, TestLimbInverseNTT) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 	CudaCheckErrorMod;
 
-	for (int l : { 0 }) {
-		for (int primeid = 0; primeid < cc.L + cc.K + 1; ++primeid) {
-			// std::cout << primeid << std::endl;
-			cudaSetDevice(GPUs[0]);
-			FIDESlib::Stream s;
-			s.init();
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		for (int l : { 0 }) {
+			for (int primeid = 0; primeid < cc.L + cc.K + 1; ++primeid) {
+				// std::cout << primeid << std::endl;
+				cudaSetDevice(GPUs[0]);
+				FIDESlib::Stream s;
+				s.init();
 
-			std::vector<uint64_t> v2(cc.N, 10);
+				std::vector<uint64_t> v2(n, 10);
+				for (auto& i : v2)
+					i = rand();
+
+				FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, primeid, false, n);
+				{
+					limb2.load(v2);
+
+					limb2.NTT<FIDESlib::ALGO_NATIVE>();
+
+					std::vector<uint64_t> res_gpu(n);
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					std::vector<uint64_t> res_cpu(v2);
+					nega_fft2_forPrime(res_cpu, false, primeid);
+					FIDESlib::bit_reverse_vector(res_cpu);
+					if ((cc.logN & 1) == 0)
+						ASSERT_EQ(res_cpu, res_gpu);
+					FIDESlib::bit_reverse_vector(res_cpu);
+
+					limb2.INTT<FIDESlib::ALGO_NATIVE>();
+
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					nega_fft2_forPrime(res_cpu, true, primeid);
+					CudaCheckErrorMod;
+					// std::sort(res_cpu.begin(), res_cpu.end());
+					// std::sort(res_gpu.begin(), res_gpu.end());
+					ASSERT_EQ(res_cpu, res_gpu);
+					ASSERT_EQ(v2, res_gpu);
+				}
+				{
+					limb2.load(v2);
+
+					limb2.NTT<FIDESlib::ALGO_NATIVE>();
+
+					std::vector<uint64_t> res_gpu(n);
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					std::vector<uint64_t> res_cpu(v2);
+					nega_fft2_forPrime(res_cpu, false, primeid);
+					FIDESlib::bit_reverse_vector(res_cpu);
+					if ((cc.logN & 1) == 0)
+						ASSERT_EQ(res_cpu, res_gpu);
+					FIDESlib::bit_reverse_vector(res_cpu);
+
+					limb2.INTT<FIDESlib::ALGO_BARRETT>();
+
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					nega_fft2_forPrime(res_cpu, true, primeid);
+
+					// std::sort(res_cpu.begin(), res_cpu.end());
+					// std::sort(res_gpu.begin(), res_gpu.end());
+					ASSERT_EQ(res_cpu, res_gpu);
+					ASSERT_EQ(v2, res_gpu);
+				}
+				{
+					limb2.load(v2);
+
+					limb2.NTT<FIDESlib::ALGO_NATIVE>();
+
+					std::vector<uint64_t> res_gpu(n);
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					std::vector<uint64_t> res_cpu(v2);
+					nega_fft2_forPrime(res_cpu, false, primeid);
+					FIDESlib::bit_reverse_vector(res_cpu);
+					if ((cc.logN & 1) == 0)
+						ASSERT_EQ(res_cpu, res_gpu);
+					FIDESlib::bit_reverse_vector(res_cpu);
+
+					limb2.INTT<FIDESlib::ALGO_SHOUP>();
+
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					nega_fft2_forPrime(res_cpu, true, primeid);
+
+					// std::sort(res_cpu.begin(), res_cpu.end());
+					// std::sort(res_gpu.begin(), res_gpu.end());
+					ASSERT_EQ(res_cpu, res_gpu);
+					ASSERT_EQ(v2, res_gpu);
+				}
+				{
+					limb2.load(v2);
+
+					limb2.NTT<FIDESlib::ALGO_NATIVE>();
+
+					std::vector<uint64_t> res_gpu(n);
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					std::vector<uint64_t> res_cpu(v2);
+					nega_fft2_forPrime(res_cpu, false, primeid);
+					FIDESlib::bit_reverse_vector(res_cpu);
+					if ((cc.logN & 1) == 0)
+						ASSERT_EQ(res_cpu, res_gpu);
+					FIDESlib::bit_reverse_vector(res_cpu);
+
+					if ((primeid <= cc.L && cc.prime.at(limb2.primeid).bits <= 51) || (primeid > cc.L && cc.specialPrime.at(limb2.primeid - cc.L - 1).bits <=
+						51)) {
+						limb2.INTT<FIDESlib::ALGO_BARRETT_FP64>();
+					} else {
+						limb2.INTT<FIDESlib::ALGO_NATIVE>();
+					}
+
+					limb2.store(res_gpu);
+					cudaDeviceSynchronize();
+
+					nega_fft2_forPrime(res_cpu, true, primeid);
+
+					// std::sort(res_cpu.begin(), res_cpu.end());
+					// std::sort(res_gpu.begin(), res_gpu.end());
+					ASSERT_EQ(res_cpu, res_gpu);
+					ASSERT_EQ(v2, res_gpu);
+				}
+				// destructor implícito
+			}
+		}
+		CudaCheckErrorMod;
+	}
+}
+
+TEST_P(NTTTest, LimbBatchTestNTT) {
+	int devcount = -1;
+	cudaGetDeviceCount(&devcount);
+
+	std::vector<int> GPUs;
+	for (int i = 0; i < devcount; ++i)
+		GPUs.push_back(i);
+
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
+	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	CudaCheckErrorMod;
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		FIDESlib::CKKS::RNSPoly poly(cc);
+		FIDESlib::CKKS::RNSPoly poly2(cc);
+		poly.grow(cc.L, false, false, n);
+		poly2.grow(cc.L, false, false, n);
+		for (int batch : { 1, 2, 3, 4, 10, 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
 			for (auto& i : v2)
 				i = rand();
 
-			FIDESlib::CKKS::Limb<uint64_t> limb2(cc, GPUs[0], s, primeid);
-			{
-				limb2.load(v2);
-
-				limb2.NTT<FIDESlib::ALGO_NATIVE>();
-
-				std::vector<uint64_t> res_gpu;
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				std::vector<uint64_t> res_cpu(v2);
-				nega_fft2_forPrime(res_cpu, false, primeid);
-				FIDESlib::bit_reverse_vector(res_cpu);
-				if ((cc.logN & 1) == 0)
-					ASSERT_EQ(res_cpu, res_gpu);
-				FIDESlib::bit_reverse_vector(res_cpu);
-
-				limb2.INTT<FIDESlib::ALGO_NATIVE>();
-
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				nega_fft2_forPrime(res_cpu, true, primeid);
-				CudaCheckErrorMod;
-				// std::sort(res_cpu.begin(), res_cpu.end());
-				// std::sort(res_gpu.begin(), res_gpu.end());
-				ASSERT_EQ(res_cpu, res_gpu);
-				ASSERT_EQ(v2, res_gpu);
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
 			}
-			{
-				limb2.load(v2);
+			CudaCheckErrorMod;
 
-				limb2.NTT<FIDESlib::ALGO_NATIVE>();
-
-				std::vector<uint64_t> res_gpu;
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				std::vector<uint64_t> res_cpu(v2);
-				nega_fft2_forPrime(res_cpu, false, primeid);
-				FIDESlib::bit_reverse_vector(res_cpu);
-				if ((cc.logN & 1) == 0)
-					ASSERT_EQ(res_cpu, res_gpu);
-				FIDESlib::bit_reverse_vector(res_cpu);
-
-				limb2.INTT<FIDESlib::ALGO_BARRETT>();
-
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				nega_fft2_forPrime(res_cpu, true, primeid);
-
-				// std::sort(res_cpu.begin(), res_cpu.end());
-				// std::sort(res_gpu.begin(), res_gpu.end());
-				ASSERT_EQ(res_cpu, res_gpu);
-				ASSERT_EQ(v2, res_gpu);
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			cudaDeviceSynchronize();
+			poly.NTT<FIDESlib::ALGO_SHOUP>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			cudaDeviceSynchronize();
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
 			}
-			{
-				limb2.load(v2);
 
-				limb2.NTT<FIDESlib::ALGO_NATIVE>();
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
 
-				std::vector<uint64_t> res_gpu;
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				std::vector<uint64_t> res_cpu(v2);
-				nega_fft2_forPrime(res_cpu, false, primeid);
-				FIDESlib::bit_reverse_vector(res_cpu);
-				if ((cc.logN & 1) == 0)
-					ASSERT_EQ(res_cpu, res_gpu);
-				FIDESlib::bit_reverse_vector(res_cpu);
-
-				limb2.INTT<FIDESlib::ALGO_SHOUP>();
-
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				nega_fft2_forPrime(res_cpu, true, primeid);
-
-				// std::sort(res_cpu.begin(), res_cpu.end());
-				// std::sort(res_gpu.begin(), res_gpu.end());
-				ASSERT_EQ(res_cpu, res_gpu);
-				ASSERT_EQ(v2, res_gpu);
-			}
-			{
-				limb2.load(v2);
-
-				limb2.NTT<FIDESlib::ALGO_NATIVE>();
-
-				std::vector<uint64_t> res_gpu;
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				std::vector<uint64_t> res_cpu(v2);
-				nega_fft2_forPrime(res_cpu, false, primeid);
-				FIDESlib::bit_reverse_vector(res_cpu);
-				if ((cc.logN & 1) == 0)
-					ASSERT_EQ(res_cpu, res_gpu);
-				FIDESlib::bit_reverse_vector(res_cpu);
-
-				if ((primeid <= cc.L && cc.prime.at(limb2.primeid).bits <= 51) || (primeid > cc.L && cc.specialPrime.at(limb2.primeid - cc.L - 1).bits <= 51)) {
-					limb2.INTT<FIDESlib::ALGO_BARRETT_FP64>();
-				} else {
-					limb2.INTT<FIDESlib::ALGO_NATIVE>();
-				}
-
-				limb2.store(res_gpu);
-				cudaDeviceSynchronize();
-
-				nega_fft2_forPrime(res_cpu, true, primeid);
-
-				// std::sort(res_cpu.begin(), res_cpu.end());
-				// std::sort(res_gpu.begin(), res_gpu.end());
-				ASSERT_EQ(res_cpu, res_gpu);
-				ASSERT_EQ(v2, res_gpu);
-			}
-			// destructor implícito
+			CudaCheckErrorMod;
 		}
+		CudaCheckErrorMod;
+		for (int batch : { 1, 2, 3, 4, 10, 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
+
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
+			}
+
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			cudaDeviceSynchronize();
+			poly.NTT<FIDESlib::ALGO_BARRETT>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+			}
+
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+		}
+		CudaCheckErrorMod;
 	}
-	CudaCheckErrorMod;
 }
 
 TEST_P(NTTTest, LimbBatchTestINTT) {
@@ -1453,97 +1560,205 @@ TEST_P(NTTTest, LimbBatchTestINTT) {
 	for (int i = 0; i < devcount; ++i)
 		GPUs.push_back(i);
 
-	FIDESlib::CKKS::Context cc_			= CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
-	FIDESlib::CKKS::ContextData& cc		= *cc_;
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
 	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 	CudaCheckErrorMod;
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		FIDESlib::CKKS::RNSPoly poly(cc);
+		FIDESlib::CKKS::RNSPoly poly2(cc);
+		poly.grow(cc.L, false, false, n);
+		poly2.grow(cc.L, false, false, n);
+		for (int batch : { 1, 2, 3, 4, 10, 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
 
-	FIDESlib::CKKS::RNSPoly poly(cc, cc.L);
-	FIDESlib::CKKS::RNSPoly poly2(cc, cc.L);
-	CudaCheckErrorMod;
-	for (int batch : { 1, 2, 3, 4, 10, 100 }) {
-		std::cout << "Batch arg: " << batch << std::endl;
-		std::vector<uint64_t> v2(cc.N, 10);
-		for (auto& i : v2)
-			i = rand();
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
+			}
+			CudaCheckErrorMod;
 
-		for (auto& part : poly.GPU) {
-			cudaSetDevice(part.device);
-			for (auto& limb : part.limb)
-				SWITCH(limb, load(v2));
-		}
-		CudaCheckErrorMod;
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			cudaDeviceSynchronize();
+			poly.NTT<FIDESlib::ALGO_SHOUP>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			cudaDeviceSynchronize();
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+			}
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+			CudaCheckErrorMod;
+			cudaDeviceSynchronize();
+			poly.INTT<FIDESlib::ALGO_SHOUP>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			cudaDeviceSynchronize();
+			for (int i = 0; i <= cc.L; ++i) {
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+				nega_fft2_forPrime(res_cpu[i], true, i);
+			}
 
-		std::vector<std::vector<uint64_t>> res_gpu;
-		cudaDeviceSynchronize();
-		poly.NTT<FIDESlib::ALGO_SHOUP>(batch, false);
-		cudaDeviceSynchronize();
-		poly.store(res_gpu);
-		cudaDeviceSynchronize();
-		std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
-		for (int i = 0; i <= cc.L; ++i) {
-			nega_fft2_forPrime(res_cpu[i], false, i);
-			FIDESlib::bit_reverse_vector(res_cpu[i]);
-		}
-		if ((cc.logN & 1) == 0) {
 			CudaCheckErrorMod;
 			ASSERT_EQ(res_cpu, res_gpu);
 		}
 		CudaCheckErrorMod;
-		cudaDeviceSynchronize();
-		poly.INTT<FIDESlib::ALGO_SHOUP>(batch, false);
-		cudaDeviceSynchronize();
-		poly.store(res_gpu);
-		cudaDeviceSynchronize();
-		for (int i = 0; i <= cc.L; ++i) {
-			FIDESlib::bit_reverse_vector(res_cpu[i]);
-			nega_fft2_forPrime(res_cpu[i], true, i);
-		}
+		for (int batch : { 1, 2, 3, 4, 10, 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
 
-		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
-	}
-	CudaCheckErrorMod;
-	for (int batch : { 1, 2, 3, 4, 10, 100 }) {
-		std::cout << "Batch arg: " << batch << std::endl;
-		std::vector<uint64_t> v2(cc.N, 10);
-		for (auto& i : v2)
-			i = rand();
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
+			}
 
-		for (auto& part : poly.GPU) {
-			cudaSetDevice(part.device);
-			for (auto& limb : part.limb)
-				SWITCH(limb, load(v2));
-		}
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			cudaDeviceSynchronize();
+			poly.NTT<FIDESlib::ALGO_BARRETT>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+			}
 
-		std::vector<std::vector<uint64_t>> res_gpu;
-		cudaDeviceSynchronize();
-		poly.NTT<FIDESlib::ALGO_BARRETT>(batch, false);
-		cudaDeviceSynchronize();
-		poly.store(res_gpu);
-		std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
-		for (int i = 0; i <= cc.L; ++i) {
-			nega_fft2_forPrime(res_cpu[i], false, i);
-			FIDESlib::bit_reverse_vector(res_cpu[i]);
-		}
-		if ((cc.logN & 1) == 0) {
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+
+			cudaDeviceSynchronize();
+			poly.INTT<FIDESlib::ALGO_BARRETT>(batch, false);
+			cudaDeviceSynchronize();
+			poly.store(res_gpu);
+			for (int i = 0; i <= cc.L; ++i) {
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+				nega_fft2_forPrime(res_cpu[i], true, i);
+			}
+
 			CudaCheckErrorMod;
 			ASSERT_EQ(res_cpu, res_gpu);
 		}
-		cudaDeviceSynchronize();
-		poly.INTT<FIDESlib::ALGO_BARRETT>(batch, false);
-		cudaDeviceSynchronize();
-		poly.store(res_gpu);
-		for (int i = 0; i <= cc.L; ++i) {
-			FIDESlib::bit_reverse_vector(res_cpu[i]);
-			nega_fft2_forPrime(res_cpu[i], true, i);
-		}
-
 		CudaCheckErrorMod;
-		ASSERT_EQ(res_cpu, res_gpu);
 	}
+}
+
+TEST_P(NTTTest, LimbBatchTestINTTtiming) {
+	int devcount = -1;
+	cudaGetDeviceCount(&devcount);
+
+	std::vector<int> GPUs;
+	for (int i = 0; i < devcount; ++i)
+		GPUs.push_back(i);
+
+	FIDESlib::CKKS::Context cc_         = CKKS::GenCryptoContextGPU(fideslibParams, GPUs);
+	FIDESlib::CKKS::ContextData& cc     = *cc_;
+	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
+	FIDESlib::Global& host_global       = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 	CudaCheckErrorMod;
+	for (int n = cc.N; n >= 1; n >>= 1) {
+		std::cout << "N: " << n << std::endl;
+		FIDESlib::CKKS::RNSPoly poly(cc);
+		FIDESlib::CKKS::RNSPoly poly2(cc);
+		poly.grow(cc.L, false, false, n);
+		poly2.grow(cc.L, false, false, n);
+		for (int batch : { 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
+
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
+			}
+			CudaCheckErrorMod;
+
+			cudaDeviceSynchronize();
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			auto start = std::chrono::high_resolution_clock::now();
+			for (int t = 0; t < 100; ++t) {
+				poly.NTT<FIDESlib::ALGO_SHOUP>(batch, false);
+				poly.INTT<FIDESlib::ALGO_SHOUP>(batch, false);
+			}
+			auto cpu_end = std::chrono::high_resolution_clock::now();
+			cudaDeviceSynchronize();
+			auto end                                  = std::chrono::high_resolution_clock::now();
+			std::chrono::duration<double> elapsed     = end - start;
+			std::chrono::duration<double> cpu_elapsed = cpu_end - start;
+			std::cout << "N " << n << " SHOUP " << "GPU time: " << elapsed.count() << " CPU time: " << cpu_elapsed.count() << std::endl;
+
+			poly.store(res_gpu);
+			cudaDeviceSynchronize();
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+			}
+			for (int i = 0; i <= cc.L; ++i) {
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+				nega_fft2_forPrime(res_cpu[i], true, i);
+			}
+
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+		}
+		CudaCheckErrorMod;
+		for (int batch : { 100 }) {
+			std::cout << "Batch arg: " << batch << std::endl;
+			std::vector<uint64_t> v2(n, 10);
+			for (auto& i : v2)
+				i = rand();
+
+			for (auto& part : poly.GPU) {
+				cudaSetDevice(part.device);
+				for (auto& limb : part.limb)
+					SWITCH(limb, load(v2));
+			}
+
+			std::vector<std::vector<uint64_t>> res_gpu(n);
+			cudaDeviceSynchronize();
+			auto start = std::chrono::high_resolution_clock::now();
+			for (int t = 0; t < 100; ++t) {
+				poly.NTT<FIDESlib::ALGO_SHOUP>(batch, false);
+				poly.INTT<FIDESlib::ALGO_SHOUP>(batch, false);
+			}
+			auto cpu_end = std::chrono::high_resolution_clock::now();
+			cudaDeviceSynchronize();
+			auto end                                  = std::chrono::high_resolution_clock::now();
+			std::chrono::duration<double> elapsed     = end - start;
+			std::chrono::duration<double> cpu_elapsed = cpu_end - start;
+			std::cout << "N " << n << " BARRETT " << "GPU time: " << elapsed.count() << " CPU time: " << cpu_elapsed.count() << std::endl;
+			poly.store(res_gpu);
+			cudaDeviceSynchronize();
+
+			std::vector<std::vector<uint64_t>> res_cpu(cc.L + 1, std::vector<uint64_t>(v2));
+			for (int i = 0; i <= cc.L; ++i) {
+				nega_fft2_forPrime(res_cpu[i], false, i);
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+			}
+			for (int i = 0; i <= cc.L; ++i) {
+				FIDESlib::bit_reverse_vector(res_cpu[i]);
+				nega_fft2_forPrime(res_cpu[i], true, i);
+			}
+
+			CudaCheckErrorMod;
+			ASSERT_EQ(res_cpu, res_gpu);
+		}
+		CudaCheckErrorMod;
+	}
 }
 
 INSTANTIATE_TEST_SUITE_P(NTTTests, NTTTest, testing::Values(params64_13, params64_14, params64_15, params64_16));
