@@ -4,8 +4,69 @@ cmake_policy(VERSION 3.21.3...3.30)
 ############### Project configuration ###################
 
 # Set target architectures.
+#
+# FIDESLIB_ARCH (semicolon list, CMake CUDA_ARCHITECTURES syntax) can be given explicitly.
+# Otherwise it is derived from (a) the GPUs visible through nvidia-smi and (b) the CUDA
+# toolkit version, so that e.g. a V100 (sm_70) builds on CUDA 12.x while CUDA 13 (which
+# dropped sm_70) and older toolkits (which lack sm_100/120) do not fail with an unknown
+# architecture. Pass -DFIDESLIB_ARCH=70-real to force a specific target.
+set(_fideslib_all_archs "80-real;86-real;89-real;90-real;90-virtual;100-real;120-real")
 if (NOT DEFINED FIDESLIB_ARCH)
-    set(FIDESLIB_ARCH "80-real;86-real;89-real;90-real;90-virtual;100-real;120-real" CACHE STRING "Set the backend architecture target.")
+    if (NOT DEFINED CUDA_PATH)
+        set(CUDA_PATH "/usr/local/cuda")
+    endif ()
+    # nvcc version -> supported SM range.
+    set(_nvcc_major 12)
+    set(_nvcc_minor 0)
+    execute_process(COMMAND "${CUDA_PATH}/bin/nvcc" --version OUTPUT_VARIABLE _nvcc_out ERROR_QUIET RESULT_VARIABLE _nvcc_rc)
+    if (_nvcc_rc EQUAL 0 AND _nvcc_out MATCHES "release ([0-9]+)\\.([0-9]+)")
+        set(_nvcc_major ${CMAKE_MATCH_1})
+        set(_nvcc_minor ${CMAKE_MATCH_2})
+    endif ()
+    set(_min_sm 70)
+    set(_max_sm 90)
+    if (_nvcc_major GREATER_EQUAL 13)
+        set(_min_sm 75)   # CUDA 13 removed Volta (sm_70).
+    endif ()
+    if (_nvcc_major GREATER 12 OR (_nvcc_major EQUAL 12 AND _nvcc_minor GREATER_EQUAL 8))
+        set(_max_sm 120)  # sm_100/sm_120 need CUDA >= 12.8.
+    endif ()
+    # Detect the GPUs actually present.
+    set(_detected "")
+    find_program(_nvidia_smi nvidia-smi)
+    if (_nvidia_smi)
+        execute_process(COMMAND "${_nvidia_smi}" --query-gpu=compute_cap --format=csv,noheader OUTPUT_VARIABLE _smi_out ERROR_QUIET RESULT_VARIABLE _smi_rc)
+        if (_smi_rc EQUAL 0)
+            string(REPLACE "\n" ";" _caps "${_smi_out}")
+            foreach (_cap IN LISTS _caps)
+                string(STRIP "${_cap}" _cap)
+                if (_cap MATCHES "^([0-9]+)\\.([0-9]+)$")
+                    math(EXPR _sm "${CMAKE_MATCH_1} * 10 + ${CMAKE_MATCH_2}")
+                    if (_sm GREATER_EQUAL _min_sm AND _sm LESS_EQUAL _max_sm)
+                        list(APPEND _detected "${_sm}-real")
+                    else ()
+                        message(WARNING "GPU compute capability ${_cap} is outside what nvcc ${_nvcc_major}.${_nvcc_minor} supports (sm_${_min_sm}..sm_${_max_sm}); skipping it. Install a matching CUDA toolkit or set FIDESLIB_ARCH.")
+                    endif ()
+                endif ()
+            endforeach ()
+            list(REMOVE_DUPLICATES _detected)
+        endif ()
+    endif ()
+    if (_detected)
+        set(FIDESLIB_ARCH "${_detected}" CACHE STRING "Set the backend architecture target.")
+        message(STATUS "FIDESlib: CUDA architectures auto-detected from nvidia-smi: ${FIDESLIB_ARCH}")
+    else ()
+        # No GPU visible at configure time: build the generic list clipped to what this nvcc accepts.
+        set(_clipped "")
+        foreach (_a IN LISTS _fideslib_all_archs)
+            string(REGEX MATCH "^([0-9]+)" _sm "${_a}")
+            if (_sm GREATER_EQUAL _min_sm AND _sm LESS_EQUAL _max_sm)
+                list(APPEND _clipped "${_a}")
+            endif ()
+        endforeach ()
+        set(FIDESLIB_ARCH "${_clipped}" CACHE STRING "Set the backend architecture target.")
+        message(STATUS "FIDESlib: no GPU detected at configure time; CUDA architectures: ${FIDESLIB_ARCH}")
+    endif ()
 endif ()
 
 # Set build type.

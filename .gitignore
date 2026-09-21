@@ -19,3 +19,7 @@ build/
 deps/openfhe-src/
 
 .cache/
+
+__pycache__/
+*.pyc
+build-*/

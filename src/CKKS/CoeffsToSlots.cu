@@ -96,7 +96,31 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 	if (ctxt.NoiseLevel == 2)
 		ctxt.rescale();
 
-	for (BootstrapPrecomputation::LTstep& step : (decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS)) {
+	auto& steps = decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS;
+
+	// The diagonals come from OpenFHE's EvalBootstrapSetup, which encodes them at a level of its own
+	// choosing, while ModRaise here grows the ciphertext to `cc.L` (minus one only for
+	// FLEXIBLEAUTOEXT). Under FIXEDMANUAL those disagree by a limb, and the batched product does not
+	// tolerate that the way OpenFHE's EvalMult(ct, pt) does - it sizes the launch from the ciphertext
+	// and indexes the plaintext with the same bound, so the kernel reads one limb past the end.
+	// Observed on a GV100 as "would read 35 limbs from pt[0], which holds 34".
+	//
+	// Drop the ciphertext to the diagonals of the step about to run, which is what OpenFHE's
+	// AdjustLevelsAndDepth does implicitly. Done per step rather than once, because each layer has its
+	// own diagonals and its own level.
+	const auto alignToDiagonals = [](Ciphertext& ct, const BootstrapPrecomputation::LTstep& step) {
+		int ptLevel = -1;
+		for (const Plaintext& pt : step.A) {
+			const int level = pt.c0.getLevel();
+			if (level >= 0 && (ptLevel < 0 || level < ptLevel))
+				ptLevel = level;
+		}
+		if (ptLevel >= 0 && ct.getLevel() > ptLevel)
+			ct.dropToLevel(ptLevel);
+	};
+
+	for (BootstrapPrecomputation::LTstep& step : steps) {
+		alignToDiagonals(ctxt, step);
 		// computes the NTTs for each CRT limb (for the hoisted automorphisms used later on)
 
 		if constexpr (BATCHED) {
