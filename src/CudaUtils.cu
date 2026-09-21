@@ -262,7 +262,14 @@ bool initPool() {
 
 #define USEPOOL true
 #if USEPOOL
-bool initialized = initPool();
+// The pool is created on first use instead of from a static initializer. A static
+// initializer issues the first CUDA runtime calls of the process before main(); if one
+// of them fails (e.g. cudaGetDeviceCount on a host with a degraded GPU) the runtime
+// stays in the error state, the pool remains empty and Stream::init crashes later.
+bool poolInitialized() {
+	static const bool initialized = initPool();
+	return initialized;
+}
 #else
 bool initialized = false;
 #endif
@@ -278,6 +285,9 @@ void Stream::init(int priority) {
 	}
 
 #if !DISABLE_STREAMS
+#if USEPOOL
+	poolInitialized();
+#endif
 	if (high == -1) {
 		cudaDeviceGetStreamPriorityRange(&low, &high);
 	}
