@@ -8,8 +8,9 @@
 #include "ConstantsGPU.cuh"
 #include "ModMult.cuh"
 
-namespace FIDESlib::CKKS {
-/**
+namespace FIDESlib::CKKS
+{
+    /**
 template <class IntegerType>
 void NativeVectorT<IntegerType>::SwitchModulus(const IntegerType& modulus) {
 	// TODO: #ifdef NATIVEINT_BARRET_MOD
@@ -38,33 +39,42 @@ void NativeVectorT<IntegerType>::SwitchModulus(const IntegerType& modulus) {
 	}
 }
 */
-/**
+    /**
  *  Adapted from OpenFHE: mubintvecnat.cpp:109
  */
-template <typename T> __device__ __forceinline__ void SwitchModulus(T& a, const int om_pid, const int nm_pid) {
+    template <typename T>
+    __device__ __forceinline__
 
-	const T om = C_.primes[om_pid];
-	const T nm = C_.primes[nm_pid];
-	const T halfQ{ om >> 1 };
+    void SwitchModulus(T& a, const int om_pid, const int nm_pid)
+    {
+        const T om = C_.primes[om_pid];
+        const T nm = C_.primes[nm_pid];
+        const T halfQ{om >> 1};
 
-	if (nm > om) {
-		T diff{ nm - om };
-		if (a > halfQ)
-			a = a + diff;
-	} else {
-		// auto diff{nm - (om % nm)};
-		T diff{ nm - modmult<ALGO_SHOUP>(om, 1, nm_pid, (T)C_.one_shoup[nm_pid]) }; // TODO: change to modular reduction routine
-		if (a > halfQ)
-			a = a + diff;
-		if (a >= nm) {
-			// a = a % nm;
-			a = modmult<ALGO_SHOUP>(a, 1, nm_pid, (T)C_.one_shoup[nm_pid]);
-		}
-	}
-}
+        if (nm > om)
+        {
+            T diff{nm - om};
+            if (a > halfQ)
+                a = a + diff;
+        }
+        else
+        {
+            // auto diff{nm - (om % nm)};
+            T diff{nm - modmult<ALGO_SHOUP>(om, 1, nm_pid, (T)C_.one_shoup[nm_pid])};
+            // TODO: change to modular reduction routine
+            if (a > halfQ)
+                a = a + diff;
+            if (a >= nm)
+            {
+                // a = a % nm;
+                a = modmult<ALGO_SHOUP>(a, 1, nm_pid, (T)C_.one_shoup[nm_pid]);
+            }
+        }
+    }
 
-template <typename T> __global__ void SwitchModulus(const T* src, const int __grid_constant__ o_primeid, T* res, const int __grid_constant__ n_primeid);
-
+    template <typename T>
+ __global__ void SwitchModulus(const T* src, const int __grid_constant__ o_primeid, T* res,
+                               const int __grid_constant__ n_primeid);
 } // namespace FIDESlib::CKKS
 
 #endif // GPUCKKS_RESCALE_CUH

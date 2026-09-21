@@ -8,36 +8,38 @@
 #include "CudaUtils.cuh"
 #include <optional>
 
-namespace FIDESlib {
+namespace FIDESlib
+{
+    enum TYPE { U32, U64 };
 
-enum TYPE { U32, U64 };
+    struct PrimeRecord
+    {
+        uint64_t p = (static_cast<uint64_t>(1) << 31) - 1;
+        std::optional<TYPE> type{};
+        int bits = -1;
+    };
 
-struct PrimeRecord {
-	uint64_t p = (static_cast<uint64_t>(1) << 31) - 1;
-	std::optional<TYPE> type{};
-	int bits = -1;
-};
-
-struct LimbRecord {
-	int id;
-	TYPE type;
-	Stream stream;
-	int digit		   = -1;
-	int destDeviceRank = -1;
-	/*
+    struct LimbRecord
+    {
+        int id;
+        TYPE type;
+        Stream stream;
+        int digit = -1;
+        int destDeviceRank = -1;
+        /*
 	LimbRecord(const int id, const TYPE type, cudaStream_t & stream)
 		: id(id), type(type), stream(stream) {
 		assert(type == U32 || type == U64);
 	}
 	*/
-	/*
+        /*
 	void print(){
 
 	}
 	 */
-};
+    };
 
-// LimbRecord a{ .id = 0, .type = U32};
+    // LimbRecord a{ .id = 0, .type = U32};
 
 #define SWITCH(limb, function)                            \
 	do {                                                  \
@@ -62,6 +64,5 @@ struct LimbRecord {
 			ret = std::get<U64>(limb).function; \
 		}                                       \
 	} while (0)
-
 } // namespace FIDESlib
 #endif // FIDESLIB_LIMBUTILS_CUH

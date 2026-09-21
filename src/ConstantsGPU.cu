@@ -12,7 +12,6 @@
 #include "parallel_for.hpp"
 
 namespace FIDESlib {
-
 __constant__ Constants constants;
 
 // namespace Globals
@@ -29,7 +28,8 @@ template <typename Scheme> __global__ void printConstants() {
 }
 
 uint64_t mu_new(const uint64_t q, const uint32_t num_bits) {
-	__uint128_t res = (((__uint128_t)1) << (2 * num_bits + (VERSION == DHEM ? 3 : (VERSION == NEIL ? 1 : 0)))) / ((__uint128_t)q);
+	__uint128_t res = (((__uint128_t)1) << (2 * num_bits + (VERSION == DHEM ? 3 : (VERSION == NEIL ? 1 : 0)))) / ((
+		__uint128_t)q);
 	return res;
 }
 
@@ -122,14 +122,18 @@ Global::~Global() {
 }
 
 template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const std::vector<PrimeRecord>& q,
-                                                                                                     const std::vector<std::vector<LimbRecord>>& meta,
+                                                                                                     const std::vector<std::vector<LimbRecord>>
+                                                                                                     & meta,
                                                                                                      const std::vector<PrimeRecord>& p,
                                                                                                      const std::vector<LimbRecord>& smeta,
-                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     const std::vector<std::vector<std::vector<
+	                                                                                                     LimbRecord>>>&
                                                                                                      DECOMPmeta,
-                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
+                                                                                                     const std::vector<std::vector<std::vector<
+	                                                                                                     LimbRecord>>>&
                                                                                                      DIGITmeta,
-                                                                                                     const std::vector<std::vector<int>>& digitGPUid,
+                                                                                                     const std::vector<std::vector<int>>&
+                                                                                                     digitGPUid,
                                                                                                      const std::vector<int>& GPUid,
                                                                                                      const int N,
                                                                                                      const Scheme& parameters) {
@@ -169,6 +173,7 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 			hC_.primes[i]      = q[i].p;
 			hC_.N_shoup[i]     = shoup_precomp(hC_.N, i, host_constants);
 			hC_.one_shoup[i]   = shoup_precomp(1, i, host_constants);
+			hC_.r64_shoup[i]   = shoup_precomp((uint64_t)((((__uint128_t)1) << 64) % q[i].p), i, host_constants);
 			hC_.N_inv[i]       = modinv(hC_.N, q[i].p);
 			hC_.N_inv_shoup[i] = shoup_precomp(hC_.N_inv[i], i, host_constants);
 
@@ -177,9 +182,12 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 		}
 
 		for (size_t i = 0; i < p.size(); ++i) {
-			hC_.primes[hC_.L + i]      = p[i].p;
-			hC_.N_shoup[hC_.L + i]     = shoup_precomp(hC_.N, hC_.L + i, host_constants);
-			hC_.one_shoup[i]           = shoup_precomp(1, i, host_constants);
+			hC_.primes[hC_.L + i]    = p[i].p;
+			hC_.N_shoup[hC_.L + i]   = shoup_precomp(hC_.N, hC_.L + i, host_constants);
+			hC_.one_shoup[hC_.L + i] = shoup_precomp(1, hC_.L + i, host_constants);
+			hC_.r64_shoup[hC_.L + i] = shoup_precomp((uint64_t)((((__uint128_t)1) << 64) % p[i].p),
+			                                         hC_.L + i,
+			                                         host_constants);
 			hC_.N_inv[hC_.L + i]       = modinv(N, hC_.primes[hC_.L + i]);
 			hC_.N_inv_shoup[hC_.L + i] = shoup_precomp(hC_.N_inv[hC_.L + i], hC_.L + i, host_constants);
 
@@ -189,7 +197,6 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 	}
 
 	{
-
 		auto work = [&](int i) -> void const {
 			if (std::is_same_v<CKKS::Parameters, Scheme>) {
 				auto param = static_cast<CKKS::Parameters>(parameters);
@@ -242,11 +249,19 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 			}
 			for (int j = 1; j < 2 * N; ++j) {
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.psi_no[i])[j]     = modprod(hG_.root[i], ((uint32_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
-					((uint32_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i], ((uint32_t*)hG_.inv_psi_no[i])[j - 1], hC_.primes[i]);
+					((uint32_t*)hG_.psi_no[i])[j] = modprod(hG_.root[i],
+					                                        ((uint32_t*)hG_.psi_no[i])[j - 1],
+					                                        hC_.primes[i]);
+					((uint32_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i],
+					                                            ((uint32_t*)hG_.inv_psi_no[i])[j - 1],
+					                                            hC_.primes[i]);
 				} else {
-					((uint64_t*)hG_.psi_no[i])[j]     = modprod(hG_.root[i], ((uint64_t*)hG_.psi_no[i])[j - 1], hC_.primes[i]);
-					((uint64_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i], ((uint64_t*)hG_.inv_psi_no[i])[j - 1], hC_.primes[i]);
+					((uint64_t*)hG_.psi_no[i])[j] = modprod(hG_.root[i],
+					                                        ((uint64_t*)hG_.psi_no[i])[j - 1],
+					                                        hC_.primes[i]);
+					((uint64_t*)hG_.inv_psi_no[i])[j] = modprod(hG_.inv_root[i],
+					                                            ((uint64_t*)hG_.inv_psi_no[i])[j - 1],
+					                                            hC_.primes[i]);
 				}
 			}
 
@@ -262,7 +277,6 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					assert(modpow(((uint32_t*)hG_.inv_psi[i])[j], 2 * pow, hC_.primes[i]) == 1);
 					if (j > 0)
 						assert(modpow(((uint32_t*)hG_.inv_psi[i])[j], pow, hC_.primes[i]) == (hC_.primes[i] - 1));
-
 				} else {
 					((uint64_t*)hG_.psi[i])[j]     = ((uint64_t*)hG_.psi_no[i])[bit_reverse(j, hC_.logN)];
 					((uint64_t*)hG_.inv_psi[i])[j] = ((uint64_t*)hG_.inv_psi_no[i])[bit_reverse(j, hC_.logN)];
@@ -280,34 +294,48 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 			for (int j = 0; j < N / (1 << auxWidth); ++j) {
 				for (int k = 0; k < (1 << auxWidth); ++k) {
 					if (!HISU64(i)) {
-						((uint32_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k]     = ((uint32_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
+						((uint32_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k] = ((uint32_t*)hG_.psi_no[i])[j
+							* bit_reverse(k, auxWidth)];
 						((uint32_t*)hG_.inv_psi_middle_scale[i])[j * (1 << auxWidth) + k] =
-							modprod(((uint32_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
+							modprod(((uint32_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)],
+							        hC_.N_inv[i],
+							        hC_.primes[i]);
 					} else {
-						((uint64_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k]     = ((uint64_t*)hG_.psi_no[i])[j * bit_reverse(k, auxWidth)];
+						((uint64_t*)hG_.psi_middle_scale[i])[j * (1 << auxWidth) + k] = ((uint64_t*)hG_.psi_no[i])[j
+							* bit_reverse(k, auxWidth)];
 						((uint64_t*)hG_.inv_psi_middle_scale[i])[j * (1 << auxWidth) + k] =
-							modprod(((uint64_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)], hC_.N_inv[i], hC_.primes[i]);
+							modprod(((uint64_t*)hG_.inv_psi_no[i])[j * bit_reverse(k, auxWidth)],
+							        hC_.N_inv[i],
+							        hC_.primes[i]);
 					}
 				}
 			}
 
 			for (int j = 0; j < 2 * N; ++j) {
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.inv_psi_no[i])[j] = modprod(((uint32_t*)hG_.inv_psi_no[i])[j], hC_.N_inv[i], hC_.primes[i]);
+					((uint32_t*)hG_.inv_psi_no[i])[j] = modprod(((uint32_t*)hG_.inv_psi_no[i])[j],
+					                                            hC_.N_inv[i],
+					                                            hC_.primes[i]);
 				} else {
-					((uint64_t*)hG_.inv_psi_no[i])[j] = modprod(((uint64_t*)hG_.inv_psi_no[i])[j], hC_.N_inv[i], hC_.primes[i]);
+					((uint64_t*)hG_.inv_psi_no[i])[j] = modprod(((uint64_t*)hG_.inv_psi_no[i])[j],
+					                                            hC_.N_inv[i],
+					                                            hC_.primes[i]);
 				}
 			}
 
 			for (int j = 0; j < N; ++j) {
 				if (!HISU64(i)) {
-					((uint32_t*)hG_.psi_shoup[i])[j]     = (uint64_t)(((uint32_t*)hG_.psi[i])[j] << 1) * (1ul << 31) / hC_.primes[i];
-					((uint32_t*)hG_.inv_psi_shoup[i])[j] = (uint64_t)(((uint32_t*)hG_.inv_psi[i])[j] << 1) * (1ul << 31) / hC_.primes[i];
+					((uint32_t*)hG_.psi_shoup[i])[j] = (uint64_t)(((uint32_t*)hG_.psi[i])[j] << 1) * (1ul << 31) /
+						hC_.primes[i];
+					((uint32_t*)hG_.inv_psi_shoup[i])[j] = (uint64_t)(((uint32_t*)hG_.inv_psi[i])[j] << 1) * (1ul <<
+						31) / hC_.primes[i];
 				} else {
 					assert(hC_.primes[i] != 0);
 
-					((uint64_t*)hG_.psi_shoup[i])[j]     = (__uint128_t)(((uint64_t*)hG_.psi[i])[j] << 1) * (1ul << 63) / hC_.primes[i];
-					((uint64_t*)hG_.inv_psi_shoup[i])[j] = (__uint128_t)(((uint64_t*)hG_.inv_psi[i])[j] << 1) * (1ul << 63) / hC_.primes[i];
+					((uint64_t*)hG_.psi_shoup[i])[j] = (__uint128_t)(((uint64_t*)hG_.psi[i])[j] << 1) * (1ul << 63)
+						/ hC_.primes[i];
+					((uint64_t*)hG_.inv_psi_shoup[i])[j] = (__uint128_t)(((uint64_t*)hG_.inv_psi[i])[j] << 1) * (1ul
+						<< 63) / hC_.primes[i];
 				}
 			}
 		};
@@ -348,7 +376,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 			cudaMemcpy(hG_.psi_no_ptr[i][j], hG_.psi_no[j], 2 * bytes, cudaMemcpyHostToDevice);
 			cudaMemcpy(hG_.inv_psi_no_ptr[i][j], hG_.inv_psi_no[j], 2 * bytes, cudaMemcpyHostToDevice);
 			cudaMemcpy(hG_.psi_middle_scale_ptr[i][j], hG_.psi_middle_scale[j], bytes, cudaMemcpyHostToDevice);
-			cudaMemcpy(hG_.inv_psi_middle_scale_ptr[i][j], hG_.inv_psi_middle_scale[j], bytes, cudaMemcpyHostToDevice);
+			cudaMemcpy(hG_.inv_psi_middle_scale_ptr[i][j],
+			           hG_.inv_psi_middle_scale[j],
+			           bytes,
+			           cudaMemcpyHostToDevice);
 			cudaMemcpy(hG_.psi_shoup_ptr[i][j], hG_.psi_shoup[j], bytes, cudaMemcpyHostToDevice);
 			cudaMemcpy(hG_.inv_psi_shoup_ptr[i][j], hG_.inv_psi_shoup[j], bytes, cudaMemcpyHostToDevice);
 			CudaCheckErrorMod;
@@ -358,40 +389,49 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 		CudaCheckErrorMod;
 		/*
 		cudaMemcpyToSymbol(hG_.globals[i], hG_.psi_ptr[i], sizeof(hG_.globals[i]->psi), offsetof(Global::Globals, psi),
-						   cudaMemcpyHostToDevice);
+		                   cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i]->psi_no, hG_.psi_no_ptr[i], sizeof(hG_.psi_no_ptr[i]), 0,
-						   cudaMemcpyHostToDevice);
+		                   cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i]->psi_middle_scale, hG_.psi_middle_scale_ptr[i],
-						   sizeof(hG_.psi_middle_scale_ptr[i]), 0, cudaMemcpyHostToDevice);
+		                   sizeof(hG_.psi_middle_scale_ptr[i]), 0, cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i]->inv_psi, hG_.inv_psi_ptr[i], sizeof(hG_.inv_psi_ptr[i]), 0,
-						   cudaMemcpyHostToDevice);
+		                   cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i].inv_psi_no, hG_.inv_psi_no_ptr[i], sizeof(hG_.inv_psi_no_ptr[i]), 0,
-						   cudaMemcpyHostToDevice);
+		                   cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i].inv_psi_middle_scale, hG_.inv_psi_middle_scale_ptr[i],
-						   sizeof(hG_.inv_psi_middle_scale_ptr[i]), 0, cudaMemcpyHostToDevice);
+		                   sizeof(hG_.inv_psi_middle_scale_ptr[i]), 0, cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i].psi_shoup, hG_.psi_barrett_ptr[i], sizeof(hG_.psi_barrett_ptr[i]), 0,
-						   cudaMemcpyHostToDevice);
+		                   cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpyToSymbol(hG_.globals[i].inv_psi_shoup, hG_.inv_psi_barrett_ptr[i], sizeof(hG_.inv_psi_barrett_ptr[i]),
-						   0, cudaMemcpyHostToDevice);
+		                   0, cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		*/
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi), hG_.psi_ptr[i], sizeof(hG_.globals[i]->psi), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi),
+		           hG_.psi_ptr[i],
+		           sizeof(hG_.globals[i]->psi),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_no), hG_.psi_no_ptr[i], sizeof(hG_.globals[i]->psi_no), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_no),
+		           hG_.psi_no_ptr[i],
+		           sizeof(hG_.globals[i]->psi_no),
+		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
 		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, psi_middle_scale),
 		           hG_.psi_middle_scale_ptr[i],
 		           sizeof(hG_.globals[i]->psi_middle_scale),
 		           cudaMemcpyHostToDevice);
 		CudaCheckErrorMod;
-		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi), hG_.inv_psi_ptr[i], sizeof(hG_.globals[i]->inv_psi), cudaMemcpyHostToDevice);
+		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi),
+		           hG_.inv_psi_ptr[i],
+		           sizeof(hG_.globals[i]->inv_psi),
+		           cudaMemcpyHostToDevice);
 
 		CudaCheckErrorMod;
 		cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, inv_psi_no),
@@ -437,7 +477,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 		for (uint32_t i = 0; i < GPUid.size(); ++i) {
 			cudaSetDevice(GPUid[i]);
 			// cudaMemcpyToSymbol(hG_.globals[i].q_inv, hG_.q_inv, bytes, 0, cudaMemcpyHostToDevice);
-			cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, q_inv), hG_.q_inv, bytes, cudaMemcpyHostToDevice);
+			cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, q_inv),
+			           hG_.q_inv,
+			           bytes,
+			           cudaMemcpyHostToDevice);
 			CudaCheckErrorMod;
 		}
 	}
@@ -468,7 +511,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 
 				for (size_t k = 0; k < src.size(); ++k) {
 					hG_.ModDown_pre_scale[hC_.L + k]       = src[k];
-					hG_.ModDown_pre_scale_shoup[hC_.L + k] = shoup_precomp(hG_.ModDown_pre_scale[hC_.L + k], hC_.L + k, host_constants);
+					hG_.ModDown_pre_scale_shoup[hC_.L + k] = shoup_precomp(
+						hG_.ModDown_pre_scale[hC_.L + k],
+						hC_.L + k,
+						host_constants);
 				}
 
 				constexpr int bytes = sizeof(Global::ModDown_pre_scale);
@@ -476,11 +522,14 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					cudaSetDevice(GPUid[i]);
 					/*
 					cudaMemcpyToSymbol(hG_.globals[i].ModDown_pre_scale, hG_.ModDown_pre_scale, bytes, 0,
-									   cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
 					cudaMemcpyToSymbol(hG_.globals[i].ModDown_pre_scale_shoup, hG_.ModDown_pre_scale_shoup, bytes, 0,
-									   cudaMemcpyHostToDevice);
-									   */
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale), hG_.ModDown_pre_scale, bytes, cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
+					                   */
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale),
+					           hG_.ModDown_pre_scale,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_pre_scale_shoup),
 					           hG_.ModDown_pre_scale_shoup,
 					           bytes,
@@ -504,11 +553,14 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					cudaSetDevice(GPUid[i]);
 					/*
 					cudaMemcpyToSymbol(hG_.globals[i].ModDown_matrix, hG_.ModDown_matrix, bytes, 0,
-									   cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
 					cudaMemcpyToSymbol(hG_.globals[i].ModDown_matrix_shoup, hG_.ModDown_matrix_shoup, bytes, 0,
-									   cudaMemcpyHostToDevice);
-									   */
-					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix), hG_.ModDown_matrix, bytes, cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
+					                   */
+					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix),
+					           hG_.ModDown_matrix,
+					           bytes,
+					           cudaMemcpyHostToDevice);
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix_shoup),
 					           hG_.ModDown_matrix_shoup,
 					           bytes,
@@ -526,7 +578,9 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 							assert(src[k][i][j] != 0);
 							hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j]       = src[k][i][j];
 							hG_.DecompAndModUp_pre_scale_shoup[k][i][init_primeid + j] =
-								shoup_precomp(hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j], init_primeid + j, host_constants);
+								shoup_precomp(hG_.DecompAndModUp_pre_scale[k][i][init_primeid + j],
+								              init_primeid + j,
+								              host_constants);
 						}
 					}
 					init_primeid += src[k].size();
@@ -538,10 +592,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					cudaSetDevice(GPUid[i]);
 					/*
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_pre_scale, hG_.DecompAndModUp_pre_scale, bytes, 0,
-									   cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_pre_scale_shoup,
-									   hG_.DecompAndModUp_pre_scale_shoup, bytes, 0, cudaMemcpyHostToDevice);
-									   */
+					                   hG_.DecompAndModUp_pre_scale_shoup, bytes, 0, cudaMemcpyHostToDevice);
+					                   */
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_pre_scale),
 					           hG_.DecompAndModUp_pre_scale,
 					           bytes,
@@ -555,7 +609,6 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 			}
 
 			{
-
 				auto& src = param.raw->PartQlHatModp;
 
 				for (size_t k = 0; k < src.size(); ++k) {
@@ -565,12 +618,12 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 						size_t gpu = 0;
 						size_t gpu_d = 0;
 						for (; gpu < digitGPUid.size(); ++gpu) {
-							for (size_t j = 0; j < digitGPUid.at(gpu).size(); ++j) {
-								if (digitGPUid.at(gpu).at(j) == (int)i) {
-									gpu_d = j;
-									goto out;
-								}
-							}
+						    for (size_t j = 0; j < digitGPUid.at(gpu).size(); ++j) {
+						        if (digitGPUid.at(gpu).at(j) == (int)i) {
+						            gpu_d = j;
+						            goto out;
+						        }
+						    }
 						}
 					out:
 						 */
@@ -579,15 +632,14 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 							for (size_t l = 0; l < src[k][i][j].size(); ++l) {
 								assert(src[k][i][j][l] != 0);
 								int added_decomp      = static_cast<uint32_t>(DECOMPmeta.at(0).at(i).at(0).id) <= l ? DECOMPmeta.at(0).at(i).size() : 0;
-								int predicted_primeid = l >= src[k][i][j].size() - hC_.K ?
-									hC_.L + hC_.K + (l - src[k][i][j].size()) :
-									l + added_decomp;
+								int predicted_primeid = l >= src[k][i][j].size() - hC_.K ? hC_.L + hC_.K + (l - src[k][i][j].size()) : l + added_decomp;
 								//  int DIGITmeta_primeid =
 								//      l >= src[k][i][j].size() - hC_.K
 								//          ? DIGITmeta.at(gpu).at(gpu_d).at(l - src[k][i][j].size() + hC_.K).id
 								//         : DIGITmeta.at(gpu).at(gpu_d).at(l + hC_.K).id;
 								assert(hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid] == 0);
-								hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid]       = src[k][i][j][l];
+								hG_.DecompAndModUp_matrix[k] /*[i]*/[input_primeid][predicted_primeid] = src[k][i][
+									j][l];
 								hG_.DecompAndModUp_matrix_shoup[k] /*[i]*/[input_primeid][predicted_primeid] =
 									shoup_precomp(src[k][i][j][l], predicted_primeid, host_constants);
 							}
@@ -602,10 +654,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					cudaSetDevice(GPUid[i]);
 					/*
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_matrix, hG_.DecompAndModUp_matrix, bytes, 0,
-									   cudaMemcpyHostToDevice);
+					                   cudaMemcpyHostToDevice);
 					cudaMemcpyToSymbol(hG_.globals[i].DecompAndModUp_matrix_shoup, hG_.DecompAndModUp_matrix_shoup,
-									   bytes, 0, cudaMemcpyHostToDevice);
-									   */
+					                   bytes, 0, cudaMemcpyHostToDevice);
+					                   */
 					cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, DecompAndModUp_matrix),
 					           hG_.DecompAndModUp_matrix,
 					           bytes,
@@ -617,10 +669,10 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 					CudaCheckErrorMod;
 					/*
 					cudaMemcpyFromSymbol(hG_.DecompAndModUp_matrix, hG_.globals[i].DecompAndModUp_matrix, bytes, 0,
-										 cudaMemcpyDeviceToHost);
+					                     cudaMemcpyDeviceToHost);
 					cudaMemcpyFromSymbol(hG_.DecompAndModUp_matrix_shoup, hG_.globals[i].DecompAndModUp_matrix_shoup, bytes, 0,
-										 cudaMemcpyDeviceToHost);
-										 */
+					                     cudaMemcpyDeviceToHost);
+					                     */
 				}
 			}
 		}
@@ -680,25 +732,25 @@ template <typename Scheme> std::pair<std::vector<Constants>, std::unique_ptr<Glo
 	/*
 	CudaCheckErrorMod;
 	for (int id : GPUid) {
-		cudaSetDevice(id);
-		cudaMemcpyToSymbol(constants, &host_constants, sizeof(Constants), 0, cudaMemcpyHostToDevice);
-		CudaCheckErrorMod;
+	    cudaSetDevice(id);
+	    cudaMemcpyToSymbol(constants, &host_constants, sizeof(Constants), 0, cudaMemcpyHostToDevice);
+	    CudaCheckErrorMod;
 	}
 	*/
 	return { host_constants_per_gpu, std::move(host_global_) };
 }
 
-template std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants<CKKS::Parameters>(const std::vector<PrimeRecord>& q,
-                                                                                                     const std::vector<std::vector<LimbRecord>>& meta,
-                                                                                                     const std::vector<PrimeRecord>& p,
-                                                                                                     const std::vector<LimbRecord>& smeta,
-                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
-                                                                                                     DECOMPmeta,
-                                                                                                     const std::vector<std::vector<std::vector<LimbRecord>>>&
-                                                                                                     DIGITmeta,
-                                                                                                     const std::vector<std::vector<int>>& digitGPUid,
-                                                                                                     const std::vector<int>& GPUid,
-                                                                                                     const int N,
-                                                                                                     const CKKS::Parameters& parameters);
-
+template std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants<CKKS::Parameters>(
+	const std::vector<PrimeRecord>& q,
+	const std::vector<std::vector<LimbRecord>>& meta,
+	const std::vector<PrimeRecord>& p,
+	const std::vector<LimbRecord>& smeta,
+	const std::vector<std::vector<std::vector<LimbRecord>>>&
+	DECOMPmeta,
+	const std::vector<std::vector<std::vector<LimbRecord>>>&
+	DIGITmeta,
+	const std::vector<std::vector<int>>& digitGPUid,
+	const std::vector<int>& GPUid,
+	const int N,
+	const CKKS::Parameters& parameters);
 } // namespace FIDESlib

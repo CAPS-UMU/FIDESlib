@@ -34,14 +34,15 @@ std::vector<std::pair<std::pair<Parameters, Parameters>, std::unique_ptr<std::ma
 bool OK = false;
 
 ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs, const int secBits)
-: my_range(loc, LIFETIME), param((CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), param_)), precom(), logN(param.logN), N(1 << logN),
-  rescaleTechnique(translateRescalingTechnique(param.scalingTechnique)), L(param.L), logQ(computeLogQ(L, param.primes)), batch(param.batch), GPUid(devs),
-  dnum((validateDnum(GPUid, param.dnum) /*, param.dnum*/)), GPUdigits(generateGPUdigits(dnum, GPUid)), prime((param.primes.resize(L + 1), param.primes)),
-  meta{ generateMeta(GPUid, dnum, GPUdigits, prime, param) }, logQ_d(computeLogQ_d(dnum, meta, prime)), K(computeK(logQ_d, param.Sprimes, param)),
-  logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)), specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)),
-  splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)), decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)),
-  digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)), gatherMeta(generateGatherMeta(meta, L)),
-  limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
+	: my_range(loc, LIFETIME), param((CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), param_)), precom(), logN(param.logN), N(1 << logN),
+	  rescaleTechnique(translateRescalingTechnique(param.scalingTechnique)), L(param.L), logQ(computeLogQ(L, param.primes)), batch(param.batch), GPUid(devs),
+	  dnum((validateDnum(GPUid, param.dnum) /*, param.dnum*/)), GPUdigits(generateGPUdigits(dnum, GPUid)), prime((param.primes.resize(L + 1), param.primes)),
+	  meta{ generateMeta(GPUid, dnum, GPUdigits, prime, param) }, logQ_d(computeLogQ_d(dnum, meta, prime)), K(computeK(logQ_d, param.Sprimes, param)),
+	  logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)),
+	  specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)),
+	  splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)), decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)),
+	  digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)), gatherMeta(generateGatherMeta(meta, L)),
+	  limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
 // top_limb(devs.size())
 {
 #ifndef NCCL
@@ -85,7 +86,10 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
 }
 
 std::vector<dim3>
-ContextData::generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta, const int L, const std::vector<std::vector<LimbRecord>>& SPECIALmeta, const int K) {
+ContextData::generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta,
+                               const int L,
+                               const std::vector<std::vector<LimbRecord>>& SPECIALmeta,
+                               const int K) {
 	std::vector<dim3> res(L + 1 + K, 0);
 	for (int i = 0; i < static_cast<int>(meta.size()); ++i) {
 		for (size_t j = 0; j < meta.at(i).size(); ++j) {
@@ -102,10 +106,10 @@ ContextData::generateLimbGPUid(const std::vector<std::vector<LimbRecord>>& meta,
 }
 
 std::vector<std::vector<std::vector<LimbRecord>>> ContextData::generateDigitMeta(const std::vector<std::vector<LimbRecord>>& meta,
-  const std::vector<std::vector<LimbRecord>>& splitSpecialMeta,
-  const std::vector<LimbRecord>& specialMeta,
-  const std::vector<std::vector<int>>& digitGPUid,
-  const std::vector<int>& GPUid) {
+                                                                                 const std::vector<std::vector<LimbRecord>>& splitSpecialMeta,
+                                                                                 const std::vector<LimbRecord>& specialMeta,
+                                                                                 const std::vector<std::vector<int>>& digitGPUid,
+                                                                                 const std::vector<int>& GPUid) {
 	std::vector<std::vector<std::vector<LimbRecord>>> digitMeta(meta.size());
 
 	for (size_t i = 0; i < digitGPUid.size(); ++i) {
@@ -435,7 +439,9 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
 		logApprox -= logStep;
 
 		while (logApprox > 0) {
-			int32_t logStep = (logApprox <= lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP) ? logApprox : lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP;
+			int32_t logStep = (logApprox <= lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP) ?
+				logApprox :
+				lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP;
 			lbcrypto::DCRTPoly::Integer intStep = uint64_t(1) << logStep;
 			std::vector<lbcrypto::DCRTPoly::Integer> crtSF(numTowers, intStep);
 			crtApprox = lbcrypto::CKKSPackedEncoding::CRTMult(crtApprox, crtSF, moduli);
@@ -500,7 +506,9 @@ std::vector<uint64_t> ContextData::ElemForEvalAddOrSub(const int level, const do
 		logApprox -= logStep;
 
 		while (logApprox > 0) {
-			int32_t logStep = (logApprox <= lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP) ? logApprox : lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP;
+			int32_t logStep = (logApprox <= lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP) ?
+				logApprox :
+				lbcrypto::LargeScalingFactorConstants::MAX_LOG_STEP;
 			lbcrypto::DCRTPoly::Integer intStep = uint64_t(1) << logStep;
 			std::vector<lbcrypto::DCRTPoly::Integer> crtSF(sizeQl, intStep);
 			crtApprox = lbcrypto::CKKSPackedEncoding::CRTMult(crtApprox, crtSF, moduli);
@@ -654,17 +662,18 @@ void ContextData::AddBootPrecomputation(int slots, BootstrapPrecomputation&& pre
 	{
 		std::cout << "Adding bootstrap precomputation to GPU for " << slots << " slots.\n"
 
-				  << "Plaintexts loaded: "
-				  << (precomp.CtS.size() == 0 ? (precomp.LT.A.size() + precomp.LT.invA.size()) :
-												(precomp.StC.size() * precomp.StC.at(0).A.size() + precomp.CtS.size() * precomp.CtS.at(0).A.size()))
-				  << " ~ "
-				  << (precomp.CtS.size() == 0 ?
-						 (precomp.LT.A.size() * (precomp.LT.A.at(0).c0.getLevel() + precomp.LT.A.at(0).c0.isModUp() * specialMeta[0].size()) +
-						   precomp.LT.invA.size() * (precomp.LT.invA.at(0).c0.getLevel() + precomp.LT.invA.at(0).c0.isModUp() * specialMeta[0].size())) :
-						 (precomp.StC.size() * precomp.StC.at(0).A.size() *
-							 (1 + precomp.StC.at(0).A.at(0).c0.getLevel() + precomp.StC.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()) +
-						   precomp.CtS.size() * precomp.CtS.at(0).A.size() *
-							 (1 + precomp.CtS.at(0).A.at(0).c0.getLevel() + precomp.CtS.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()))) *
+			<< "Plaintexts loaded: "
+			<< (precomp.CtS.size() == 0 ?
+				(precomp.LT.A.size() + precomp.LT.invA.size()) :
+				(precomp.StC.size() * precomp.StC.at(0).A.size() + precomp.CtS.size() * precomp.CtS.at(0).A.size()))
+			<< " ~ "
+			<< (precomp.CtS.size() == 0 ?
+				(precomp.LT.A.size() * (precomp.LT.A.at(0).c0.getLevel() + precomp.LT.A.at(0).c0.isModUp() * specialMeta[0].size()) +
+					precomp.LT.invA.size() * (precomp.LT.invA.at(0).c0.getLevel() + precomp.LT.invA.at(0).c0.isModUp() * specialMeta[0].size())) :
+				(precomp.StC.size() * precomp.StC.at(0).A.size() *
+					(1 + precomp.StC.at(0).A.at(0).c0.getLevel() + precomp.StC.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()) +
+					precomp.CtS.size() * precomp.CtS.at(0).A.size() *
+					(1 + precomp.CtS.at(0).A.at(0).c0.getLevel() + precomp.CtS.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()))) *
 			N * 8 / (1 << 20)
 			<< "MB\n"; // TODO: account for compressed plaintexts
 	}
@@ -673,11 +682,15 @@ void ContextData::AddBootPrecomputation(int slots, BootstrapPrecomputation&& pre
 }
 
 FIDESlib::CKKS::RESCALE_TECHNIQUE ContextData::translateRescalingTechnique(lbcrypto::ScalingTechnique technique) {
-	return technique == lbcrypto::ScalingTechnique::FIXEDAUTO  ? FIDESlib::CKKS::FIXEDAUTO :
-	  technique == lbcrypto::ScalingTechnique::FIXEDMANUAL	   ? FIDESlib::CKKS::FIXEDMANUAL :
-	  technique == lbcrypto::ScalingTechnique::FLEXIBLEAUTOEXT ? FIDESlib::CKKS::FLEXIBLEAUTOEXT :
-	  technique == lbcrypto::ScalingTechnique::FLEXIBLEAUTO	   ? FIDESlib::CKKS::FLEXIBLEAUTO :
-																 FIDESlib::CKKS::NO_RESCALE;
+	return technique == lbcrypto::ScalingTechnique::FIXEDAUTO ?
+		FIDESlib::CKKS::FIXEDAUTO :
+		technique == lbcrypto::ScalingTechnique::FIXEDMANUAL ?
+		FIDESlib::CKKS::FIXEDMANUAL :
+		technique == lbcrypto::ScalingTechnique::FLEXIBLEAUTOEXT ?
+		FIDESlib::CKKS::FLEXIBLEAUTOEXT :
+		technique == lbcrypto::ScalingTechnique::FLEXIBLEAUTO ?
+		FIDESlib::CKKS::FLEXIBLEAUTO :
+		FIDESlib::CKKS::NO_RESCALE;
 }
 
 void ContextData::PrepareNCCLCommunication() {
@@ -1013,13 +1026,21 @@ void SetCurrentContext(Context& cc) {
 		currentContext = cc;
 		if (currentContext) {
 
-			parallel_for(0, currentContext->GPUid.size(), 1, [&](int i) {
-				// for (size_t i = 0; i < currentContext->GPUid.size(); ++i) {
-				cudaSetDevice(currentContext->GPUid[i]);
-				// cudaDeviceSynchronize();
-				cudaMemcpyToSymbolAsync(FIDESlib::constants, &(currentContext->precom.constants[i]), sizeof(FIDESlib::Constants), 0, cudaMemcpyHostToDevice, 0);
-				// cudaDeviceSynchronize();
-			});
+			parallel_for(0,
+			             currentContext->GPUid.size(),
+			             1,
+			             [&](int i) {
+				             // for (size_t i = 0; i < currentContext->GPUid.size(); ++i) {
+				             cudaSetDevice(currentContext->GPUid[i]);
+				             // cudaDeviceSynchronize();
+				             cudaMemcpyToSymbolAsync(FIDESlib::constants,
+				                                     &(currentContext->precom.constants[i]),
+				                                     sizeof(FIDESlib::Constants),
+				                                     0,
+				                                     cudaMemcpyHostToDevice,
+				                                     0);
+				             // cudaDeviceSynchronize();
+			             });
 		}
 	}
 }

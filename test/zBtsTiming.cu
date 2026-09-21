@@ -264,7 +264,7 @@ TEST_P(BtsTimingTests, REGULAR2) {
 
 	GPUct1.dropToLevel(2);
 
-	int N = 2;
+	int N = 10;
 
 	auto start_gpu = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; i++) {

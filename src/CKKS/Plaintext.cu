@@ -197,38 +197,35 @@ bool Plaintext::adjustPlaintextToCiphertext(const Plaintext& p, const Ciphertext
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
 	// constexpr bool PRINT = false;
-
-	if (cc.rescaleTechnique == FIXEDAUTO) {
-		if (p.c0.getLevel() - p.NoiseLevel > c.getLevel() - c.NoiseLevel) {
-			if (this != &p)
-				this->copy(p);
-			if (c.NoiseLevel == 1 && NoiseLevel == 2) {
-				this->c0.dropToLevel(c.getLevel() + 1);
+	/*
+		if (cc.rescaleTechnique == FIXEDAUTO) {
+			if (p.c0.getLevel() - p.NoiseLevel > c.getLevel() - c.NoiseLevel) {
+				if (this != &p)
+					this->copy(p);
+				if (c.NoiseLevel == 1 && NoiseLevel == 2) {
+					this->c0.dropToLevel(c.getLevel() + 1);
+					rescale();
+				} else {
+					this->c0.dropToLevel(c.getLevel());
+				}
+				return true;
+			} else if (c.NoiseLevel == 1 && p.NoiseLevel == 2) {
+				if (this != &p)
+					this->copy(p);
 				rescale();
+				return true;
+			} else if (p.NoiseLevel == 1 && c.NoiseLevel == 2) {
+				return false;
 			} else {
-				this->c0.dropToLevel(c.getLevel());
-			}
-			return true;
-		} else if (c.NoiseLevel == 1 && p.NoiseLevel == 2) {
-			if (this != &p)
 				this->copy(p);
-			rescale();
-			return true;
-		} else if (p.NoiseLevel == 1 && c.NoiseLevel == 2) {
-			return false;
-		} else {
-			this->copy(p);
-			return true;
+				return true;
+			}
 		}
-	}
-	if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
-		if (p.c0.getLevel() < c.getLevel()) {
-			return false;
-		}
+	*/
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
 		if (this != &p)
 			this->copy(p);
 		return adjustScaleAndLevel(c.NoiseLevel, c.getLevel(), c.NoiseFactor);
-
 	}
 	return false;
 }

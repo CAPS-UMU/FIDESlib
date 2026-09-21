@@ -232,7 +232,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 
 	for (size_t i = 0; i < result.moduli.size(); ++i) {
 		using namespace intnat;
-		using FFT = ChineseRemainderTransformFTTNat<NativeVector>;
+		using FFT   = ChineseRemainderTransformFTTNat<NativeVector>;
 		auto tables =
 			FFT::GetTables(NativeInteger(result.root_of_unity[i]), result.N << 1, NativeInteger(result.moduli[i]));
 		const size_t size = tables->rootReverse.GetLength();

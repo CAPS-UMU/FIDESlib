@@ -21,81 +21,90 @@ uint64_t reverse(uint64_t num, int lg_n) {
 }
  */
 
-void FIDESlib::Testing::nega_fft(std::vector<uint64_t>& a, bool invert, const uint64_t* psi, const uint64_t* inv_psi, uint64_t mod, int its) {
-	int n = a.size();
+void FIDESlib::Testing::nega_fft(std::vector<uint64_t>& a, bool invert, const uint64_t* psi, const uint64_t* inv_psi,
+                                 uint64_t mod, int its)
+{
+    int n = a.size();
 
-	// variacion
-	int lg_n = 0;
-	while ((1 << lg_n) < n)
-		lg_n++;
-	////////////////////////
+    // variacion
+    int lg_n = 0;
+    while ((1 << lg_n) < n)
+        lg_n++;
+    ////////////////////////
 
-	{
-		uint64_t modulus = mod;
-		// IntType mu      = modulus.ComputeMu();
+    {
+        uint64_t modulus = mod;
+        // IntType mu      = modulus.ComputeMu();
 
-		uint64_t loVal, hiVal, omega, omegaFactor;
-		int i, m, j1, j2, indexOmega, indexLo, indexHi;
-		const uint64_t* rootOfUnityTable = invert ? inv_psi : psi;
-		uint64_t* element				 = a.data();
+        uint64_t loVal, hiVal, omega, omegaFactor;
+        int i, m, j1, j2, indexOmega, indexLo, indexHi;
+        const uint64_t* rootOfUnityTable = invert ? inv_psi : psi;
+        uint64_t* element = a.data();
 
-		int t	  = n / 2;
-		int logt1 = lg_n;
+        int t = n / 2;
+        int logt1 = lg_n;
 
-		for (m = 1; m < n; m <<= 1) {
-			for (i = 0; i < m; ++i) {
-				j1		   = i << logt1;
-				j2		   = j1 + t;
-				indexOmega = m + i;
-				omega	   = rootOfUnityTable[indexOmega];
-				for (indexLo = j1; indexLo < j2; ++indexLo) {
-					indexHi = indexLo + t;
-					/*
+        for (m = 1; m < n; m <<= 1)
+        {
+            for (i = 0; i < m; ++i)
+            {
+                j1 = i << logt1;
+                j2 = j1 + t;
+                indexOmega = m + i;
+                omega = rootOfUnityTable[indexOmega];
+                for (indexLo = j1; indexLo < j2; ++indexLo)
+                {
+                    indexHi = indexLo + t;
+                    /*
 					if (n < 1000)
 						printf("CPU: m: %d, j1: %d, j2: %d, psi: %lu, psi_id: %d, a1: %lu, a2: %lu\n", m, indexLo,
 							   indexHi, omega, indexOmega, a[indexLo], a[indexHi]);
 */
-					loVal		= (element)[indexLo];
-					omegaFactor = (element)[indexHi];
+                    loVal = (element)[indexLo];
+                    omegaFactor = (element)[indexHi];
 
-					omegaFactor = (__uint128_t)omegaFactor * omega % modulus;
+                    omegaFactor = (__uint128_t)omegaFactor * omega % modulus;
 
-					hiVal = loVal + omegaFactor;
-					if (hiVal >= modulus) {
-						hiVal -= modulus;
-					}
+                    hiVal = loVal + omegaFactor;
+                    if (hiVal >= modulus)
+                    {
+                        hiVal -= modulus;
+                    }
 
-					if (loVal < omegaFactor) {
-						loVal += modulus;
-					}
-					loVal -= omegaFactor;
+                    if (loVal < omegaFactor)
+                    {
+                        loVal += modulus;
+                    }
+                    loVal -= omegaFactor;
 
-					(element)[indexLo] = hiVal;
-					(element)[indexHi] = loVal;
-					/*
+                    (element)[indexLo] = hiVal;
+                    (element)[indexHi] = loVal;
+                    /*
 					if (n < 1000)
 						printf("CPU: m: %d, j1: %d, j2: %d, psi: %lu, psi_id: %d, a1: %lu, a2: %lu\n", m, indexLo,
 							   indexHi, omega, indexOmega, a[indexLo], a[indexHi]);
 */
-				}
-			}
-			t >>= 1;
-			logt1--;
-		}
-	}
+                }
+            }
+            t >>= 1;
+            logt1--;
+        }
+    }
 
-	if (invert) {
-		uint64_t n_1 = FIDESlib::modinv((uint64_t)n, mod);
-		for (uint64_t& x : a)
-			x = ((__uint128_t)x * n_1 % mod);
-	}
+    if (invert)
+    {
+        uint64_t n_1 = FIDESlib::modinv((uint64_t)n, mod);
+        for (uint64_t& x : a)
+            x = ((__uint128_t)x * n_1 % mod);
+    }
 
-	for (int i = 0; i < n; i++) {
-		if (i < bit_reverse(i, lg_n))
-			std::swap(a[i], a[bit_reverse(i, lg_n)]);
-	}
+    for (int i = 0; i < n; i++)
+    {
+        if (i < bit_reverse(i, lg_n))
+            std::swap(a[i], a[bit_reverse(i, lg_n)]);
+    }
 
-	/*
+    /*
 	int n = a.size();
 	const uint64_t * w = invert ? inv_psi : psi;
 
@@ -136,23 +145,29 @@ void FIDESlib::Testing::nega_fft(std::vector<uint64_t>& a, bool invert, const ui
 	*/
 }
 
-void FIDESlib::Testing::nega_fft2(std::vector<uint64_t>& a, bool invert, const uint64_t* psi, const uint64_t* inv_psi, uint64_t mod, int its) {
-	int n = a.size();
+void FIDESlib::Testing::nega_fft2(std::vector<uint64_t>& a, bool invert, const uint64_t* psi, const uint64_t* inv_psi,
+                                  uint64_t mod, int its)
+{
+    int n = a.size();
 
-	////////////////////////
-	if (!invert) {
-		for (int i = 0; i < n; ++i) {
-			a[i] = modprod(a[i], modpow(psi[n / 2], i, mod), mod);
-		}
-	}
-	fft(a, invert, psi[n >> 2], inv_psi[n >> 2], mod, its);
-	if (invert) {
-		for (int i = 0; i < n; ++i) {
-			a[i] = modprod(a[i], modpow(inv_psi[n / 2], i, mod), mod);
-		}
-	}
-	////////////////////////
-	/*
+    ////////////////////////
+    if (!invert)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            a[i] = modprod(a[i], modpow(psi[n / 2], i, mod), mod);
+        }
+    }
+    fft(a, invert, psi[n >> 2], inv_psi[n >> 2], mod, its);
+    if (invert)
+    {
+        for (int i = 0; i < n; ++i)
+        {
+            a[i] = modprod(a[i], modpow(inv_psi[n / 2], i, mod), mod);
+        }
+    }
+    ////////////////////////
+    /*
 		int lg_n = 0;
 		while ((1 << lg_n) < n)
 			lg_n++;
@@ -219,7 +234,7 @@ void FIDESlib::Testing::nega_fft2(std::vector<uint64_t>& a, bool invert, const u
 			(element)[i] = (__uint128_t) element[i] * n_1 % modulus;
 		}
 		*/
-	/*
+    /*
 	int n = a.size();
 
 	const uint64_t * w = invert ? inv_psi : psi;
@@ -261,28 +276,30 @@ void FIDESlib::Testing::nega_fft2(std::vector<uint64_t>& a, bool invert, const u
 	*/
 }
 
-void FIDESlib::Testing::nega_fft_forPrime(std::vector<uint64_t>& a, bool invert, int primeid, int its) {
-	/*
+void FIDESlib::Testing::nega_fft_forPrime(std::vector<uint64_t>& a, bool invert, int primeid, int its)
+{
+    /*
 	std::cout << "N: " << a.size() << (invert ? "INTT" : "NTT")
 			  << " w: " << ((uint64_t*)hG_.psi[primeid])[a.size() >> 1]
 			  << " w^-1: " << ((uint64_t*)hG_.inv_psi[primeid])[a.size() >> 1] << " p: " << hC_.primes[primeid]
 			  << std::endl;
    */
-	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+    FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
+    FIDESlib::Global& host_global = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
-	nega_fft(a, invert, ((uint64_t*)hG_.psi[primeid]), ((uint64_t*)hG_.inv_psi[primeid]), hC_.primes[primeid], its);
+    nega_fft(a, invert, ((uint64_t*)hG_.psi[primeid]), ((uint64_t*)hG_.inv_psi[primeid]), hC_.primes[primeid], its);
 }
 
-void FIDESlib::Testing::nega_fft2_forPrime(std::vector<uint64_t>& a, bool invert, int primeid, int its) {
-	/*
+void FIDESlib::Testing::nega_fft2_forPrime(std::vector<uint64_t>& a, bool invert, int primeid, int its)
+{
+    /*
 	std::cout << "N: " << a.size() << (invert ? "INTT" : "NTT")
 			  << " w: " << ((uint64_t*)hG_.psi[primeid])[a.size() >> 1]
 			  << " w^-1: " << ((uint64_t*)hG_.inv_psi[primeid])[a.size() >> 1] << " p: " << hC_.primes[primeid]
 			  << std::endl;
 	*/
-	FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
-	FIDESlib::Global& host_global		= *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
+    FIDESlib::Constants& host_constants = FIDESlib::CKKS::GetCurrentContext()->precom.constants[0];
+    FIDESlib::Global& host_global = *FIDESlib::CKKS::GetCurrentContext()->precom.globals;
 
-	nega_fft2(a, invert, ((uint64_t*)hG_.psi[primeid]), ((uint64_t*)hG_.inv_psi[primeid]), hC_.primes[primeid], its);
+    nega_fft2(a, invert, ((uint64_t*)hG_.psi[primeid]), ((uint64_t*)hG_.inv_psi[primeid]), hC_.primes[primeid], its);
 }

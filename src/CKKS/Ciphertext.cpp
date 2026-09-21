@@ -156,6 +156,29 @@ void Ciphertext::multMetadata(const Ciphertext& a, const Plaintext& b) {
 	this->NoiseFactor = a.NoiseFactor * b.NoiseFactor;
 }
 
+// AdjustForAddOrSubInPlace() is a no-op when the operands share level, noise-scale degree and tower
+// count (the plaintext overload additionally requires the plaintext element in EVALUATION format).
+inline bool AdjustForAddOrSubIsNoOp(const Ciphertext& a, const Ciphertext& b) {
+	return a.getLevel() == b.getLevel() && a.NoiseLevel == b.NoiseLevel;
+}
+
+inline bool AdjustForAddOrSubIsNoOp(const Ciphertext& ct, const Plaintext& pt) {
+	return pt.c0.getLevel() == ct.getLevel() && pt.NoiseLevel == ct.NoiseLevel;
+}
+
+// AdjustForMultInPlace() is a no-op when the operands share level and tower count and either the
+// scaling technique is FIXEDMANUAL (no rescale on mult) or both operands are already at depth 1.
+inline bool AdjustForMultIsNoOp(const Ciphertext& a,
+                                const Ciphertext& b,
+                                RESCALE_TECHNIQUE st) {
+	return a.getLevel() == b.getLevel()
+		&& (st == FIXEDMANUAL || (a.NoiseLevel == 1 && b.NoiseLevel == 1));
+}
+
+inline bool AdjustForMultIsNoOp(const Ciphertext& ct, const Plaintext& pt, RESCALE_TECHNIQUE st) {
+	return ct.getLevel() == pt.c0.getLevel() && (st == FIXEDMANUAL || (ct.NoiseLevel == 1 && pt.NoiseLevel == 1));
+}
+
 int Ciphertext::normalyzeIndex(int index) const {
 
 	return FIDESlib::CKKS::normalyzeIndex(index, slots, cc.N);
@@ -317,7 +340,7 @@ void Ciphertext::addPt(const Plaintext& b) {
 			this->rescaleInternal();
 		}
 
-		if (b.c0.getLevel() != this->getLevel()) {
+		if (!this->adjustCiphertextToPlaintext(b)) {
 			Plaintext b_(cc_);
 			if (!b_.adjustPlaintextToCiphertext(b, *this)) {
 				assert(false);
@@ -349,7 +372,7 @@ void Ciphertext::addPtMutable(Plaintext& b) {
 			this->rescaleInternal();
 		}
 
-		if (b.c0.getLevel() != this->getLevel()) {
+		if (!this->adjustCiphertextToPlaintext(b)) {
 			if (!b.adjustPlaintextToCiphertext(b, *this)) {
 				assert(false);
 			} else {
@@ -377,7 +400,7 @@ void Ciphertext::subPt(const Plaintext& b) {
 			this->rescaleInternal();
 		}
 
-		if (b.c0.getLevel() != this->getLevel()) {
+		if (!this->adjustCiphertextToPlaintext(b)) {
 			Plaintext b_(cc_);
 			if (!b_.adjustPlaintextToCiphertext(b, *this)) {
 				assert(false);
@@ -410,7 +433,7 @@ void Ciphertext::subPtMutable(Plaintext& b) {
 			this->rescaleInternal();
 		}
 
-		if (b.c0.getLevel() != this->getLevel()) {
+		if (!this->adjustCiphertextToPlaintext(b)) {
 			if (!b.adjustPlaintextToCiphertext(b, *this)) {
 				assert(false);
 			} else {
@@ -489,10 +512,10 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 				assert(NoiseLevel == 1);
 			}
 
-			if constexpr (PRINT)
-				std::cout << "multPt: Rescale input ciphertext" << std::endl;
-			if (NoiseLevel == 2)
-				this->rescaleInternal();
+			//if constexpr (PRINT)
+			//	std::cout << "multPt: Rescale input ciphertext" << std::endl;
+			//if (NoiseLevel == 2)
+			//	this->rescaleInternal();
 		}
 
 		if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
@@ -503,7 +526,7 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 				assert(NoiseLevel == 1);
 			}
 
-			if (b.c0.getLevel() != this->getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
+			if (!this->adjustCiphertextToPlaintext(b) || b.NoiseLevel != 1) {
 				Plaintext b_(cc_);
 				if constexpr (PRINT)
 					std::cout << "multPt: adjust input plaintext" << std::endl;
@@ -525,6 +548,8 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
 				}
 				return;
 			}
+			if (NoiseLevel == 2)
+				this->rescaleInternal();
 		}
 
 		assert(NoiseLevel < 2);
@@ -570,7 +595,7 @@ void Ciphertext::multPtMutable(Plaintext& b, bool rescale) {
 			assert(NoiseLevel == 1);
 		}
 
-		if (b.c0.getLevel() != this->getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
+		if (!this->adjustCiphertextToPlaintext(b) || b.NoiseLevel != 1) {
 			if constexpr (PRINT)
 				std::cout << "multPt: adjust input plaintext" << std::endl;
 
@@ -591,6 +616,8 @@ void Ciphertext::multPtMutable(Plaintext& b, bool rescale) {
 			}
 			return;
 		}
+		if (NoiseLevel == 2)
+			this->rescaleInternal();
 	}
 
 	assert(NoiseLevel < 2);
@@ -799,6 +826,7 @@ void Ciphertext::addScalar(const double c) {
 	//    c0.subScalar(elem);
 	//}
 }
+
 
 void Ciphertext::automorph(const int index, const int br) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
@@ -1791,15 +1819,7 @@ bool Ciphertext::adjustForAddOrSub(const Ciphertext& b) {
 	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 	CKKS::SetCurrentContext(cc_);
 
-	/*
 	if (cc.rescaleTechnique == FIXEDMANUAL) {
-		if (b.NoiseLevel > NoiseLevel || (b.getLevel() < getLevel()))
-			return false;
-		else
-			return true;
-	} else
-	*/
-	if (cc.rescaleTechnique == FIXEDMANUAL || cc.rescaleTechnique == FIXEDAUTO) {
 		if (getLevel() - NoiseLevel > b.getLevel() - b.NoiseLevel) {
 			if (b.NoiseLevel == 1 && NoiseLevel == 2) {
 				rescaleInternal();
@@ -1815,7 +1835,7 @@ bool Ciphertext::adjustForAddOrSub(const Ciphertext& b) {
 		} else {
 			return true;
 		}
-	} else if (cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+	} else if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
 		return adjustScaleAndLevel(b.NoiseLevel, b.getLevel(), b.NoiseFactor);
 	}
 	assert("This never happens" == nullptr);
@@ -1839,6 +1859,15 @@ bool Ciphertext::adjustForMult(const Ciphertext& ciphertext) {
 		return false;
 	}
 }
+
+bool Ciphertext::adjustCiphertextToPlaintext(const Plaintext& b) {
+	if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
+		return adjustScaleAndLevel(b.NoiseLevel, b.c0.getLevel(), b.NoiseFactor);
+	}
+	assert("This never happens" == nullptr);
+	return false;
+}
+
 
 bool Ciphertext::hasSameScalingFactor(const Plaintext& b) const {
 	return NoiseFactor > b.NoiseFactor * (1 - 1e-9) && NoiseFactor < b.NoiseFactor * (1 + 1e-9);

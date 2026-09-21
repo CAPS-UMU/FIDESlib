@@ -23,13 +23,13 @@ class Plaintext {
 	static constexpr const char* loc{ "Plaintext" };
 	CudaNvtxRange my_range;
 
-  public:
+public:
 	Context& cc_;
 	ContextData& cc;
 	RNSPoly c0;
 	double NoiseFactor = 0;
-	int NoiseLevel	   = 1;
-	int slots		   = 0;
+	int NoiseLevel     = 1;
+	int slots          = 0;
 
 	/**
 	 * @brief Defaulted move constructor.

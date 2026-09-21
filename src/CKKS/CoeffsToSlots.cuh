@@ -6,9 +6,10 @@
 #define GPUCKKS_COEFFSTOSLOTS_CUH
 #include "forwardDefs.cuh"
 
-namespace FIDESlib::CKKS {
-void EvalLinearTransform(Ciphertext& ctxt, int slots, bool decode);
+namespace FIDESlib::CKKS
+{
+    void EvalLinearTransform(Ciphertext& ctxt, int slots, bool decode);
 
-void EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode);
+    void EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode);
 } // namespace FIDESlib::CKKS
 #endif // GPUCKKS_COEFFSTOSLOTS_CUH

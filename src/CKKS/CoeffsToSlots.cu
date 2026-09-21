@@ -27,7 +27,7 @@ void FIDESlib::CKKS::EvalLinearTransform(Ciphertext& ctxt, int slots, bool decod
 	CudaNvtxRange r(std::string{ sc::current().function_name() });
 	//constexpr bool PRINT		 = false;
 	//FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-	ContextData& cc				 = ctxt.cc;
+	ContextData& cc = ctxt.cc;
 
 	if constexpr (BATCHED) {
 		/*
@@ -58,8 +58,8 @@ void FIDESlib::CKKS::EvalLinearTransform(Ciphertext& ctxt, int slots, bool decod
 		*/
 	} else {
 
-		int bStep				  = cc.GetBootPrecomputation(slots).LT.bStep;
-		int gStep				  = slots / bStep;
+		int bStep                 = cc.GetBootPrecomputation(slots).LT.bStep;
+		int gStep                 = slots / bStep;
 		std::vector<Plaintext>& A = decode ? cc.GetBootPrecomputation(slots).LT.invA : cc.GetBootPrecomputation(slots).LT.A;
 		std::vector<Plaintext*> Aptr(slots, nullptr);
 		for (uint32_t j = 0; j < static_cast<uint32_t>(gStep); ++j) {

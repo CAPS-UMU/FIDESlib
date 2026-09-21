@@ -215,6 +215,7 @@ public:
 	 */
 	void addScalar(const double c);
 
+	bool adjustCiphertextToPlaintext(const Plaintext& plaintext);
 	/**
 	 * @brief Multiplies *this* ciphertext by a plaintext.
 	 *
