@@ -10,313 +10,266 @@
 #include <cassert>
 #include <cinttypes>
 
-namespace FIDESlib
-{
-    /**
-        The main idea is to implement a compiletime/runtime switch for different modular reduction implementations,
-        as tweak factors can be stored on constant memory, we do not need pass them in the parameter list and the
-        rest of the implementation is agnostic to this variability.
-    */
+namespace FIDESlib {
+/**
+    The main idea is to implement a compiletime/runtime switch for different modular reduction implementations,
+    as tweak factors can be stored on constant memory, we do not need pass them in the parameter list and the
+    rest of the implementation is agnostic to this variability.
+*/
 
-    // ------------------------------------ BASIC MODULAR MULT KERNELS ----------------------------------------
+// ------------------------------------ BASIC MODULAR MULT KERNELS ----------------------------------------
 
-    /** Inplace element-wise modular mult of an array: a_i = a_i * b_i % p */
-    template <typename T, ALGO algo = DEFAULT_ALGO>
-    __global__ void mult_(T* a, const T* b, const int primeid, const __grid_constant__int elem_b);
+/** Inplace element-wise modular mult of an array: a_i = a_i * b_i % p */
+template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const int primeid, const __grid_constant__ int elem_b);
 
-    /** Element-wise modular mult of an array: a_i = b_i * c_i % p */
-    template <typename T, ALGO algo = DEFAULT_ALGO>
-    __global__ void mult_(T* a, const T* b, const T* c, const int primeid, const __grid_constant__int elem_c);
+/** Element-wise modular mult of an array: a_i = b_i * c_i % p */
+template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void mult_(T* a, const T* b, const T* c, const int primeid, const __grid_constant__ int elem_c);
 
-    /** Inplace scalar modular mult of an array: a_i = a_i * b % p */
-    template <typename T, ALGO algo = DEFAULT_ALGO>
-    __global__ void scalar_mult_(T* a, const T b, const int primeid, const T shoup_mu = 0);
+/** Inplace scalar modular mult of an array: a_i = a_i * b % p */
+template <typename T, ALGO algo = DEFAULT_ALGO> __global__ void scalar_mult_(T* a, const T b, const int primeid, const T shoup_mu = 0);
 
-    // ------------------------------------ INLINEABLE GPU MODULAR MULT KERNELS -------------------------------
+// ------------------------------------ INLINEABLE GPU MODULAR MULT KERNELS -------------------------------
 
-    /** 32-bit modular mult, to be inlined inside more complex kernels. */
-    template <ALGO algo = DEFAULT_ALGO>
-    __forceinline__ __device__ uint32_t modmult(const uint32_t a,
-                                                const uint32_t b,
-                                                const int primeid,
-                                                const uint32_t shoup_b = 0);
+/** 32-bit modular mult, to be inlined inside more complex kernels. */
+template <ALGO algo = DEFAULT_ALGO>
+__forceinline__ __device__ uint32_t modmult(const uint32_t a, const uint32_t b, const int primeid, const uint32_t shoup_b = 0);
 
-    /** 64-bit modular mult, to be inlined inside more complex kernels. */
-    template <ALGO algo = DEFAULT_ALGO>
-    __forceinline__ __device__ uint64_t modmult(const uint64_t a,
-                                                const uint64_t b,
-                                                const int primeid,
-                                                const uint64_t shoup_b = 0);
+/** 64-bit modular mult, to be inlined inside more complex kernels. */
+template <ALGO algo = DEFAULT_ALGO>
+__forceinline__ __device__ uint64_t modmult(const uint64_t a, const uint64_t b, const int primeid, const uint64_t shoup_b = 0);
 
-    /** 64-bit integer improved Barret modular multiplication implementation. (p < 2^62) */
-    __forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t mu,
-                                                     const uint64_t prime, const uint32_t qbit)
-    {
-        /*
-            //        assert(op1 < prime);
-    //        assert(op2 < prime);
-
-            const uint64_t rx = __umul64hi(op1 << (64 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
-            uint64_t quot = __umul64hi(rx, mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-            uint64_t rem = op1 * op2 - quot * prime;
-
-          //  const__uint128_t rx = (uint128_t) op1 * op2;
-          //  uint64_t quot = __umul64hi(rx >> (qbit - 1), mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-          //  uint64_t rem = ((uint64_t)rx) - quot * prime;
-
-            if constexpr(VERSION == BARRET) rem = rem - 2 * prime * (rem >= 2 * prime);
-            rem = rem - prime * (rem >= prime);
-     //       assert(rem < prime);
-            return rem;
-
-    */
-        __uint128_t c = (__uint128_t)op1 * op2;
-        uint64_t rx = c >> (qbit - 2);
-        uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
-        rb *= prime;
-        uint64_t c_lo = c;
-        c_lo -= rb;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
-
-    /** 32-bit integer improved Barret modular multiplication implementation. (p < 2^30) */
-    __forceinline__ __device__ uint32_t Neal_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t mu,
-                                                     const uint32_t prime, const uint32_t& qbit)
-    {
-        uint64_t c = (uint64_t)op1 * op2;
-        uint32_t rx = c >> (qbit - 2);
-        uint32_t rb = __umulhi(rx << (30 - qbit), mu) >> 1;
-        rb *= prime;
-        uint32_t c_lo = c;
-        c_lo -= rb;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
-
-    /**
-     * 64-bit integer Shoup modular multiplication.
-     * From paper: Modular SIMD arithmetic in Mathemagix: Algorithm 8
-     * Requires: psi = op2 * 2^64 / prime
-     *           prime < 2^63
-     * Output: op1 * op2 % prime
-     */
-    __forceinline__ __device__ uint64_t Shoup_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t psi,
-                                                      const uint64_t prime)
-    {
-        uint64_t c = __umul64hi(op1, psi);
-        uint64_t c_lo = op1 * op2 - c * prime;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
-
-    /**
-     * 32-bit integer Shoup modular multiplication.
-     * From paper: Modular SIMD arithmetic in Mathemagix: Algorithm 8
-     * Requires: psi = op2 * 2^32 / prime
-     *           prime < 2^31
-     * Output: op1 * op2 % prime
-     */
-    __forceinline__ __device__ uint32_t Shoup_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t psi,
-                                                      const uint32_t prime)
-    {
-        uint32_t c = __umulhi(op1, psi);
-        uint32_t c_lo = op1 * op2 - c * prime;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
-
-    /** Helper function that computes the higher 42 bits of a 106 bit wide multiplication of two 53-bit integers.
-     *  Note: it may actually compute up to 53 bits but the lower 11 are discarded.
-     */
-    __forceinline__ __device__ uint64_t fp64himult(const uint64_t a, const uint64_t b)
-    {
-        /// Estructura fp64: (sign) 63 | (exp) 62 - 52 | (mantissa) 51 - 0
-        const int lza = __clzll(a);
-        const int lzb = __clzll(b);
-        uint64_t aux_a = a << (lza - 11); // signo + exponente - 1
-        uint64_t aux_b = b << (lzb - 11);
-        // eliminar bit implicito
-        aux_a &= ~(1ul << 52);
-        aux_b &= ~(1ul << 52);
-        // Poner exponentes a 0.
-        aux_a |= 0x3FF0000000000000;
-        aux_b |= 0x3FF0000000000000;
-        // Conversión literal de los datos
-        const double da = *((double*)&aux_a), db = *((double*)&aux_b);
-        // Multiplicamos double sin redondeo (redondeo hacia abajo)
-        const double dc = __dmul_rd(da, db);
-        const uint64_t c = *((uint64_t*)&dc);
-        // Eliminamos exponente y signo de la interpretación entera.
-        uint64_t res = (c & 0x000FFFFFFFFFFFFF) | (1ul << 52);
-
-        // Nos quedamos con los 42 bits más significativos (los 64 bits bajos se eliminan) con el shift.
-        // Si el exponente está a uno, hacemos un shift menos.
-        // res >>= -10 + lza + lzb - ((c & (1ul << 62)) != 0); // 52 - (53*2 - 64) + (lza - 11) + (lzb - 11);
-
-        // Nos quedamos con los 53 bits más significativos (los 53 bits bajos se eliminan) con el shift.
-        // Si el exponente está a uno, hacemos un shift menos.
-        res >>= -21 + lza + lzb - ((c & (1ul << 62)) != 0); // 52 - (53*2 - 53) + (lza - 11) + (lzb - 11);
-
-        // uint64_t good_res = __umul64hi(a, b << 11);
-        // if(__umul64hi(a, b << 11) != res)
-        //   printf("obj: %p, obtained: %p, a: %A, b: %A, c: %A, lza: %d, lzb: %d\n", good_res, res, da, db, dc, lza, lzb);
-        // assert(__umul64hi(a, b << 11) == res);
-        return res;
-    }
-
-    /** Helper function that computes the higher 42 bits of a 106 bit wide multiplication of two 53-bit integers.
-     *  This function leverages CUDA's type conversion intrinsics/operations which operate with higher throughput
-     *  on server architectures.
-     *  Note: it may actually compute up to 53 bits but the lower 11 are discarded.
-     */
-
-    __forceinline__ __device__ uint64_t fp64himult_ver2(const uint64_t a, const uint64_t b)
-    {
-        const double da = __ll2double_rz(a), db = __ll2double_rz(b);
-        // Multiplicamos double sin redondeo (redondeo hacia abajo)
-
-        const double dc = __dmul_rz(da, db);
-        // Divsión rápida entre 2 ^ 53
-        uint64_t aux = __double_as_longlong(dc);
-        aux -= (53ul << 52);
-
-        const uint64_t res = __double2ll_rz(__longlong_as_double(aux));
-
-        return res;
-    }
-
-    /** 53-bit integer improved Barret modular multiplication implementation leveraging fp84 computation. (p < 2^51) */
-    __forceinline__ __device__ uint64_t Neal_mult_53(const uint64_t op1, const uint64_t op2, const uint64_t mu,
-                                                     const uint64_t prime, const uint32_t qbit)
-    {
+/** 64-bit integer improved Barret modular multiplication implementation. (p < 2^62) */
+__forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
+    /*
         //        assert(op1 < prime);
-        //        assert(op2 < prime);
-        //        assert(mu < (1ll << 53));
-        // const uint64_t aux = fp64himult(op1, op2);
-        // assert(aux == __umul64hi(op1, op2 << 11));
-        /*
-            const uint64_t rx = fp64himult(op1 << (53 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
-            uint64_t quot = fp64himult(rx, mu << (53 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-            uint64_t rem = (((op1 * op2)) - ((quot * prime))) & 0x001FFFFFFFFFFFFF;
+//        assert(op2 < prime);
 
-            if constexpr(VERSION == BARRET) rem = (rem - 2 * prime * (rem >= 2 * prime));
-            rem = (rem - prime * (rem >= prime));
+        const uint64_t rx = __umul64hi(op1 << (64 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
+        uint64_t quot = __umul64hi(rx, mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+        uint64_t rem = op1 * op2 - quot * prime;
 
-      //      assert(rem < prime);
-            return rem;
-      */
+      //  const__uint128_t rx = (uint128_t) op1 * op2;
+      //  uint64_t quot = __umul64hi(rx >> (qbit - 1), mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+      //  uint64_t rem = ((uint64_t)rx) - quot * prime;
 
-        const uint64_t rx = fp64himult_ver2(op1 << (53 - qbit), op2 << 2);
-        uint64_t rb = fp64himult_ver2(rx << (51 - qbit), mu) >> 1;
-        rb *= prime;
-        uint64_t c_lo = op1 * op2;
-        c_lo -= rb;
-        c_lo &= 0x001FFFFFFFFFFFFFU;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
+        if constexpr(VERSION == BARRET) rem = rem - 2 * prime * (rem >= 2 * prime);
+        rem = rem - prime * (rem >= prime);
+ //       assert(rem < prime);
+        return rem;
+
+*/
+    __uint128_t c = (__uint128_t)op1 * op2;
+    uint64_t rx = c >> (qbit - 2);
+    uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
+    rb *= prime;
+    uint64_t c_lo = c;
+    c_lo -= rb;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
+
+/** 32-bit integer improved Barret modular multiplication implementation. (p < 2^30) */
+__forceinline__ __device__ uint32_t Neal_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t mu, const uint32_t prime, const uint32_t& qbit) {
+    uint64_t c = (uint64_t)op1 * op2;
+    uint32_t rx = c >> (qbit - 2);
+    uint32_t rb = __umulhi(rx << (30 - qbit), mu) >> 1;
+    rb *= prime;
+    uint32_t c_lo = c;
+    c_lo -= rb;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
+
+/**
+ * 64-bit integer Shoup modular multiplication.
+ * From paper: Modular SIMD arithmetic in Mathemagix: Algorithm 8
+ * Requires: psi = op2 * 2^64 / prime
+ *           prime < 2^63
+ * Output: op1 * op2 % prime
+ */
+__forceinline__ __device__ uint64_t Shoup_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t psi, const uint64_t prime) {
+    uint64_t c = __umul64hi(op1, psi);
+    uint64_t c_lo = op1 * op2 - c * prime;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
+
+/**
+ * 32-bit integer Shoup modular multiplication.
+ * From paper: Modular SIMD arithmetic in Mathemagix: Algorithm 8
+ * Requires: psi = op2 * 2^32 / prime
+ *           prime < 2^31
+ * Output: op1 * op2 % prime
+ */
+__forceinline__ __device__ uint32_t Shoup_mult_32(const uint32_t op1, const uint32_t op2, const uint32_t psi, const uint32_t prime) {
+    uint32_t c = __umulhi(op1, psi);
+    uint32_t c_lo = op1 * op2 - c * prime;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
+
+/** Helper function that computes the higher 42 bits of a 106 bit wide multiplication of two 53-bit integers.
+ *  Note: it may actually compute up to 53 bits but the lower 11 are discarded.
+ */
+__forceinline__ __device__ uint64_t fp64himult(const uint64_t a, const uint64_t b) {
+    /// Estructura fp64: (sign) 63 | (exp) 62 - 52 | (mantissa) 51 - 0
+    const int lza = __clzll(a);
+    const int lzb = __clzll(b);
+    uint64_t aux_a = a << (lza - 11); // signo + exponente - 1
+    uint64_t aux_b = b << (lzb - 11);
+    // eliminar bit implicito
+    aux_a &= ~(1ul << 52);
+    aux_b &= ~(1ul << 52);
+    // Poner exponentes a 0.
+    aux_a |= 0x3FF0000000000000;
+    aux_b |= 0x3FF0000000000000;
+    // Conversión literal de los datos
+    const double da = *((double*)&aux_a), db = *((double*)&aux_b);
+    // Multiplicamos double sin redondeo (redondeo hacia abajo)
+    const double dc = __dmul_rd(da, db);
+    const uint64_t c = *((uint64_t*)&dc);
+    // Eliminamos exponente y signo de la interpretación entera.
+    uint64_t res = (c & 0x000FFFFFFFFFFFFF) | (1ul << 52);
+
+    // Nos quedamos con los 42 bits más significativos (los 64 bits bajos se eliminan) con el shift.
+    // Si el exponente está a uno, hacemos un shift menos.
+    // res >>= -10 + lza + lzb - ((c & (1ul << 62)) != 0); // 52 - (53*2 - 64) + (lza - 11) + (lzb - 11);
+
+    // Nos quedamos con los 53 bits más significativos (los 53 bits bajos se eliminan) con el shift.
+    // Si el exponente está a uno, hacemos un shift menos.
+    res >>= -21 + lza + lzb - ((c & (1ul << 62)) != 0); // 52 - (53*2 - 53) + (lza - 11) + (lzb - 11);
+
+    // uint64_t good_res = __umul64hi(a, b << 11);
+    // if(__umul64hi(a, b << 11) != res)
+    //   printf("obj: %p, obtained: %p, a: %A, b: %A, c: %A, lza: %d, lzb: %d\n", good_res, res, da, db, dc, lza, lzb);
+    // assert(__umul64hi(a, b << 11) == res);
+    return res;
+}
+
+/** Helper function that computes the higher 42 bits of a 106 bit wide multiplication of two 53-bit integers.
+ *  This function leverages CUDA's type conversion intrinsics/operations which operate with higher throughput
+ *  on server architectures.
+ *  Note: it may actually compute up to 53 bits but the lower 11 are discarded.
+ */
+
+__forceinline__ __device__ uint64_t fp64himult_ver2(const uint64_t a, const uint64_t b) {
+    const double da = __ll2double_rz(a), db = __ll2double_rz(b);
+    // Multiplicamos double sin redondeo (redondeo hacia abajo)
+
+    const double dc = __dmul_rz(da, db);
+    // Divsión rápida entre 2 ^ 53
+    uint64_t aux = __double_as_longlong(dc);
+    aux -= (53ul << 52);
+
+    const uint64_t res = __double2ll_rz(__longlong_as_double(aux));
+
+    return res;
+}
+
+/** 53-bit integer improved Barret modular multiplication implementation leveraging fp84 computation. (p < 2^51) */
+__forceinline__ __device__ uint64_t Neal_mult_53(const uint64_t op1, const uint64_t op2, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
+    //        assert(op1 < prime);
+    //        assert(op2 < prime);
+    //        assert(mu < (1ll << 53));
+    // const uint64_t aux = fp64himult(op1, op2);
+    // assert(aux == __umul64hi(op1, op2 << 11));
+    /*
+        const uint64_t rx = fp64himult(op1 << (53 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
+        uint64_t quot = fp64himult(rx, mu << (53 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+        uint64_t rem = (((op1 * op2)) - ((quot * prime))) & 0x001FFFFFFFFFFFFF;
+
+        if constexpr(VERSION == BARRET) rem = (rem - 2 * prime * (rem >= 2 * prime));
+        rem = (rem - prime * (rem >= prime));
+
+  //      assert(rem < prime);
+        return rem;
+  */
+
+    const uint64_t rx = fp64himult_ver2(op1 << (53 - qbit), op2 << 2);
+    uint64_t rb = fp64himult_ver2(rx << (51 - qbit), mu) >> 1;
+    rb *= prime;
+    uint64_t c_lo = op1 * op2;
+    c_lo -= rb;
+    c_lo &= 0x001FFFFFFFFFFFFFU;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
+
+template <ALGO algo> __forceinline__ __device__ uint64_t modmult(const uint64_t a, const uint64_t b, const int primeid, const uint64_t shoup_b) {
+    const uint64_t p = C_.primes[primeid];
+    uint64_t res{ 0 };
+    if constexpr (algo >= 1 && algo <= 2) {
+    } else if constexpr (algo == 3) {
+        res = Shoup_mult_64(a, b, shoup_b, p);
+    } else if constexpr (algo == 4) {
+        res = Neal_mult_64(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
+    } else if constexpr (algo == 5) {
+        res = Neal_mult_53(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
+    } else {
+        res = (__uint128_t)a * b % p;
     }
+    return res;
+}
 
-    template <ALGO algo>
-    __forceinline__ __device__ uint64_t modmult(const uint64_t a, const uint64_t b, const int primeid,
-                                                const uint64_t shoup_b)
-    {
-        const uint64_t p = C_.primes[primeid];
-        uint64_t res{0};
-        if constexpr (algo >= 1 && algo <= 2)
-        {
-        }
-        else if constexpr (algo == 3)
-        {
-            res = Shoup_mult_64(a, b, shoup_b, p);
-        }
-        else if constexpr (algo == 4)
-        {
-            res = Neal_mult_64(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
-        }
-        else if constexpr (algo == 5)
-        {
-            res = Neal_mult_53(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
-        }
-        else
-        {
-            res = (__uint128_t)a * b % p;
-        }
-        return res;
+template <ALGO algo> __device__ uint32_t modmult(const uint32_t a, const uint32_t b, const int primeid, const uint32_t shoup_b) {
+    const uint32_t p = C_.primes[primeid];
+    uint32_t res{ 0 };
+    if constexpr (algo >= 1 && algo <= 2) {
+    } else if constexpr (algo == 3) {
+        res = Shoup_mult_32(a, b, shoup_b, p);
+    } else if constexpr (algo == 4) {
+        res = Neal_mult_32(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
+    } else {
+        res = (uint64_t)a * (uint64_t)b % (uint64_t)p;
     }
+    return res;
+}
 
-    template <ALGO algo>
-    __device__ uint32_t modmult(const uint32_t a, const uint32_t b, const int primeid, const uint32_t shoup_b)
-    {
-        const uint32_t p = C_.primes[primeid];
-        uint32_t res{0};
-        if constexpr (algo >= 1 && algo <= 2)
-        {
+//--------------------------------------- MODULAR REDUCTION ------------------------------------------------
+
+/** 64-bit integer improved Barret modular reduction implementation. (p < 2^62) */ // TODO test
+__forceinline__ __device__ uint64_t Neal_reduce_64(__uint128_t c, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
+    /*
+    __uint128_t c = (__uint128_t)op1 * op2;
+    uint64_t rx = c >> (qbit - 2);
+    uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
+    rb *= prime;
+    uint64_t c_lo = c;
+    c_lo -= rb;
+    c_lo -= prime * (c_lo >= prime);
+    return c_lo;
+*/
+
+    /*
+    __uint128_t p2 = (__uint128_t)prime * prime;
+    for (int i = 10; i > 0; i--) {
+        if (c > (p2 << i)) {
+            c = c - (p2 << i);
         }
-        else if constexpr (algo == 3)
-        {
-            res = Shoup_mult_32(a, b, shoup_b, p);
-        }
-        else if constexpr (algo == 4)
-        {
-            res = Neal_mult_32(a, b, C_.prime_better_barret_mu[primeid], p, C_.prime_bits[primeid]);
-        }
-        else
-        {
-            res = (uint64_t)a * (uint64_t)b % (uint64_t)p;
-        }
-        return res;
     }
-
-    //--------------------------------------- MODULAR REDUCTION ------------------------------------------------
-
-    /** 64-bit integer improved Barret modular reduction implementation. (p < 2^62) */ // TODO test
-    __forceinline__ __device__ uint64_t Neal_reduce_64(__uint128_t c, const uint64_t mu, const uint64_t prime,
-                                                       const uint32_t qbit)
-    {
-        /*
-        __uint128_t c = (__uint128_t)op1 * op2;
-        uint64_t rx = c >> (qbit - 2);
-        uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
-        rb *= prime;
-        uint64_t c_lo = c;
-        c_lo -= rb;
-        c_lo -= prime * (c_lo >= prime);
-        return c_lo;
     */
 
-        /*
-        __uint128_t p2 = (__uint128_t)prime * prime;
-        for (int i = 10; i > 0; i--) {
-            if (c > (p2 << i)) {
-                c = c - (p2 << i);
-            }
-        }
-        */
+    uint64_t rx = c >> (qbit - 2);
+    uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
+    rb *= prime;
+    uint64_t c_lo = c;
+    c_lo -= rb;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
 
-        uint64_t rx = c >> (qbit - 2);
-        uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
-        rb *= prime;
-        uint64_t c_lo = c;
-        c_lo -= rb;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
+/** 32-bit integer improved Barret modular reduction implementation. (p < 2^30) */ // TODO test
+__forceinline__ __device__ uint32_t Neal_reduce_32(const uint64_t c, const uint32_t mu, const uint32_t prime, const uint32_t& qbit) {
+    uint32_t rx = c >> (qbit - 2);
+    uint32_t rb = __umulhi(rx << (30 - qbit), mu) >> 1;
+    rb *= prime;
+    uint32_t c_lo = c;
+    c_lo -= rb;
+    c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
+    return c_lo;
+}
 
-    /** 32-bit integer improved Barret modular reduction implementation. (p < 2^30) */ // TODO test
-    __forceinline__ __device__ uint32_t Neal_reduce_32(const uint64_t c, const uint32_t mu, const uint32_t prime,
-                                                       const uint32_t& qbit)
-    {
-        uint32_t rx = c >> (qbit - 2);
-        uint32_t rb = __umulhi(rx << (30 - qbit), mu) >> 1;
-        rb *= prime;
-        uint32_t c_lo = c;
-        c_lo -= rb;
-        c_lo = (c_lo >= prime) ? c_lo - prime : c_lo;
-        return c_lo;
-    }
-
-    /**
+/**
  * Exact 128-bit -> 64-bit modular reduction, Shoup style. (p < 2^63)
  *
  * x = hi * 2^64 + lo, and 2^64 == r64 (mod p), so x mod p = hi*r64 mod p + lo mod p.
@@ -324,69 +277,52 @@ namespace FIDESlib
  * below p, which holds for both r64 and 1, so there is no bound on x, unlike
  * Neal_reduce_64 above, which caps its input at 2^(2*bits).
  */
-    __forceinline__ __device__ uint64_t Shoup_reduce_128(const __uint128_t x, const int primeid)
-    {
-        const uint64_t p = C_.primes[primeid];
-        const uint64_t inv64 = C_.one_shoup[primeid]; // floor(2^64 / p)
-        const uint64_t r64 = (uint64_t)0 - p * inv64; // 2^64 mod p, hoisted per prime
-        const uint64_t hi = (uint64_t)(x >> 64);
-        const uint64_t lo = (uint64_t)x;
+__forceinline__ __device__ uint64_t Shoup_reduce_128(const __uint128_t x, const int primeid) {
+    const uint64_t p = C_.primes[primeid];
+    const uint64_t inv64 = C_.one_shoup[primeid]; // floor(2^64 / p)
+    const uint64_t r64 = (uint64_t)0 - p * inv64; // 2^64 mod p, hoisted per prime
+    const uint64_t hi = (uint64_t)(x >> 64);
+    const uint64_t lo = (uint64_t)x;
 
-        const uint64_t q1 = __umul64hi(hi, C_.r64_shoup[primeid]);
-        uint64_t t = hi * r64 - q1 * p; // < 2p, exact in 64-bit wraparound
-        t = (t >= p) ? t - p : t;
+    const uint64_t q1 = __umul64hi(hi, C_.r64_shoup[primeid]);
+    uint64_t t = hi * r64 - q1 * p; // < 2p, exact in 64-bit wraparound
+    t = (t >= p) ? t - p : t;
 
-        const uint64_t q2 = __umul64hi(lo, inv64);
-        uint64_t u = lo - q2 * p; // < 2p
-        u = (u >= p) ? u - p : u;
+    const uint64_t q2 = __umul64hi(lo, inv64);
+    uint64_t u = lo - q2 * p; // < 2p
+    u = (u >= p) ? u - p : u;
 
-        const uint64_t r = t + u; // < 2p
-        return (r >= p) ? r - p : r;
+    const uint64_t r = t + u; // < 2p
+    return (r >= p) ? r - p : r;
+}
+
+template <ALGO algo> __device__ uint32_t modreduce(const uint64_t a, const int primeid) {
+    // if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu \n", primeid, p);
+    uint32_t res{ 0 };
+    if constexpr (algo >= 0 && algo <= 2) {
+        res = a % C_.primes[primeid];
+    } else if constexpr (algo == 3 || algo == 4) {
+        res = Neal_reduce_32(a, C_.prime_better_barret_mu[primeid], C_.primes[primeid], C_.prime_bits[primeid]);
+    } else {
+        assert("fp64 reduce not implemented" == nullptr);
     }
+    return res;
+}
 
-    template <ALGO algo>
-    __device__ uint32_t modreduce(const uint64_t a, const int primeid)
-    {
-        // if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu \n", primeid, p);
-        uint32_t res{0};
-        if constexpr (algo >= 0 && algo <= 2)
-        {
-            res = a % C_.primes[primeid];
-        }
-        else if constexpr (algo == 3 || algo == 4)
-        {
-            res = Neal_reduce_32(a, C_.prime_better_barret_mu[primeid], C_.primes[primeid], C_.prime_bits[primeid]);
-        }
-        else
-        {
-            assert("fp64 reduce not implemented" == nullptr);
-        }
-        return res;
+template <ALGO algo> __device__ uint64_t modreduce(const __uint128_t a, const int primeid) {
+    // if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu \n", primeid, p);
+    if constexpr (algo == ALGO_SHOUP) {
+        // Exact over the whole 128-bit range, unlike the Barrett branch below.
+        return Shoup_reduce_128(a, primeid);
+    } else if constexpr (algo >= 0 && algo <= 2) {
+        return a % (__uint128_t)C_.primes[primeid];
+    } else if constexpr (algo == 4) {
+        return Neal_reduce_64(a, C_.prime_better_barret_mu[primeid], C_.primes[primeid], C_.prime_bits[primeid]);
+    } else {
+        assert("fp64 reduce not implemented" == nullptr);
     }
-
-    template <ALGO algo>
-    __device__ uint64_t modreduce(const __uint128_t a, const int primeid)
-    {
-        // if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu \n", primeid, p);
-        if constexpr (algo == ALGO_SHOUP)
-        {
-            // Exact over the whole 128-bit range, unlike the Barrett branch below.
-            return Shoup_reduce_128(a, primeid);
-        }
-        else if constexpr (algo >= 0 && algo <= 2)
-        {
-            return a % (__uint128_t)C_.primes[primeid];
-        }
-        else if constexpr (algo == 4)
-        {
-            return Neal_reduce_64(a, C_.prime_better_barret_mu[primeid], C_.primes[primeid], C_.prime_bits[primeid]);
-        }
-        else
-        {
-            assert("fp64 reduce not implemented" == nullptr);
-        }
-        return ULLONG_MAX;
-    }
+    return ULLONG_MAX;
+}
 } // namespace FIDESlib
 
 #endif // FIDESLIB_MODMULT_CUH

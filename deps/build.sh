@@ -14,7 +14,7 @@ git submodule update --init --recursive --remote
 #Source submodule.
 cd openfhe-src
 #git checkout fideslib-ref-v1.5.1.4
-git checkout fideslib-v2.1.4
+git checkout dev-pr-fideslib-remaining
 #git config user.email "FIDESlib"
 #git config user.name "FIDESlib"
 #git apply ../fideslib-ref-1.5.1.4.patch

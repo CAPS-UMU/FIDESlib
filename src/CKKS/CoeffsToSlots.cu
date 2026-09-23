@@ -24,128 +24,126 @@ using namespace FIDESlib::CKKS;
 constexpr bool BATCHED = false;
 
 void FIDESlib::CKKS::EvalLinearTransform(Ciphertext& ctxt, int slots, bool decode) {
-	CudaNvtxRange r(std::string{ sc::current().function_name() });
-	//constexpr bool PRINT		 = false;
-	//FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-	ContextData& cc = ctxt.cc;
+    CudaNvtxRange r(std::string{ sc::current().function_name() });
+    // constexpr bool PRINT		 = false;
+    // FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
+    ContextData& cc = ctxt.cc;
 
-	if constexpr (BATCHED) {
-		/*
-		CiphertextBatch<Ciphertext*> bctxt = {.cts = {&ctxt},
-											  .conf = {.cc_ = ctxt.cc_,
-													   .dims = {{.size = 1}},
-													   .level = ctxt.getLevel(),
-													   .scale_degree = ctxt.NoiseLevel,
-													   .isExt = ctxt.c0.isModUp()}};
+    if constexpr (BATCHED) {
+        /*
+        CiphertextBatch<Ciphertext*> bctxt = {.cts = {&ctxt},
+                                              .conf = {.cc_ = ctxt.cc_,
+                                                       .dims = {{.size = 1}},
+                                                       .level = ctxt.getLevel(),
+                                                       .scale_degree = ctxt.NoiseLevel,
+                                                       .isExt = ctxt.c0.isModUp()}};
 
-		auto& LTconf = cc.GetBootPrecomputation(slots).LT;
-		PlaintextBatch<Plaintext*> bptxt = {
-			.conf = {.cc_ = ctxt.cc_,
-					 .dims = {{.size = 1},
-							  {.size = (LTconf.slots + LTconf.bStep - 1) / LTconf.bStep},
-							  {.size = LTconf.bStep}},
-					 .level = ctxt.getLevel(),
-					 .scale_degree = ctxt.NoiseLevel,
-					 .isExt = (decode ? LTconf.invA : LTconf.A)[0].c0.isModUp()}};
-		for (auto& i : (decode ? LTconf.invA : LTconf.A)) {
-			bptxt.cts.push_back(&i);
-		}
-		int rowSize_padded = bptxt.conf.dims[1].size * bptxt.conf.dims[2].size;
-		while (bptxt.cts.size() < rowSize_padded)
-			bptxt.cts.push_back(nullptr);
+        auto& LTconf = cc.GetBootPrecomputation(slots).LT;
+        PlaintextBatch<Plaintext*> bptxt = {
+            .conf = {.cc_ = ctxt.cc_,
+                     .dims = {{.size = 1},
+                              {.size = (LTconf.slots + LTconf.bStep - 1) / LTconf.bStep},
+                              {.size = LTconf.bStep}},
+                     .level = ctxt.getLevel(),
+                     .scale_degree = ctxt.NoiseLevel,
+                     .isExt = (decode ? LTconf.invA : LTconf.A)[0].c0.isModUp()}};
+        for (auto& i : (decode ? LTconf.invA : LTconf.A)) {
+            bptxt.cts.push_back(&i);
+        }
+        int rowSize_padded = bptxt.conf.dims[1].size * bptxt.conf.dims[2].size;
+        while (bptxt.cts.size() < rowSize_padded)
+            bptxt.cts.push_back(nullptr);
 
-		LinearTransform(bctxt, rowSize_padded, LTconf.bStep, bptxt, 1, 0);
-		*/
-	} else {
+        LinearTransform(bctxt, rowSize_padded, LTconf.bStep, bptxt, 1, 0);
+        */
+    } else {
 
-		int bStep                 = cc.GetBootPrecomputation(slots).LT.bStep;
-		int gStep                 = slots / bStep;
-		std::vector<Plaintext>& A = decode ? cc.GetBootPrecomputation(slots).LT.invA : cc.GetBootPrecomputation(slots).LT.A;
-		std::vector<Plaintext*> Aptr(slots, nullptr);
-		for (uint32_t j = 0; j < static_cast<uint32_t>(gStep); ++j) {
-			for (uint32_t i = 0; i < static_cast<uint32_t>(bStep); ++i) {
-				if (bStep * j + i < static_cast<uint32_t>(slots))
-					Aptr[bStep * j + i] = &(A[bStep * j + i]);
-			}
-		}
-		LinearTransform(ctxt, slots, bStep, Aptr, 1, 0);
-	}
+        int bStep = cc.GetBootPrecomputation(slots).LT.bStep;
+        int gStep = slots / bStep;
+        std::vector<Plaintext>& A = decode ? cc.GetBootPrecomputation(slots).LT.invA : cc.GetBootPrecomputation(slots).LT.A;
+        std::vector<Plaintext*> Aptr(slots, nullptr);
+        for (uint32_t j = 0; j < static_cast<uint32_t>(gStep); ++j) {
+            for (uint32_t i = 0; i < static_cast<uint32_t>(bStep); ++i) {
+                if (bStep * j + i < static_cast<uint32_t>(slots))
+                    Aptr[bStep * j + i] = &(A[bStep * j + i]);
+            }
+        }
+        LinearTransform(ctxt, slots, bStep, Aptr, 1, 0);
+    }
 }
 
 void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode) {
-	CudaNvtxRange r(std::string{ sc::current().function_name() });
-	constexpr bool PRINT = false;
-	// FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-	ContextData& cc = ctxt.cc;
+    CudaNvtxRange r(std::string{ sc::current().function_name() });
+    constexpr bool PRINT = false;
+    // FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
+    ContextData& cc = ctxt.cc;
 
-	if constexpr (PRINT) {
-		cudaDeviceSynchronize();
-		std::cout << "Input stc ";
-		for (auto& j : ctxt.c0.GPU) {
-			cudaSetDevice(j.device);
-			for (auto& i : j.limb) {
-				SWITCH(i, printThisLimb(1));
-			}
-		}
-		std::cout << std::endl;
-		cudaDeviceSynchronize();
-	}
-	//  No need for Encrypted Bit Reverse
-	// Ciphertext& result = ctxt;
-	// hoisted automorphisms
-	if (ctxt.NoiseLevel == 2)
-		ctxt.rescaleInternal();
+    if constexpr (PRINT) {
+        cudaDeviceSynchronize();
+        std::cout << "Input stc ";
+        for (auto& j : ctxt.c0.GPU) {
+            cudaSetDevice(j.device);
+            for (auto& i : j.limb) {
+                SWITCH(i, printThisLimb(1));
+            }
+        }
+        std::cout << std::endl;
+        cudaDeviceSynchronize();
+    }
+    //  No need for Encrypted Bit Reverse
+    // Ciphertext& result = ctxt;
+    // hoisted automorphisms
+    if (ctxt.NoiseLevel == 2)
+        ctxt.rescaleInternal();
 
-	for (BootstrapPrecomputation::LTstep& step : (decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS)) {
-		// computes the NTTs for each CRT limb (for the hoisted automorphisms used later on)
+    for (BootstrapPrecomputation::LTstep& step : (decode ? cc.GetBootPrecomputation(slots).StC : cc.GetBootPrecomputation(slots).CtS)) {
+        // computes the NTTs for each CRT limb (for the hoisted automorphisms used later on)
 
-		if constexpr (BATCHED) {
-			/*
-			CiphertextBatch<Ciphertext*> bctxt = {.cts = {&ctxt},
-												  .conf = {.cc_ = ctxt.cc_,
-														   .dims = {{.size = 1}},
-														   .level = ctxt.getLevel(),
-														   .scale_degree = ctxt.NoiseLevel,
-														   .isExt = ctxt.c0.isModUp()}};
+        if constexpr (BATCHED) {
+            /*
+            CiphertextBatch<Ciphertext*> bctxt = {.cts = {&ctxt},
+                                                  .conf = {.cc_ = ctxt.cc_,
+                                                           .dims = {{.size = 1}},
+                                                           .level = ctxt.getLevel(),
+                                                           .scale_degree = ctxt.NoiseLevel,
+                                                           .isExt = ctxt.c0.isModUp()}};
 
-			if (bctxt.conf.scale_degree == 2)
-				bctxt.Rescale();
+            if (bctxt.conf.scale_degree == 2)
+                bctxt.Rescale();
 
-			PlaintextBatch<Plaintext*> bptxt = {
-				.conf = {
-					.cc_ = ctxt.cc_,
-					.dims = {{.size = 1}, {.size = (step.slots + step.bStep - 1) / step.bStep}, {.size = step.bStep}},
-					.level = ctxt.getLevel(),
-					.scale_degree = ctxt.NoiseLevel,
-					.isExt = step.A[0].c0.isModUp()}};
-			for (auto& i : step.A) {
-				bptxt.cts.push_back(&i);
-			}
-			int rowSize_padded = bptxt.conf.dims[1].size * bptxt.conf.dims[2].size;
-			while (bptxt.cts.size() < rowSize_padded)
-				bptxt.cts.push_back(nullptr);
+            PlaintextBatch<Plaintext*> bptxt = {
+                .conf = {
+                    .cc_ = ctxt.cc_,
+                    .dims = {{.size = 1}, {.size = (step.slots + step.bStep - 1) / step.bStep}, {.size = step.bStep}},
+                    .level = ctxt.getLevel(),
+                    .scale_degree = ctxt.NoiseLevel,
+                    .isExt = step.A[0].c0.isModUp()}};
+            for (auto& i : step.A) {
+                bptxt.cts.push_back(&i);
+            }
+            int rowSize_padded = bptxt.conf.dims[1].size * bptxt.conf.dims[2].size;
+            while (bptxt.cts.size() < rowSize_padded)
+                bptxt.cts.push_back(nullptr);
 
-			LinearTransform(bctxt, rowSize_padded, step.bStep, bptxt, step.rotIn[1] - step.rotIn[0], step.rotOut[0]);
-			*/
-		} else {
+            LinearTransform(bctxt, rowSize_padded, step.bStep, bptxt, step.rotIn[1] - step.rotIn[0], step.rotOut[0]);
+            */
+        } else {
 
-			{
+            {
 
-				assert(step.slots == step.A.size());
-				std::vector<Plaintext*> Aptr(step.slots, nullptr);
-				for (int j = 0; j < step.gStep; ++j) {
-					for (int i = 0; i < step.bStep; ++i) {
-						if (step.bStep * j + i < step.slots)
-							Aptr[step.bStep * j + i] = &(step.A[step.bStep * j + i]);
-					}
-				}
+                assert(step.slots == step.A.size());
+                std::vector<Plaintext*> Aptr(step.slots, nullptr);
+                for (int j = 0; j < step.gStep; ++j) {
+                    for (int i = 0; i < step.bStep; ++i) {
+                        if (step.bStep * j + i < step.slots)
+                            Aptr[step.bStep * j + i] = &(step.A[step.bStep * j + i]);
+                    }
+                }
 
-				int stride = step.bStep > 1 ? step.rotIn[1] - step.rotIn[0] : step.rotOut[1];
-				int offset = step.rotOut[0];
-				{
-					LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset);
-				}
-			}
-		}
-	}
+                int stride = step.bStep > 1 ? step.rotIn[1] - step.rotIn[0] : step.rotOut[1];
+                int offset = step.rotOut[0];
+                { LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset); }
+            }
+        }
+    }
 }

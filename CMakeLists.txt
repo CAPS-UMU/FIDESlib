@@ -3,10 +3,9 @@ cmake_policy(VERSION 3.21.3...3.30)
 
 ############### Project configuration ###################
 
-# Set target architectures.
-if (NOT DEFINED FIDESLIB_ARCH)
-    set(FIDESLIB_ARCH "75-real;80-real;86-real;89-real;90-real;90-virtual;100-real;120-real" CACHE STRING "Set the backend architecture target.")
-endif ()
+# Target architectures: FIDESLIB_ARCH may be an explicit CUDA_ARCHITECTURES list or `auto` to build
+# only for the GPUs found by nvidia-smi. When unset, the portable default is resolved below, once
+# the CUDA toolkit location is known.
 
 # Set build type.
 set(DEFAULT_BUILD_TYPE "Release")
@@ -65,6 +64,70 @@ set(CMAKE_CUDA_COMPILER "${CUDA_PATH}/bin/nvcc")
 # Check if CUDA is installed.
 if (NOT EXISTS "${CUDA_PATH}")
     message(FATAL_ERROR "CUDA not found at ${CUDA_PATH}. Please install CUDA.")
+endif ()
+
+# Resolve the target GPU architectures (FIDESLIB_ARCH may already be given on the command line).
+#
+#     -DFIDESLIB_ARCH=<list>  explicit CUDA_ARCHITECTURES list (e.g. -DFIDESLIB_ARCH=70-real).
+#     -DFIDESLIB_ARCH=auto    build only for the GPUs visible through nvidia-smi; falls back to the
+#                             portable default below when no GPU is found at configure time.
+#     unset                   portable default: every architecture the installed nvcc supports, so a
+#                             single build runs on any target (e.g. a V100/sm_70 on CUDA 12.x). The
+#                             list is clipped to the toolkit's real range because CUDA 13 dropped
+#                             offline compilation for < sm_75 and sm_100/sm_120 need CUDA >= 12.8.
+set(_fideslib_all_archs "70-real;75-real;80-real;86-real;89-real;90-real;90-virtual;100-real;120-real")
+set(_fideslib_min_sm 70)
+set(_fideslib_max_sm 120)
+
+execute_process(COMMAND "${CUDA_PATH}/bin/nvcc" --version OUTPUT_VARIABLE _nvcc_out ERROR_QUIET RESULT_VARIABLE _nvcc_rc)
+if (_nvcc_rc EQUAL 0 AND _nvcc_out MATCHES "release ([0-9]+)\\.([0-9]+)")
+    if (CMAKE_MATCH_1 GREATER_EQUAL 13)
+        set(_fideslib_min_sm 75)             # CUDA 13 removed offline compilation for Volta (sm_70).
+    endif ()
+    if (NOT (CMAKE_MATCH_1 GREATER 12 OR (CMAKE_MATCH_1 EQUAL 12 AND CMAKE_MATCH_2 GREATER_EQUAL 8)))
+        set(_fideslib_max_sm 90)             # sm_100/sm_120 need CUDA >= 12.8.
+    endif ()
+else ()
+    message(WARNING "FIDESlib: could not read the nvcc version from ${CUDA_PATH}/bin/nvcc; assuming a CUDA 12.x toolkit.")
+endif ()
+
+set(_fideslib_portable_archs "")
+foreach (_a IN LISTS _fideslib_all_archs)
+    string(REGEX MATCH "^([0-9]+)" _sm "${_a}")
+    if (_sm GREATER_EQUAL _fideslib_min_sm AND _sm LESS_EQUAL _fideslib_max_sm)
+        list(APPEND _fideslib_portable_archs "${_a}")
+    endif ()
+endforeach ()
+
+if (NOT DEFINED FIDESLIB_ARCH)
+    set(FIDESLIB_ARCH "${_fideslib_portable_archs}" CACHE STRING "Set the backend architecture target (`auto` builds only for the GPUs found by nvidia-smi).")
+    message(STATUS "FIDESlib: CUDA architectures: ${FIDESLIB_ARCH}")
+elseif (FIDESLIB_ARCH STREQUAL "auto")
+    set(_fideslib_detected "")
+    find_program(_fideslib_nvidia_smi nvidia-smi)
+    if (_fideslib_nvidia_smi)
+        execute_process(COMMAND "${_fideslib_nvidia_smi}" --query-gpu=compute_cap --format=csv,noheader OUTPUT_VARIABLE _smi_out ERROR_QUIET RESULT_VARIABLE _smi_rc)
+        if (_smi_rc EQUAL 0)
+            string(REPLACE "\n" ";" _caps "${_smi_out}")
+            foreach (_cap IN LISTS _caps)
+                string(STRIP "${_cap}" _cap)
+                if (_cap MATCHES "^([0-9]+)\\.([0-9]+)$")
+                    math(EXPR _sm "${CMAKE_MATCH_1} * 10 + ${CMAKE_MATCH_2}")
+                    if (_sm GREATER_EQUAL _fideslib_min_sm AND _sm LESS_EQUAL _fideslib_max_sm)
+                        list(APPEND _fideslib_detected "${_sm}-real")
+                    endif ()
+                endif ()
+            endforeach ()
+            list(REMOVE_DUPLICATES _fideslib_detected)
+        endif ()
+    endif ()
+    if (_fideslib_detected)
+        set(FIDESLIB_ARCH "${_fideslib_detected}" CACHE STRING "Set the backend architecture target (`auto` builds only for the GPUs found by nvidia-smi)." FORCE)
+        message(STATUS "FIDESlib: CUDA architectures auto-detected from nvidia-smi: ${FIDESLIB_ARCH}")
+    else ()
+        set(FIDESLIB_ARCH "${_fideslib_portable_archs}" CACHE STRING "Set the backend architecture target (`auto` builds only for the GPUs found by nvidia-smi)." FORCE)
+        message(STATUS "FIDESlib: no GPU detected (FIDESLIB_ARCH=auto); using portable architectures: ${FIDESLIB_ARCH}")
+    endif ()
 endif ()
 
 # Global language config.

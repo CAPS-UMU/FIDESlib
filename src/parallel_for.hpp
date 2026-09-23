@@ -7,11 +7,10 @@
 
 #include <functional>
 
-namespace FIDESlib
-{
-    void parallel_for(int init, int end, int increment, const std::function<void(int)>& f);
+namespace FIDESlib {
+void parallel_for(int init, int end, int increment, const std::function<void(int)>& f);
 
-    void openmp_synchronize();
+void openmp_synchronize();
 } // namespace FIDESlib
 
 #endif // FIDESLIB_PARALLEL_FOR_HPP

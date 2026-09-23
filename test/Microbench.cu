@@ -19,13 +19,13 @@
 
 #if 0
 #define CUDA_CHECK(call)                                                                                \
-	do {                                                                                                \
-		cudaError_t err__ = (call);                                                                     \
-		if (err__ != cudaSuccess) {                                                                     \
-			fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(err__), __FILE__, __LINE__); \
-			std::exit(EXIT_FAILURE);                                                                    \
-		}                                                                                               \
-	} while (0)
+    do {                                                                                                \
+        cudaError_t err__ = (call);                                                                     \
+        if (err__ != cudaSuccess) {                                                                     \
+            fprintf(stderr, "CUDA error %s at %s:%d\n", cudaGetErrorString(err__), __FILE__, __LINE__); \
+            std::exit(EXIT_FAILURE);                                                                    \
+        }                                                                                               \
+    } while (0)
 
 // Adjust this if you change the body of the loop
 #ifndef OPS_PER_ITER
@@ -651,67 +651,67 @@ __global__ void int64_modmult(int* out, int iters)
 }
 
 #define bench(func)                                                                                                       \
-	{                                                                                                                     \
-		int device = 0;                                                                                                   \
-		CUDA_CHECK(cudaSetDevice(device));                                                                                \
+    {                                                                                                                     \
+        int device = 0;                                                                                                   \
+        CUDA_CHECK(cudaSetDevice(device));                                                                                \
                                                                                                                           \
-		cudaDeviceProp prop;                                                                                              \
-		CUDA_CHECK(cudaGetDeviceProperties(&prop, device));                                                               \
+        cudaDeviceProp prop;                                                                                              \
+        CUDA_CHECK(cudaGetDeviceProperties(&prop, device));                                                               \
                                                                                                                           \
-		int iters			= 100'000;                                                                                    \
-		int threadsPerBlock = 128;                                                                                        \
-		int blocks			= prop.multiProcessorCount * 48;                                                              \
+        int iters = 100'000;                                                                                              \
+        int threadsPerBlock = 128;                                                                                        \
+        int blocks = prop.multiProcessorCount * 48;                                                                       \
                                                                                                                           \
-		const long long numThreads = 1LL * threadsPerBlock * blocks;                                                      \
+        const long long numThreads = 1LL * threadsPerBlock * blocks;                                                      \
                                                                                                                           \
-		printf("Device: %s\n", prop.name);                                                                                \
-		printf("SMs: %d, clock: %.3f MHz\n", prop.multiProcessorCount, prop.clockRate / 1000.0);                          \
-		printf("Launch config: blocks=%d, threadsPerBlock=%d, totalThreads=%lld\n", blocks, threadsPerBlock, numThreads); \
-		printf("Loop iters per thread: %d, OPS_PER_ITER=%d\n", iters, OPS_PER_ITER);                                      \
+        printf("Device: %s\n", prop.name);                                                                                \
+        printf("SMs: %d, clock: %.3f MHz\n", prop.multiProcessorCount, prop.clockRate / 1000.0);                          \
+        printf("Launch config: blocks=%d, threadsPerBlock=%d, totalThreads=%lld\n", blocks, threadsPerBlock, numThreads); \
+        printf("Loop iters per thread: %d, OPS_PER_ITER=%d\n", iters, OPS_PER_ITER);                                      \
                                                                                                                           \
-		int* d_out = nullptr;                                                                                             \
-		CUDA_CHECK(cudaMalloc(&d_out, numThreads * sizeof(int)));                                                         \
+        int* d_out = nullptr;                                                                                             \
+        CUDA_CHECK(cudaMalloc(&d_out, numThreads * sizeof(int)));                                                         \
                                                                                                                           \
-		func<<<blocks, threadsPerBlock>>>(d_out, iters);                                                                  \
-		CUDA_CHECK(cudaGetLastError());                                                                                   \
-		CUDA_CHECK(cudaDeviceSynchronize());                                                                              \
+        func<<<blocks, threadsPerBlock>>>(d_out, iters);                                                                  \
+        CUDA_CHECK(cudaGetLastError());                                                                                   \
+        CUDA_CHECK(cudaDeviceSynchronize());                                                                              \
                                                                                                                           \
-		cudaEvent_t start, stop;                                                                                          \
-		CUDA_CHECK(cudaEventCreate(&start));                                                                              \
-		CUDA_CHECK(cudaEventCreate(&stop));                                                                               \
+        cudaEvent_t start, stop;                                                                                          \
+        CUDA_CHECK(cudaEventCreate(&start));                                                                              \
+        CUDA_CHECK(cudaEventCreate(&stop));                                                                               \
                                                                                                                           \
-		CUDA_CHECK(cudaEventRecord(start));                                                                               \
-		func<<<blocks, threadsPerBlock>>>(d_out, iters);                                                                  \
-		CUDA_CHECK(cudaGetLastError());                                                                                   \
-		CUDA_CHECK(cudaEventRecord(stop));                                                                                \
-		CUDA_CHECK(cudaEventSynchronize(stop));                                                                           \
+        CUDA_CHECK(cudaEventRecord(start));                                                                               \
+        func<<<blocks, threadsPerBlock>>>(d_out, iters);                                                                  \
+        CUDA_CHECK(cudaGetLastError());                                                                                   \
+        CUDA_CHECK(cudaEventRecord(stop));                                                                                \
+        CUDA_CHECK(cudaEventSynchronize(stop));                                                                           \
                                                                                                                           \
-		float ms = 0.0f;                                                                                                  \
-		CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));                                                               \
+        float ms = 0.0f;                                                                                                  \
+        CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));                                                               \
                                                                                                                           \
-		CUDA_CHECK(cudaEventDestroy(start));                                                                              \
-		CUDA_CHECK(cudaEventDestroy(stop));                                                                               \
+        CUDA_CHECK(cudaEventDestroy(start));                                                                              \
+        CUDA_CHECK(cudaEventDestroy(stop));                                                                               \
                                                                                                                           \
-		double seconds	   = ms * 1e-3;                                                                                   \
-		double total_iters = static_cast<double>(iters) * static_cast<double>(numThreads);                                \
-		double total_ops   = total_iters * static_cast<double>(OPS_PER_ITER);                                             \
-		double iops		   = total_ops / seconds;                                                                         \
-		double gops		   = iops / 1e9;                                                                                  \
-		double tops		   = iops / 1e12;                                                                                 \
-		double iops_per_sm = iops / prop.multiProcessorCount;                                                             \
+        double seconds = ms * 1e-3;                                                                                       \
+        double total_iters = static_cast<double>(iters) * static_cast<double>(numThreads);                                \
+        double total_ops = total_iters * static_cast<double>(OPS_PER_ITER);                                               \
+        double iops = total_ops / seconds;                                                                                \
+        double gops = iops / 1e9;                                                                                         \
+        double tops = iops / 1e12;                                                                                        \
+        double iops_per_sm = iops / prop.multiProcessorCount;                                                             \
                                                                                                                           \
-		printf("\nKernel time: %.3f ms\n", ms);                                                                           \
-		printf("Total int32 ops: %.3e\n", total_ops);                                                                     \
-		printf("Integer throughput: %.3e ops/s (%.3f GOPS, %.3f TOPS)\n", iops, gops, tops);                              \
-		printf("Per-SM integer throughput: %.3e ops/s per SM\n", iops_per_sm);                                            \
+        printf("\nKernel time: %.3f ms\n", ms);                                                                           \
+        printf("Total int32 ops: %.3e\n", total_ops);                                                                     \
+        printf("Integer throughput: %.3e ops/s (%.3f GOPS, %.3f TOPS)\n", iops, gops, tops);                              \
+        printf("Per-SM integer throughput: %.3e ops/s per SM\n", iops_per_sm);                                            \
                                                                                                                           \
-		int sample = 0;                                                                                                   \
-		CUDA_CHECK(cudaMemcpy(&sample, d_out + 1, sizeof(int), cudaMemcpyDeviceToHost));                                  \
-		printf("Sample output[0] = %d\n", sample);                                                                        \
+        int sample = 0;                                                                                                   \
+        CUDA_CHECK(cudaMemcpy(&sample, d_out + 1, sizeof(int), cudaMemcpyDeviceToHost));                                  \
+        printf("Sample output[0] = %d\n", sample);                                                                        \
                                                                                                                           \
-		CUDA_CHECK(cudaFree(d_out));                                                                                      \
-		CUDA_CHECK(cudaDeviceReset());                                                                                    \
-	}
+        CUDA_CHECK(cudaFree(d_out));                                                                                      \
+        CUDA_CHECK(cudaDeviceReset());                                                                                    \
+    }
 
 TEST(Microbench, int32)
 {
