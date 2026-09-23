@@ -156,10 +156,13 @@ void CiphertextImpl<DCRTPoly>::SetLevel(size_t level) {
         return;
     }
 
-    // GPU path.
+    // GPU path. Pure tower drop (skip_adjust = true): api SetLevel mirrors OpenFHE's
+    // metadata SetLevel (drop towers, keep values/scale). The default skip_adjust=false
+    // path would run adjustScaleAndLevel under the AUTO techniques — a rescaling op —
+    // and diverge from the CPU reference bit-for-bit.
     auto ct_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->parent_context->GetDeviceCiphertext(this->gpu));
     auto maxDepth = this->parent_context->multiplicative_depth;
-    ct_gpu->dropToLevel(maxDepth - level);
+    ct_gpu->dropToLevel(maxDepth - level, true);
 }
 
 void CiphertextImpl<DCRTPoly>::EnsureLazyCPUCopy() {
