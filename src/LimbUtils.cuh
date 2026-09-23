@@ -25,15 +25,15 @@ struct LimbRecord {
     int destDeviceRank = -1;
     /*
 LimbRecord(const int id, const TYPE type, cudaStream_t & stream)
-    : id(id), type(type), stream(stream) {
-    assert(type == U32 || type == U64);
+: id(id), type(type), stream(stream) {
+assert(type == U32 || type == U64);
 }
 */
     /*
 void print(){
 
 }
- */
+*/
 };
 
 // LimbRecord a{ .id = 0, .type = U32};

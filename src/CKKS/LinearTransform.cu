@@ -681,7 +681,7 @@ namespace FIDESlib::CKKS {
 /*
 template <CiphertextPtr ptrT, PlaintextPtr ptrU>
 void LinearTransform(CiphertextBatch<ptrT>& ctxt, int rowSize, int bStep, const PlaintextBatch<ptrU>& pts, int stride,
-                 int offset) {
+             int offset) {
 CudaNvtxRange r(std::string{sc::current().function_name()});
 assert(pts.cts.size() >= rowSize);
 Context& cc_ = ctxt.conf.cc_;
@@ -689,20 +689,20 @@ ContextData& cc = *cc_;
 uint32_t gStep = ceil(static_cast<double>(rowSize) / bStep);
 
 if (ctxt.conf.scale_degree == 2)
-    ctxt.Rescale();
+ctxt.Rescale();
 
 std::vector<int> indexes;
 for (int i = 0; i < bStep; ++i) {
-    indexes.push_back(i * stride);
+indexes.push_back(i * stride);
 }
 
 bool ext = true;
 if (bStep == 1)
-    ext = false;
+ext = false;
 for (auto& i : pts.cts) {
-    if (i && !i->c0.isModUp()) {
-        ext = false;
-    }
+if (i && !i->c0.isModUp()) {
+    ext = false;
+}
 }
 
 assert(pts.conf.dims.size() >= 2);
@@ -716,48 +716,48 @@ outSize.push_back(gStep);
 std::vector<CiphertextBatch<std::shared_ptr<Ciphertext>>> inner_by_step(gStep);
 
 {
-    auto fastRotation = ctxt.HoistedRotate({indexes}, ext);
+auto fastRotation = ctxt.HoistedRotate({indexes}, ext);
 
-    {
-        auto inner = fastRotation.DotProductPt(pts, outSize, {(int)gStep});
-        auto aux_conf = inner.conf;
-        aux_conf.dims.pop_back();
-        for (int i = 0; i < gStep; ++i) {
-            inner_by_step[i].conf = aux_conf;
-            inner_by_step[i].cts.resize(ctxt.cts.size());
-            for (int j = 0; j < ctxt.cts.size(); ++j) {
-                inner_by_step[i].cts[j] = inner.cts[j * gStep + i];
-            }
-            for (int j = 0; j < inner_by_step[i].cts[0]->c0.GPU.size(); ++j) {
-                inner_by_step[i].cts[0]->c0.GPU[j].s.wait(inner.cts[0]->c0.GPU[j].s);
-            }
+{
+    auto inner = fastRotation.DotProductPt(pts, outSize, {(int)gStep});
+    auto aux_conf = inner.conf;
+    aux_conf.dims.pop_back();
+    for (int i = 0; i < gStep; ++i) {
+        inner_by_step[i].conf = aux_conf;
+        inner_by_step[i].cts.resize(ctxt.cts.size());
+        for (int j = 0; j < ctxt.cts.size(); ++j) {
+            inner_by_step[i].cts[j] = inner.cts[j * gStep + i];
+        }
+        for (int j = 0; j < inner_by_step[i].cts[0]->c0.GPU.size(); ++j) {
+            inner_by_step[i].cts[0]->c0.GPU[j].s.wait(inner.cts[0]->c0.GPU[j].s);
         }
     }
+}
 }
 
 //fastRotation = {};
 
 for (uint32_t j = gStep - 1; j < gStep; --j) {
 
-    if (j != gStep - 1) {
-        inner_by_step[j].Add(inner_by_step[j + 1]);
-        inner_by_step.pop_back();
-    }
+if (j != gStep - 1) {
+    inner_by_step[j].Add(inner_by_step[j + 1]);
+    inner_by_step.pop_back();
+}
 
-    if (j > 0) {
-        if ((stride * bStep) % (cc.N / 2) != 0) {
-            if (inner_by_step[j].conf.isExt)
-                inner_by_step[j].ModDownC1(false);
-            inner_by_step[j].Rotate({(int)stride * bStep}, false);
-        }
-    } else if (offset != 0) {
+if (j > 0) {
+    if ((stride * bStep) % (cc.N / 2) != 0) {
         if (inner_by_step[j].conf.isExt)
             inner_by_step[j].ModDownC1(false);
-        inner_by_step[j].Rotate({offset}, true);
-    } else {
-        if (inner_by_step[j].conf.isExt)
-            inner_by_step[j].ModDown(false);
+        inner_by_step[j].Rotate({(int)stride * bStep}, false);
     }
+} else if (offset != 0) {
+    if (inner_by_step[j].conf.isExt)
+        inner_by_step[j].ModDownC1(false);
+    inner_by_step[j].Rotate({offset}, true);
+} else {
+    if (inner_by_step[j].conf.isExt)
+        inner_by_step[j].ModDown(false);
+}
 }
 
 ctxt.Copy(inner_by_step[0]);
@@ -765,7 +765,7 @@ ctxt.Copy(inner_by_step[0]);
 */
 /*
 template void LinearTransform<Ciphertext*, Plaintext*>(CiphertextBatch<Ciphertext*>& ctxt, int rowSize, int bStep,
-                                                   const PlaintextBatch<Plaintext*>& pts, int stride, int offset);
+                                               const PlaintextBatch<Plaintext*>& pts, int stride, int offset);
 template void LinearTransform<Ciphertext*, std::shared_ptr<Plaintext>>(
 CiphertextBatch<Ciphertext*>& ctxt, int rowSize, int bStep, const PlaintextBatch<std::shared_ptr<Plaintext>>& pts,
 int stride, int offset);

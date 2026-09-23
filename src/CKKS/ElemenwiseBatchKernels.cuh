@@ -12,7 +12,7 @@
 namespace FIDESlib::CKKS {
 __global__ void mult1AddMult23Add4_(const __grid_constant__
 
-    int partition,
+                                    int partition,
 
     void** l,
 
@@ -26,7 +26,7 @@ __global__ void mult1AddMult23Add4_(const __grid_constant__
 
 __global__ void multnomoddownend_(const __grid_constant__
 
-    int primeid_init,
+                                  int primeid_init,
 
     void** c1,
 
@@ -42,7 +42,7 @@ __global__ void multnomoddownend_(const __grid_constant__
 
 __global__ void mult1Add2_(const __grid_constant__
 
-    int partition,
+                           int partition,
 
     void** l,
 
@@ -67,7 +67,7 @@ __global__ void copy_(void** src, void** dst);
 __global__ void copy1D_(void* a, void* b);
 __global__ void eval_linear_w_sum_(const __grid_constant__
 
-    int n,
+                                   int n,
 
     void** a,
 
@@ -77,7 +77,7 @@ __global__ void eval_linear_w_sum_(const __grid_constant__
     const __grid_constant__ int primeid_init);
 __global__ void eval_linear_w_sum_with_bias_(const __grid_constant__
 
-    int n,
+                                             int n,
 
     void** a,
 
@@ -87,7 +87,7 @@ __global__ void eval_linear_w_sum_with_bias_(const __grid_constant__
     const __grid_constant__ int primeid_init);
 __global__ void eval_batched_linear_w_sum_with_bias_(const __grid_constant__
 
-    int n,
+                                                     int n,
 
     const __grid_constant__ int results,
 
@@ -139,7 +139,7 @@ __global__ void dotProductPt_(void** c0, void** c1, void*** data, const size_t p
 
 __global__ void binomialMult_(const __grid_constant__
 
-    int primeid_init,
+                              int primeid_init,
 
     void** c0,
 
@@ -152,7 +152,7 @@ __global__ void binomialMult_(const __grid_constant__
     void** d1);
 __global__ void binomialMultExtend_(const __grid_constant__
 
-    int primeid_init,
+                                    int primeid_init,
 
     void** c0,
 
@@ -165,7 +165,7 @@ __global__ void binomialMultExtend_(const __grid_constant__
     void** d1);
 __global__ void binomialSquare_(const __grid_constant__
 
-    int primeid_init,
+                                int primeid_init,
 
     void** c0,
 
@@ -174,7 +174,7 @@ __global__ void binomialSquare_(const __grid_constant__
     void** c2);
 __global__ void binomialSquareExtend_(const __grid_constant__
 
-    int primeid_init,
+                                      int primeid_init,
 
     void** c0,
 
@@ -208,7 +208,7 @@ __global__ void copy_reuse_negative_b___(void*** a, void*** b, const int primeid
 
 __global__ void binomialDotProdBatched___(const __grid_constant__
 
-    int primeid_init,
+                                          int primeid_init,
 
     void*** c0,
 

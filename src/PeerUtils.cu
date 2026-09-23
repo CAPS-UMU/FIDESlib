@@ -114,7 +114,8 @@ static void launch(cudaFunction_t kernel, dim3 grid, dim3 block, void** args, ui
         cudaError_t err = cudaStreamUpdateCaptureDependencies_compat(s, // The capturing stream
             nullptr,                                                    // No specific nodes to depend on
             0,                                                          // No additional nodes
-            cudaStreamAddCaptureDependencies                            // Add implicit dependencies
+            cudaStreamAddCaptureDependencies
+            // Add implicit dependencies
         );
 
         CudaCheckErrorModNoSync;

@@ -224,7 +224,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
     // auto aux = cc->GetCryptoParameters()->GetParamsPK()->GetParamPartition();
 
     for (auto& i : /*cc->params->m_params->m_params*/
-         cc->GetCryptoParameters()->GetElementParams()->GetParams()) {
+        cc->GetCryptoParameters()->GetElementParams()->GetParams()) {
         result.moduli.push_back(i->GetModulus().ConvertToInt<uint64_t>() /*m_ciphertextModulus.m_value*/);
         result.root_of_unity.push_back(i->GetRootOfUnity().ConvertToInt<uint64_t>() /*m_rootOfUnity.m_value*/);
         result.cyclotomic_order.push_back(i->GetCyclotomicOrder() /*m_cyclotomicOrder*/);
@@ -382,11 +382,9 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
             // k = 16, sparse-ternary keys k = 16/K_SPARSE, encapsulated keys k = 1 (the OpenFHE
             // runtime k for those keys, cf. FHECKKSRNS::EvalBootstrap). bootK is keyed off the
             // ACTUAL secret-key distribution — never a hardcoded constant.
-            result.bootK = keyDist == lbcrypto::SPARSE_TERNARY ?
-                static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) / lbcrypto::FHECKKSRNS::K_SPARSE :
-                keyDist == lbcrypto::UNIFORM_TERNARY ?
-                static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) :
-                1.0;
+            result.bootK = keyDist == lbcrypto::SPARSE_TERNARY ? static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) / lbcrypto::FHECKKSRNS::K_SPARSE :
+                keyDist == lbcrypto::UNIFORM_TERNARY ? static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) :
+                                                       1.0;
             result.sparse_encaps = true;
             result.doubleAngleIts = lbcrypto::FHECKKSRNS::R_SPARSE;
         } else if (boot_conf == FIDESlib::SPARSE) {
@@ -469,9 +467,7 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetEvalKeySwitchKey(const lbcryp
     return RawKeySwitchKey{};
 }
 
-FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const KeyPair<lbcrypto::DCRTPoly>& keys,
-                                                                        int index,
-                                                                        lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc) {
+FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const KeyPair<lbcrypto::DCRTPoly>& keys, int index, lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc) {
     auto& keyMap = cc->GetAllEvalAutomorphismKeys();
 
     if (keyMap.find(keys.secretKey->GetKeyTag()) != keyMap.end()) {
@@ -582,9 +578,9 @@ void FIDESlib::CKKS::AddRotationKeys(const lbcrypto::PublicKey<lbcrypto::DCRTPol
 }
 
 void FIDESlib::CKKS::GenAndAddRotationKeys(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc,
-                                           const KeyPair<lbcrypto::DCRTPoly>& keys,
-                                           FIDESlib::CKKS::Context& GPUcc,
-                                           std::vector<int> indexes) {
+    const KeyPair<lbcrypto::DCRTPoly>& keys,
+    FIDESlib::CKKS::Context& GPUcc,
+    std::vector<int> indexes) {
 
     GenRotationKeys(keys, indexes);
     AddRotationKeys(keys.publicKey, GPUcc, indexes);
@@ -594,9 +590,7 @@ constexpr bool remove_extension = false;
 [[maybe_unused]] constexpr bool MAKE_CTS_LT_FRIENDLY = true;
 [[maybe_unused]] constexpr bool MAKE_STC_LT_FRIENDLY = true;
 
-std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc,
-                                                     int slots,
-                                                     FIDESlib::CKKS::BootstrapPrecomputation* result_) {
+std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, int slots, FIDESlib::CKKS::BootstrapPrecomputation* result_) {
     // ContextData& GPUcc = *GPUcc_;
     std::vector<int> indexes;
     BootstrapPrecomputation result;
@@ -764,9 +758,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
         {
             int acc_offset = 0;
             for (size_t i = 0; i < result.CtS.size(); i++) {
-                acc_offset += (result.CtS[i].slots / 2) * (result.CtS[i].bStep > 1 ?
-                    result.CtS[i].rotIn[1] :
-                    (result.CtS[i].gStep > 1 ? result.CtS[i].rotOut[1] : 0));
+                acc_offset += (result.CtS[i].slots / 2) * (result.CtS[i].bStep > 1 ? result.CtS[i].rotIn[1] : (result.CtS[i].gStep > 1 ? result.CtS[i].rotOut[1] : 0));
             }
             indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
 
@@ -777,9 +769,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
         {
             int acc_offset = 0;
             for (size_t i = 0; i < result.StC.size(); i++) {
-                acc_offset += (result.StC[i].slots / 2) * (result.StC[i].bStep > 1 ?
-                    result.StC[i].rotIn[1] :
-                    (result.StC[i].gStep > 1 ? result.StC[i].rotOut[1] : 0));
+                acc_offset += (result.StC[i].slots / 2) * (result.StC[i].bStep > 1 ? result.StC[i].rotIn[1] : (result.StC[i].gStep > 1 ? result.StC[i].rotOut[1] : 0));
             }
             indexes.emplace_back(ReduceRotation(-acc_offset, slots_red));
 
@@ -794,8 +784,7 @@ std::vector<int> FIDESlib::CKKS::GetBootstrapIndexes(lbcrypto::CryptoContext<lbc
                 }
 #if AFFINE_LT
                 // We do not include rotOut[0], it is later set to 0 but the last that is set to acc_offset
-                for (auto& j : {
-                         /*i.rotOut[0],*/ i.rotOut.size() > 1 ? i.rotOut[1] /*- i.rotOut[0]*/ : 0 }) {
+                for (auto& j : { /*i.rotOut[0],*/ i.rotOut.size() > 1 ? i.rotOut[1] /*- i.rotOut[0]*/ : 0 }) {
                     indexes.push_back(ReduceRotation(j, slots_red));
                 }
 #else
@@ -970,14 +959,11 @@ void FIDESlib::CKKS::AddBootstrapKeys(const lbcrypto::PublicKey<lbcrypto::DCRTPo
     }
 
     std::cout << "Rotation keys loaded: " << GPUcc.precom.keys.begin()->second.rot_keys.size() << " ~ "
-        << 2 * ((long long)GPUcc.precom.keys.begin()->second.rot_keys.size() * GPUcc.dnum * (GPUcc.L + GPUcc.K + 1) * GPUcc.N * 8 / (1 << 20)) << "MB"
-        << std::endl;
+              << 2 * ((long long)GPUcc.precom.keys.begin()->second.rot_keys.size() * GPUcc.dnum * (GPUcc.L + GPUcc.K + 1) * GPUcc.N * 8 / (1 << 20)) << "MB"
+              << std::endl;
 }
 
-void FIDESlib::CKKS::AddBootstrapPlaintexts(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc,
-                                            int slots,
-                                            FIDESlib::CKKS::Context& GPUcc_,
-                                            FIDESlib::CKKS::BootstrapPrecomputation& result) {
+void FIDESlib::CKKS::AddBootstrapPlaintexts(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, int slots, FIDESlib::CKKS::Context& GPUcc_, FIDESlib::CKKS::BootstrapPrecomputation& result) {
     ContextData& GPUcc = *GPUcc_;
     auto precom = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
 
@@ -1060,10 +1046,7 @@ void FIDESlib::CKKS::AddBootstrapPrecomputation(const lbcrypto::PublicKey<lbcryp
     AddBootstrapKeys(publicKey, slots, GPUcc_);
 }
 
-void FIDESlib::CKKS::AddBootstrapPrecomputation(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc,
-                                                const KeyPair<lbcrypto::DCRTPoly>& keys,
-                                                int slots,
-                                                FIDESlib::CKKS::Context& GPUcc_) {
+void FIDESlib::CKKS::AddBootstrapPrecomputation(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, const KeyPair<lbcrypto::DCRTPoly>& keys, int slots, FIDESlib::CKKS::Context& GPUcc_) {
 
     GenBootstrapKeys(keys, slots, GPUcc_->param.raw->sparse_encaps);
 

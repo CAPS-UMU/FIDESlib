@@ -36,20 +36,20 @@ using Plaintext = std::shared_ptr<PlaintextImpl>;
 
 /// @brief Enumeration of supported PKE scheme features.
 enum PKESchemeFeature {
-	PKE			 = 0x01,
-	KEYSWITCH	 = 0x02,
-	PRE			 = 0x04,
-	LEVELEDSHE	 = 0x08,
-	ADVANCEDSHE	 = 0x10,
-	MULTIPARTY	 = 0x20,
-	FHE			 = 0x40,
-	SCHEMESWITCH = 0x80,
+    PKE = 0x01,
+    KEYSWITCH = 0x02,
+    PRE = 0x04,
+    LEVELEDSHE = 0x08,
+    ADVANCEDSHE = 0x10,
+    MULTIPARTY = 0x20,
+    FHE = 0x40,
+    SCHEMESWITCH = 0x80,
 };
 
 /// @brief Result structure for decryption operations.
 struct DecryptResult {
-	bool isValid;
-	uint32_t messageLength;
+    bool isValid;
+    uint32_t messageLength;
 };
 
 /// @brief Enumeration of supported scaling techniques.
@@ -63,16 +63,16 @@ enum ScalingTechnique {
 /// @brief Enumeration of supported key switching techniques.
 enum KeySwitchTechnique {
     INVALID_KS_TECH = 0,
-    //BV,
+    // BV,
     HYBRID = 2,
 };
 
 /// @brief Enumeration of supported secret key distributions.
 enum SecretKeyDist {
-    GAUSSIAN            = 0,
-    UNIFORM_TERNARY     = 1,
-    SPARSE_TERNARY      = 2,
-    SPARSE_ENCAPSULATED = 3,  
+    GAUSSIAN = 0,
+    UNIFORM_TERNARY = 1,
+    SPARSE_TERNARY = 2,
+    SPARSE_ENCAPSULATED = 3,
 };
 
 /// @brief Enumeration of supported security levels.

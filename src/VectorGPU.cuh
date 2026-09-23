@@ -25,16 +25,16 @@ template <typename T> class VectorGPU {
 
     VectorGPU(VectorGPU<T>&& v) noexcept;
     /*
-    VectorGPU<T> &operator=(VectorGPU<T> && v) noexcept
-     {
-        freeing = v.freeing;
-        managed = v.managed;
-        data = v.data;
-        size = v.size;
-        device = v.device;
-        v.freeing = true;
-        return *this;
-    }
+VectorGPU<T> &operator=(VectorGPU<T> && v) noexcept
+ {
+    freeing = v.freeing;
+    managed = v.managed;
+    data = v.data;
+    size = v.size;
+    device = v.device;
+    v.freeing = true;
+    return *this;
+}
 */
     VectorGPU<T>& operator=(VectorGPU<T>& other) = delete;
     VectorGPU<T>& operator=(const VectorGPU<T>& v) = delete;

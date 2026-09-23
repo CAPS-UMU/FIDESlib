@@ -40,11 +40,11 @@ KeySwitchingKey::KeySwitchingKey(Context& cc)
     CudaNvtxStop();
     /*
 if (cc.GPUid.size() > 1) {
-    for (int j = 0; j < cc.dnum; ++j) {
-        mgpu_a.emplace_back(cc, -1);
-        mgpu_b.emplace_back(cc, -1);
-    }
+for (int j = 0; j < cc.dnum; ++j) {
+    mgpu_a.emplace_back(cc, -1);
+    mgpu_b.emplace_back(cc, -1);
 }
- */
+}
+*/
 }
 } // namespace FIDESlib::CKKS

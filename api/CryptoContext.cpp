@@ -47,8 +47,8 @@ constexpr int PREFIX_SIZE = 23;
 #endif
 
 template <> std::map<std::string, std::vector<lbcrypto::EvalKey<lbcrypto::DCRTPoly>>> lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalMultKeyMap;
-template <> std::map<std::string, std::shared_ptr<std::map<uint32_t, lbcrypto::EvalKey<lbcrypto::DCRTPoly>>>> lbcrypto::CryptoContextImpl<
-    lbcrypto::DCRTPoly>::s_evalAutomorphismKeyMap;
+template <>
+std::map<std::string, std::shared_ptr<std::map<uint32_t, lbcrypto::EvalKey<lbcrypto::DCRTPoly>>>> lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::s_evalAutomorphismKeyMap;
 
 namespace fideslib {
 
@@ -61,66 +61,66 @@ inline void EnsureMutableCpuCiphertext(Ciphertext<DCRTPoly>& ct) {
 } // namespace
 
 static std::vector<FIDESlib::PrimeRecord> p64{ { .p = 2305843009218281473 },
-                                               { .p = 2251799661248513 },
-                                               { .p = 2251799661641729 },
-                                               { .p = 2251799665180673 },
-                                               { .p = 2251799682088961 },
-                                               { .p = 2251799678943233 },
-                                               { .p = 2251799717609473 },
-                                               { .p = 2251799710138369 },
-                                               { .p = 2251799708827649 },
-                                               { .p = 2251799707385857 },
-                                               { .p = 2251799713677313 },
-                                               { .p = 2251799712366593 },
-                                               { .p = 2251799716691969 },
-                                               { .p = 2251799714856961 },
-                                               { .p = 2251799726522369 },
-                                               { .p = 2251799726129153 },
-                                               { .p = 2251799747493889 },
-                                               { .p = 2251799741857793 },
-                                               { .p = 2251799740416001 },
-                                               { .p = 2251799746707457 },
-                                               { .p = 2251799756013569 },
-                                               { .p = 2251799775805441 },
-                                               { .p = 2251799763091457 },
-                                               { .p = 2251799767154689 },
-                                               { .p = 2251799765975041 },
-                                               { .p = 2251799770562561 },
-                                               { .p = 2251799769776129 },
-                                               { .p = 2251799772266497 },
-                                               { .p = 2251799775281153 },
-                                               { .p = 2251799774887937 },
-                                               { .p = 2251799797432321 },
-                                               { .p = 2251799787995137 },
-                                               { .p = 2251799787601921 },
-                                               { .p = 2251799791403009 },
-                                               { .p = 2251799789568001 },
-                                               { .p = 2251799795466241 },
-                                               { .p = 2251799807131649 },
-                                               { .p = 2251799806345217 },
-                                               { .p = 2251799805165569 },
-                                               { .p = 2251799813554177 },
-                                               { .p = 2251799809884161 },
-                                               { .p = 2251799810670593 },
-                                               { .p = 2251799818928129 },
-                                               { .p = 2251799816568833 },
-                                               { .p = 2251799815520257 } };
+    { .p = 2251799661248513 },
+    { .p = 2251799661641729 },
+    { .p = 2251799665180673 },
+    { .p = 2251799682088961 },
+    { .p = 2251799678943233 },
+    { .p = 2251799717609473 },
+    { .p = 2251799710138369 },
+    { .p = 2251799708827649 },
+    { .p = 2251799707385857 },
+    { .p = 2251799713677313 },
+    { .p = 2251799712366593 },
+    { .p = 2251799716691969 },
+    { .p = 2251799714856961 },
+    { .p = 2251799726522369 },
+    { .p = 2251799726129153 },
+    { .p = 2251799747493889 },
+    { .p = 2251799741857793 },
+    { .p = 2251799740416001 },
+    { .p = 2251799746707457 },
+    { .p = 2251799756013569 },
+    { .p = 2251799775805441 },
+    { .p = 2251799763091457 },
+    { .p = 2251799767154689 },
+    { .p = 2251799765975041 },
+    { .p = 2251799770562561 },
+    { .p = 2251799769776129 },
+    { .p = 2251799772266497 },
+    { .p = 2251799775281153 },
+    { .p = 2251799774887937 },
+    { .p = 2251799797432321 },
+    { .p = 2251799787995137 },
+    { .p = 2251799787601921 },
+    { .p = 2251799791403009 },
+    { .p = 2251799789568001 },
+    { .p = 2251799795466241 },
+    { .p = 2251799807131649 },
+    { .p = 2251799806345217 },
+    { .p = 2251799805165569 },
+    { .p = 2251799813554177 },
+    { .p = 2251799809884161 },
+    { .p = 2251799810670593 },
+    { .p = 2251799818928129 },
+    { .p = 2251799816568833 },
+    { .p = 2251799815520257 } };
 
 static std::vector<FIDESlib::PrimeRecord> sp64{ { .p = 2305843009218936833 },
-                                                { .p = 2305843009220116481 },
-                                                { .p = 2305843009221820417 },
-                                                { .p = 2305843009224179713 },
-                                                { .p = 2305843009225228289 },
-                                                { .p = 2305843009227980801 },
-                                                { .p = 2305843009229160449 },
-                                                { .p = 2305843009229946881 },
-                                                { .p = 2305843009231650817 },
-                                                { .p = 2305843009235189761 },
-                                                { .p = 2305843009240301569 },
-                                                { .p = 2305843009242923009 },
-                                                { .p = 2305843009244889089 },
-                                                { .p = 2305843009245413377 },
-                                                { .p = 2305843009247641601 } };
+    { .p = 2305843009220116481 },
+    { .p = 2305843009221820417 },
+    { .p = 2305843009224179713 },
+    { .p = 2305843009225228289 },
+    { .p = 2305843009227980801 },
+    { .p = 2305843009229160449 },
+    { .p = 2305843009229946881 },
+    { .p = 2305843009231650817 },
+    { .p = 2305843009235189761 },
+    { .p = 2305843009240301569 },
+    { .p = 2305843009242923009 },
+    { .p = 2305843009244889089 },
+    { .p = 2305843009245413377 },
+    { .p = 2305843009247641601 } };
 
 static std::unordered_map<PKESchemeFeature, lbcrypto::PKESchemeFeature> PKESchemeFeatureMap = {
     { PKESchemeFeature::PKE, lbcrypto::PKE },
@@ -220,14 +220,10 @@ void CryptoContextImpl<DCRTPoly>::LoadContext(const PublicKey<DCRTPoly>& publicK
     const auto cryptoParams = std::dynamic_pointer_cast<lbcrypto::CryptoParametersCKKSRNS>(context->GetCryptoParameters());
     FIDESlib::BOOT_CONFIG bootConfig;
     switch (this->keyDist) {
-    case fideslib::UNIFORM_TERNARY: bootConfig = FIDESlib::UNIFORM;
-        break;
-    case fideslib::SPARSE_TERNARY: bootConfig = FIDESlib::SPARSE;
-        break;
-    case fideslib::SPARSE_ENCAPSULATED: bootConfig = FIDESlib::ENCAPS;
-        break;
-    default: bootConfig = FIDESlib::UNIFORM;
-        break;
+    case fideslib::UNIFORM_TERNARY: bootConfig = FIDESlib::UNIFORM; break;
+    case fideslib::SPARSE_TERNARY: bootConfig = FIDESlib::SPARSE; break;
+    case fideslib::SPARSE_ENCAPSULATED: bootConfig = FIDESlib::ENCAPS; break;
+    default: bootConfig = FIDESlib::UNIFORM; break;
     }
 
     FIDESlib::CKKS::RawParams rawParams = FIDESlib::CKKS::GetRawParams(context, bootConfig);
@@ -347,12 +343,7 @@ void CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen(const PrivateKey<DCRTPoly>& s
 
 // ---- Bootstrapping ----
 
-void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget,
-                                                     std::vector<uint32_t> dim1,
-                                                     uint32_t slots,
-                                                     uint32_t correctionFactor,
-                                                     bool precompute,
-                                                     bool btsfirstboot) {
+void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute, bool btsfirstboot) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     // Only before loading one must compute the bootstrapping auxiliary data.
@@ -418,17 +409,13 @@ bool CryptoContextImpl<DCRTPoly>::SerializeEvalMultKey(std::ostream& ser, const 
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
     bool res;
     switch (sertype) {
-    case fideslib::SerType::BINARY: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::SerializeEvalMultKey(
-            ser,
-            lbcrypto::SerType::BINARY,
-            keyTag);
+    case fideslib::SerType::BINARY:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::SerializeEvalMultKey(
+            ser, lbcrypto::SerType::BINARY, keyTag);
         break;
-    case fideslib::SerType::JSON: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::SerializeEvalMultKey(
-            ser,
-            lbcrypto::SerType::JSON,
-            keyTag);
+    case fideslib::SerType::JSON:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::SerializeEvalMultKey(
+            ser, lbcrypto::SerType::JSON, keyTag);
         break;
     default: OPENFHE_THROW("Unsupported serialization type");
     }
@@ -440,17 +427,13 @@ bool CryptoContextImpl<DCRTPoly>::SerializeEvalAutomorphismKey(std::ostream& ser
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
     bool res;
     switch (sertype) {
-    case SerType::BINARY: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::SerializeEvalAutomorphismKey(
-            ser,
-            lbcrypto::SerType::BINARY,
-            keyTag);
+    case SerType::BINARY:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::SerializeEvalAutomorphismKey(
+            ser, lbcrypto::SerType::BINARY, keyTag);
         break;
-    case SerType::JSON: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::SerializeEvalAutomorphismKey(
-            ser,
-            lbcrypto::SerType::JSON,
-            keyTag);
+    case SerType::JSON:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::SerializeEvalAutomorphismKey(
+            ser, lbcrypto::SerType::JSON, keyTag);
         break;
     default: OPENFHE_THROW("Unsupported serialization type");
     }
@@ -469,15 +452,13 @@ bool CryptoContextImpl<DCRTPoly>::DeserializeEvalMultKey(std::istream& ser, cons
 
     bool res;
     switch (sertype) {
-    case SerType::BINARY: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::DeserializeEvalMultKey(
-            ser,
-            lbcrypto::SerType::BINARY);
+    case SerType::BINARY:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::DeserializeEvalMultKey(
+            ser, lbcrypto::SerType::BINARY);
         break;
-    case SerType::JSON: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::DeserializeEvalMultKey(
-            ser,
-            lbcrypto::SerType::JSON);
+    case SerType::JSON:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::DeserializeEvalMultKey(
+            ser, lbcrypto::SerType::JSON);
         break;
     default: OPENFHE_THROW("Unsupported serialization type");
     }
@@ -494,15 +475,13 @@ bool CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(std::istream& s
 
     bool res;
     switch (sertype) {
-    case SerType::BINARY: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::DeserializeEvalAutomorphismKey(
-            ser,
-            lbcrypto::SerType::BINARY);
+    case SerType::BINARY:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::DeserializeEvalAutomorphismKey(
+            ser, lbcrypto::SerType::BINARY);
         break;
-    case SerType::JSON: res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned
-            long>>>>::DeserializeEvalAutomorphismKey(
-            ser,
-            lbcrypto::SerType::JSON);
+    case SerType::JSON:
+        res = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPolyImpl<bigintdyn::mubintvec<bigintdyn::ubint<unsigned long>>>>::DeserializeEvalAutomorphismKey(
+            ser, lbcrypto::SerType::JSON);
         break;
     default: OPENFHE_THROW("Unsupported serialization type");
     }
@@ -513,10 +492,10 @@ bool CryptoContextImpl<DCRTPoly>::DeserializeEvalAutomorphismKey(std::istream& s
 // ---- Encoding ----
 
 Plaintext CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector<std::complex<double>>& value,
-                                                               size_t noiseScaleDeg,
-                                                               uint32_t level,
-                                                               const std::shared_ptr<void> params,
-                                                               uint32_t slots) {
+    size_t noiseScaleDeg,
+    uint32_t level,
+    const std::shared_ptr<void> params,
+    uint32_t slots) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
@@ -536,11 +515,7 @@ Plaintext CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector
 }
 
 Plaintext
-CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector<double>& value,
-                                                     size_t noiseScaleDeg,
-                                                     uint32_t level,
-                                                     const std::shared_ptr<void> params,
-                                                     uint32_t slots) {
+CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintext(const std::vector<double>& value, size_t noiseScaleDeg, uint32_t level, const std::shared_ptr<void> params, uint32_t slots) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
@@ -1561,10 +1536,7 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, co
     return result;
 }
 
-Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct,
-                                                                      const int32_t index,
-                                                                      const std::shared_ptr<void>& digits,
-                                                                      bool addFirst) {
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct, const int32_t index, const std::shared_ptr<void>& digits, bool addFirst) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     // Fall back to CPU.
@@ -1593,10 +1565,7 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciph
 }
 
 std::vector<Ciphertext<DCRTPoly>>
-CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct,
-                                              const std::vector<int32_t>& indices,
-                                              const uint32_t m,
-                                              const std::shared_ptr<void>& precomp) {
+CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct, const std::vector<int32_t>& indices, const uint32_t m, const std::shared_ptr<void>& precomp) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     std::vector<Ciphertext<DCRTPoly>> results;
@@ -1639,10 +1608,7 @@ CryptoContextImpl<DCRTPoly>::EvalFastRotation(const Ciphertext<DCRTPoly>& ct,
 }
 
 std::vector<Ciphertext<DCRTPoly>>
-CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct,
-                                                 const std::vector<int32_t>& indices,
-                                                 const std::shared_ptr<void>& digits,
-                                                 bool addFirst) {
+CryptoContextImpl<DCRTPoly>::EvalFastRotationExt(const Ciphertext<DCRTPoly>& ct, const std::vector<int32_t>& indices, const std::shared_ptr<void>& digits, bool addFirst) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     std::vector<Ciphertext<DCRTPoly>> results;
@@ -1783,10 +1749,7 @@ void CryptoContextImpl<DCRTPoly>::SetLevel(Ciphertext<DCRTPoly>& ct, size_t leve
     ct->SetLevel(level);
 }
 
-Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrap(const Ciphertext<DCRTPoly>& ciphertext,
-                                                                uint32_t numIterations,
-                                                                uint32_t precision,
-                                                                bool prescaled) {
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrap(const Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations, uint32_t precision, bool prescaled) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
@@ -1909,12 +1872,12 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 }
 
 void CryptoContextImpl<DCRTPoly>::ConvolutionTransformInPlace(Ciphertext<DCRTPoly>& ct,
-                                                              int gStep,
-                                                              int bStep,
-                                                              const std::vector<Plaintext>& pts,
-                                                              const std::vector<int>& indexes,
-                                                              int stride,
-                                                              int rowSize) {
+    int gStep,
+    int bStep,
+    const std::vector<Plaintext>& pts,
+    const std::vector<int>& indexes,
+    int stride,
+    int rowSize) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     if (this->devices.empty()) {
@@ -1940,14 +1903,14 @@ void CryptoContextImpl<DCRTPoly>::ConvolutionTransformInPlace(Ciphertext<DCRTPol
 }
 
 void CryptoContextImpl<DCRTPoly>::SpecialConvolutionTransformInPlace(Ciphertext<DCRTPoly>& ct,
-                                                                     int gStep,
-                                                                     int bStep,
-                                                                     const std::vector<Plaintext>& pts,
-                                                                     Plaintext& mask,
-                                                                     const std::vector<int>& indexes,
-                                                                     int stride,
-                                                                     int maskRotationStride,
-                                                                     int rowSize) {
+    int gStep,
+    int bStep,
+    const std::vector<Plaintext>& pts,
+    Plaintext& mask,
+    const std::vector<int>& indexes,
+    int stride,
+    int maskRotationStride,
+    int rowSize) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
     if (this->devices.empty()) {

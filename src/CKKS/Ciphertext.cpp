@@ -26,15 +26,14 @@ namespace {
 // than the ciphertext or a NoiseLevel-2 plaintext at the ciphertext's level. Report it instead of returning the
 // unmodified ciphertext (the previous assert(false) is compiled out in Release builds).
 [[noreturn]] void throwAdjustFailure(const char* op, const Ciphertext& c, int operandLevel, int operandNoiseLevel, const char* operandKind) {
-	throw std::runtime_error(std::string("FIDESlib::CKKS::Ciphertext::") + op + ": cannot adjust the " + operandKind +
-							 " operand to the ciphertext (ciphertext level " + std::to_string(c.getLevel()) + ", NoiseLevel " +
-							 std::to_string(c.NoiseLevel) + "; operand level " + std::to_string(operandLevel) + ", NoiseLevel " +
-							 std::to_string(operandNoiseLevel) + "). The operand needs at least as many RNS limbs as the ciphertext and a " +
-							 "NoiseLevel not above the ciphertext's; encode plaintexts at the ciphertext's level.");
+    throw std::runtime_error(std::string("FIDESlib::CKKS::Ciphertext::") + op + ": cannot adjust the " + operandKind + " operand to the ciphertext (ciphertext level " +
+        std::to_string(c.getLevel()) + ", NoiseLevel " + std::to_string(c.NoiseLevel) + "; operand level " + std::to_string(operandLevel) + ", NoiseLevel " +
+        std::to_string(operandNoiseLevel) + "). The operand needs at least as many RNS limbs as the ciphertext and a " +
+        "NoiseLevel not above the ciphertext's; encode plaintexts at the ciphertext's level.");
 }
 } // namespace
 
-bool hoistRotateFused         = true;
+bool hoistRotateFused = true;
 constexpr bool RESCALE_DOUBLE = true;
 
 enum OPS {
@@ -1047,7 +1046,6 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
                     //     results[i]->c0.moddown(true, false);
 
                     results[i]->copyMetadata(*this); // also copies `slots` (was keyID/NoiseLevel/NoiseFactor only -> slots stayed 0)
-
                 }
             }
         } else {
@@ -2000,9 +1998,8 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
         // resulting illegal access surfaces at whatever synchronises next. Fail here instead.
         const auto checkLimbs = [](const auto& g, int limb_size) {
             if ((size_t)limb_size > g.limb.size())
-                throw std::runtime_error("FIDESlib: multMonomial: the monomial holds " + std::to_string(g.limb.size()) +
-                                         " limbs but its level requires " + std::to_string(limb_size) +
-                                         "; it was not grown to its own level.");
+                throw std::runtime_error("FIDESlib: multMonomial: the monomial holds " + std::to_string(g.limb.size()) + " limbs but its level requires " +
+                    std::to_string(limb_size) + "; it was not grown to its own level.");
         };
 
         if (power < cc.N) {

@@ -21,10 +21,10 @@ inline const std::string root_dir = "../";
 #define __TBB_NO_IMPLICIT_LINKAGE
 
 #define MODES(name)                                                                                                          \
-    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name##_fix;     \
-    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name##_fixauto; \
-    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name##_flex;    \
-    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name##_flexext;
+    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name## _fix;     \
+    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name## _fixauto; \
+    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name## _flex;    \
+    extern std::tuple<std::tuple<GeneralTestParams, FIDESlib::CKKS::Parameters>, lbcrypto::ScalingTechnique> name## _flexext;
 
 inline std::vector<int> devices{ 0 };
 

@@ -57,14 +57,14 @@ ModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict
                 }
             }
             /*
-                if (idx == 0) {
-                    printf("Pre Scale from primeid:%d: %lu ", primeid,
-                           G_::ModDown_pre_scale[primeid]);
-                    for (int i_ = 0; i_ < 2; ++i_) {
-                        printf("%lu ", buff[tid + i_ + blockDim.x * i]);
-                    }
-                    printf("\n");
+            if (idx == 0) {
+                printf("Pre Scale from primeid:%d: %lu ", primeid,
+                       G_::ModDown_pre_scale[primeid]);
+                for (int i_ = 0; i_ < 2; ++i_) {
+                    printf("%lu ", buff[tid + i_ + blockDim.x * i]);
                 }
+                printf("\n");
+            }
 */
         }
     }
@@ -116,8 +116,8 @@ ModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict
             }
         }
         /*
-            if (idx == 0)
-                printf("\n");
+        if (idx == 0)
+            printf("\n");
 */
     }
 }
@@ -258,30 +258,30 @@ DecompAndModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** 
     extern __shared__ char shared_mem[];
     uint64_t* buff = ((uint64_t*)shared_mem);
     /*
-        if (threadIdx.y == 0 && idx == 0) {
+    if (threadIdx.y == 0 && idx == 0) {
+        for (int j = d; j < d + 1; ++j) {
+            for (int k = 0; k < 64; ++k) {
+                printf("%d %d:", j, k);
+                for (int l = 0; l < 64; ++l) {
+                    printf("%lu ", G_::DecompAndModUp_pre_scale[MODUPIDX_SCALE(j, k, l)]);
+                }
+                printf("\n");
+            }
+        }
+
+        for (int i = 0; i < 64; ++i) {
             for (int j = d; j < d + 1; ++j) {
                 for (int k = 0; k < 64; ++k) {
-                    printf("%d %d:", j, k);
+                    printf("%d %d %d:", i, j, k);
                     for (int l = 0; l < 64; ++l) {
-                        printf("%lu ", G_::DecompAndModUp_pre_scale[MODUPIDX_SCALE(j, k, l)]);
+                        printf("%lu ", G_::DecompAndModUp_matrix[MODUPIDX_MATRIX(i, j, k, l)]);
                     }
                     printf("\n");
                 }
             }
-
-            for (int i = 0; i < 64; ++i) {
-                for (int j = d; j < d + 1; ++j) {
-                    for (int k = 0; k < 64; ++k) {
-                        printf("%d %d %d:", i, j, k);
-                        for (int l = 0; l < 64; ++l) {
-                            printf("%lu ", G_::DecompAndModUp_matrix[MODUPIDX_MATRIX(i, j, k, l)]);
-                        }
-                        printf("\n");
-                    }
-                }
-            }
-
         }
+
+    }
 */
 
     const int n_d_n = C_.num_primeid_digit_from[d][n - 1];
@@ -318,15 +318,15 @@ DecompAndModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** 
             }
         }
         /*
-            if (i_ == 0 && idx == 0) {
-                printf("Pre Scale from d=%d, n_d_n-1=%d, i_:%d, primeid=%d, index:%d: %lu ", d, n_d_n - 1, i_, primeid,
-                       MODUPIDX_SCALE(d, n_d_n - 1, primeid),
-                       G_::DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)]);
-                for (int i = 0; i < 8; ++i) {
-                    printf("%lu ", buff[tid + i + blockDim.x * i_]);
-                }
-                printf("\n");
+        if (i_ == 0 && idx == 0) {
+            printf("Pre Scale from d=%d, n_d_n-1=%d, i_:%d, primeid=%d, index:%d: %lu ", d, n_d_n - 1, i_, primeid,
+                   MODUPIDX_SCALE(d, n_d_n - 1, primeid),
+                   G_::DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)]);
+            for (int i = 0; i < 8; ++i) {
+                printf("%lu ", buff[tid + i + blockDim.x * i_]);
             }
+            printf("\n");
+        }
 */
     }
 
@@ -373,8 +373,8 @@ DecompAndModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** 
                         res = modadd(res, aux, primeid_j);
                     }
                     /*
-                    if (j_ == 0 && idx == 0)
-                        printf("%lu ", G_::DecompAndModUp_matrix[MODUPIDX_MATRIX(n - 1, d, i_, primeid_j)]);
+                if (j_ == 0 && idx == 0)
+                    printf("%lu ", G_::DecompAndModUp_matrix[MODUPIDX_MATRIX(n - 1, d, i_, primeid_j)]);
 */
                 }
 
@@ -387,9 +387,9 @@ DecompAndModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** 
             }
         }
         /*
-            if (j_ == 0 && idx == 0)
-                printf("\n");
-        */
+        if (j_ == 0 && idx == 0)
+            printf("\n");
+    */
     }
 }
 
@@ -487,8 +487,9 @@ DecompAndModUpConv_spec(void** __restrict__ a, const int __grid_constant__ n, vo
                         // void* __restrict__ peer_ptr = a[pos]; // Load pointer once
                         // uint64_t val				= __ldg(&(reinterpret_cast<uint64_t*>(peer_ptr))[idx]);
 
-                        buff[tid + blockDim.x * pos] = modmult<algo>(buff[tid + blockDim.x * pos] /*((uint64_t*)(a[pos]))[idx]
-                                                                                                   */
+                        buff[tid + blockDim.x * pos] = modmult<algo>(buff[tid + blockDim.x * pos]
+                            /*((uint64_t*)(a[pos]))[idx]
+                             */
                             ,
                             G_->DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)],
                             primeid,

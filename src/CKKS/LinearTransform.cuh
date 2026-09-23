@@ -45,7 +45,7 @@ void LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
     int stride3);
 /*
 void LinearTransformPt(FIDESlib::CKKS::Plaintext& ptxt, FIDESlib::CKKS::Context& cc, int rowSize, int bStep,
-                                    std::vector<Plaintext*> pts, int stride, int offset);
+                                std::vector<Plaintext*> pts, int stride, int offset);
 */
 void LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
     FIDESlib::CKKS::Ciphertext& ctxt3,

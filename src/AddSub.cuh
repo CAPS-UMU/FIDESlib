@@ -8,7 +8,6 @@
 #include "CudaUtils.cuh"
 
 namespace FIDESlib {
-
 template <typename T> __global__ void add_(T* a, const T* b, const int primeId, const __grid_constant__ int elem_b);
 
 template <typename T> __global__ void sub_(T* a, const T* b, const int primeId, const __grid_constant__ int elem_b);
@@ -48,6 +47,5 @@ template <typename T> __forceinline__ __device__ T modsub(const T a, const T b, 
     T tmp0 = a - b;
     return (tmp0 >= prime_p) ? tmp0 + prime_p : tmp0;
 }
-
 } // namespace FIDESlib
 #endif // FIDESLIB_ADDSUB_CUH

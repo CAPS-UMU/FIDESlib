@@ -6,7 +6,6 @@
 #include "PublicKey.hpp"
 
 namespace fideslib {
-
 /// @brief Class for managing a public/private key pair.
 /// @tparam T Underlying representation type.
 template <typename T> class KeyPair;
@@ -14,25 +13,24 @@ template <typename T> class KeyPair;
 /// @brief Specialization of KeyPair for the DCRTPoly representation.
 template <> class KeyPair<DCRTPoly> {
   public:
-	KeyPair()  = default;
-	~KeyPair() = default;
+    KeyPair() = default;
+    ~KeyPair() = default;
 
-	// ---- Copy ----
+    // ---- Copy ----
 
-	KeyPair(const KeyPair&)			   = delete;
-	KeyPair& operator=(const KeyPair&) = default;
+    KeyPair(const KeyPair&) = delete;
+    KeyPair& operator=(const KeyPair&) = default;
 
-	// ---- Move ----
+    // ---- Move ----
 
-	KeyPair(KeyPair&&)			  = default;
-	KeyPair& operator=(KeyPair&&) = default;
+    KeyPair(KeyPair&&) = default;
+    KeyPair& operator=(KeyPair&&) = default;
 
-	// ---- Keys ----
+    // ---- Keys ----
 
-	PublicKey<DCRTPoly> publicKey;
-	PrivateKey<DCRTPoly> secretKey;
+    PublicKey<DCRTPoly> publicKey;
+    PrivateKey<DCRTPoly> secretKey;
 };
-
 } // namespace fideslib
 
 #endif // API_KEYPAIR_HPP

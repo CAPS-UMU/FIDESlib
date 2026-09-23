@@ -9,7 +9,6 @@
 #include "openfhe-interface/RawCiphertext.cuh"
 
 namespace FIDESlib::CKKS {
-
 /**
  * @brief Represents a plaintext in the CKKS scheme.
  *
@@ -211,6 +210,5 @@ class Plaintext {
     void multPt(const Plaintext& b, bool rescale = false);
     void multPt(const Plaintext& b1, const Plaintext& b, bool rescale = false);
 };
-
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_CKKS_PLAINTEXT_CUH

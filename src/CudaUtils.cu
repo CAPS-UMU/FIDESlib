@@ -128,7 +128,7 @@ template void run_in_graph<true>(cudaGraphExec_t& exec, Stream& s, std::function
 
 /*
 void Stream::wait(const Event &ev) const {
-    cudaStreamWaitEvent(ptr, ev.ptr());
+cudaStreamWaitEvent(ptr, ev.ptr());
 }
 */
 void Stream::capture_begin() {
@@ -259,8 +259,8 @@ bool initPool() {
 // of them fails (e.g. cudaGetDeviceCount on a host with a degraded GPU) the runtime
 // stays in the error state, the pool remains empty and Stream::init crashes later.
 bool poolInitialized() {
-	static const bool initialized = initPool();
-	return initialized;
+    static const bool initialized = initPool();
+    return initialized;
 }
 #else
 bool initialized = false;
@@ -278,11 +278,11 @@ void Stream::init(int priority) {
 
 #if !DISABLE_STREAMS
 #if USEPOOL
-	  poolInitialized();
+    poolInitialized();
 #endif
-	  if (high == -1) {
-		  cudaDeviceGetStreamPriorityRange(&low, &high);
-	  }
+    if (high == -1) {
+        cudaDeviceGetStreamPriorityRange(&low, &high);
+    }
 
     // int prio = low + priority * ((high - low - 1)) / 100;
 
@@ -483,7 +483,7 @@ void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
         CudaCheckErrorModNoSync;
         // cudaDeviceSynchronize();
         // if (stream != nullptr) {
-        if (!gpufree_presynced)   // redundant while ContextData::clearAuxilarPoly holds the device synchronized
+        if (!gpufree_presynced) // redundant while ContextData::clearAuxilarPoly holds the device synchronized
             s[id].wait(stream);
         //}
         CudaCheckErrorModNoSync;

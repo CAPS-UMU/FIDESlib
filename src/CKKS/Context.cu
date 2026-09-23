@@ -4,9 +4,9 @@
 #include "CKKS/BootstrapPrecomputation.cuh"
 #include "CKKS/Ciphertext.cuh"
 #include "CKKS/Context.cuh"
+#include <source_location>
 #include <stdexcept>
 #include <string>
-#include <source_location>
 
 #include "../parallel_for.hpp"
 #include "CKKS/KeySwitchingKey.cuh"
@@ -21,7 +21,7 @@ using sc = std::source_location;
 #endif
 
 namespace FIDESlib {
-extern thread_local bool gpufree_presynced;   // defined in CudaUtils.cu next to GPUfree
+extern thread_local bool gpufree_presynced; // defined in CudaUtils.cu next to GPUfree
 }
 
 namespace FIDESlib::CKKS {
@@ -42,13 +42,12 @@ bool OK = false;
 ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs, const int secBits)
 : my_range(loc, LIFETIME), param((CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), param_)), precom(), logN(param.logN), N(1 << logN),
   rescaleTechnique(translateRescalingTechnique(param.scalingTechnique)), L(param.L), logQ(computeLogQ(L, param.primes)), batch(param.batch), GPUid(devs),
-  dnum((validateDnum(GPUid, param.dnum) /*, param.dnum*/)), GPUdigits(generateGPUdigits(dnum, GPUid)),
-  prime((param.primes.resize(L + 1), param.primes)), meta{ generateMeta(GPUid, dnum, GPUdigits, prime, param) }, logQ_d(computeLogQ_d(dnum, meta, prime)),
-  K(computeK(logQ_d, param.Sprimes, param)), logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)),
-  specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)), splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)),
-  decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)), digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)),
-  gatherMeta(generateGatherMeta(meta, L)), limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)),
-  GPUrank(GPUid.size())
+  dnum((validateDnum(GPUid, param.dnum) /*, param.dnum*/)), GPUdigits(generateGPUdigits(dnum, GPUid)), prime((param.primes.resize(L + 1), param.primes)),
+  meta{ generateMeta(GPUid, dnum, GPUdigits, prime, param) }, logQ_d(computeLogQ_d(dnum, meta, prime)), K(computeK(logQ_d, param.Sprimes, param)),
+  logP(computeLogQ(K - 1, param.Sprimes)), specialPrime((param.Sprimes.resize(K), param.Sprimes)), specialMeta(generateSpecialMeta(meta, specialPrime, L + 1, GPUid)),
+  splitSpecialMeta(generateSplitSpecialMeta(specialMeta.at(0), GPUid)), decompMeta(generateDecompMeta(meta, GPUdigits, GPUid, L)),
+  digitMeta(generateDigitMeta(meta, splitSpecialMeta, specialMeta.at(0), GPUdigits, GPUid)), gatherMeta(generateGatherMeta(meta, L)),
+  limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
 // top_limb(devs.size())
 {
 #ifndef NCCL
@@ -920,14 +919,14 @@ void ContextData::trimAuxilarPoly(size_t size) {
 }
 
 void ContextData::clearAuxilarPoly() {
-	// The pool can hold hundreds of RNSPolys with tens of pooled limb buffers each. Every pooled free records an event on
-	// the freeing stream and makes the pool stream wait on it, so a clear costs thousands of event operations (nsys, H200,
-	// N = 2^16, 104 polys: 4816 cudaEventRecord + 4816 cudaStreamWaitEvent, 12.6 ms of host time). After one device-wide
-	// synchronize no buffer is in use any more, so those waits are redundant: skip them while the pool is being cleared.
-	cudaDeviceSynchronize();
-	FIDESlib::gpufree_presynced = true;
-	precom.auxPoly.clear();
-	FIDESlib::gpufree_presynced = false;
+    // The pool can hold hundreds of RNSPolys with tens of pooled limb buffers each. Every pooled free records an event on
+    // the freeing stream and makes the pool stream wait on it, so a clear costs thousands of event operations (nsys, H200,
+    // N = 2^16, 104 polys: 4816 cudaEventRecord + 4816 cudaStreamWaitEvent, 12.6 ms of host time). After one device-wide
+    // synchronize no buffer is in use any more, so those waits are redundant: skip them while the pool is being cleared.
+    cudaDeviceSynchronize();
+    FIDESlib::gpufree_presynced = true;
+    precom.auxPoly.clear();
+    FIDESlib::gpufree_presynced = false;
 }
 
 void ContextData::clearAutomorphismKeys(const KeyHash& KeyID) {
@@ -979,8 +978,7 @@ Context GenCryptoContextGPU(const Parameters& param, const std::vector<int>& dev
     // `[MAXD]`/`[MAXP]` tables are validated inside SetupConstants).
     if (devs.size() > (size_t)MAXG)
         throw std::runtime_error("FIDESlib: cannot build a context for " + std::to_string(devs.size()) +
-                                 " devices: the per-device pools hold MAXG = " + std::to_string(MAXG) +
-                                 ". Use fewer devices, or raise MAXG in src/forwardDefs.cuh and rebuild.");
+            " devices: the per-device pools hold MAXG = " + std::to_string(MAXG) + ". Use fewer devices, or raise MAXG in src/forwardDefs.cuh and rebuild.");
 
     ContextData* data = new ContextData(param, devs);
     if (OK) {

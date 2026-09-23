@@ -12,9 +12,9 @@
 
 namespace FIDESlib {
 /**
-    The main idea is to implement a compiletime/runtime switch for different modular reduction implementations,
-    as tweak factors can be stored on constant memory, we do not need pass them in the parameter list and the
-    rest of the implementation is agnostic to this variability.
+The main idea is to implement a compiletime/runtime switch for different modular reduction implementations,
+as tweak factors can be stored on constant memory, we do not need pass them in the parameter list and the
+rest of the implementation is agnostic to this variability.
 */
 
 // ------------------------------------ BASIC MODULAR MULT KERNELS ----------------------------------------
@@ -41,21 +41,21 @@ __forceinline__ __device__ uint64_t modmult(const uint64_t a, const uint64_t b, 
 /** 64-bit integer improved Barret modular multiplication implementation. (p < 2^62) */
 __forceinline__ __device__ uint64_t Neal_mult_64(const uint64_t op1, const uint64_t op2, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
     /*
-        //        assert(op1 < prime);
+    //        assert(op1 < prime);
 //        assert(op2 < prime);
 
-        const uint64_t rx = __umul64hi(op1 << (64 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
-        uint64_t quot = __umul64hi(rx, mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-        uint64_t rem = op1 * op2 - quot * prime;
+    const uint64_t rx = __umul64hi(op1 << (64 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
+    uint64_t quot = __umul64hi(rx, mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+    uint64_t rem = op1 * op2 - quot * prime;
 
-      //  const__uint128_t rx = (uint128_t) op1 * op2;
-      //  uint64_t quot = __umul64hi(rx >> (qbit - 1), mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-      //  uint64_t rem = ((uint64_t)rx) - quot * prime;
+  //  const__uint128_t rx = (uint128_t) op1 * op2;
+  //  uint64_t quot = __umul64hi(rx >> (qbit - 1), mu << (64 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+  //  uint64_t rem = ((uint64_t)rx) - quot * prime;
 
-        if constexpr(VERSION == BARRET) rem = rem - 2 * prime * (rem >= 2 * prime);
-        rem = rem - prime * (rem >= prime);
- //       assert(rem < prime);
-        return rem;
+    if constexpr(VERSION == BARRET) rem = rem - 2 * prime * (rem >= 2 * prime);
+    rem = rem - prime * (rem >= prime);
+//       assert(rem < prime);
+    return rem;
 
 */
     __uint128_t c = (__uint128_t)op1 * op2;
@@ -174,16 +174,16 @@ __forceinline__ __device__ uint64_t Neal_mult_53(const uint64_t op1, const uint6
     // const uint64_t aux = fp64himult(op1, op2);
     // assert(aux == __umul64hi(op1, op2 << 11));
     /*
-        const uint64_t rx = fp64himult(op1 << (53 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
-        uint64_t quot = fp64himult(rx, mu << (53 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
-        uint64_t rem = (((op1 * op2)) - ((quot * prime))) & 0x001FFFFFFFFFFFFF;
+    const uint64_t rx = fp64himult(op1 << (53 - qbit), op2 << (VERSION == BARRET ? 1 : 2));
+    uint64_t quot = fp64himult(rx, mu << (53 - (VERSION == BARRET ? 1 : (VERSION == DHEM ? 5 : 3))- qbit));
+    uint64_t rem = (((op1 * op2)) - ((quot * prime))) & 0x001FFFFFFFFFFFFF;
 
-        if constexpr(VERSION == BARRET) rem = (rem - 2 * prime * (rem >= 2 * prime));
-        rem = (rem - prime * (rem >= prime));
+    if constexpr(VERSION == BARRET) rem = (rem - 2 * prime * (rem >= 2 * prime));
+    rem = (rem - prime * (rem >= prime));
 
-  //      assert(rem < prime);
-        return rem;
-  */
+//      assert(rem < prime);
+    return rem;
+*/
 
     const uint64_t rx = fp64himult_ver2(op1 << (53 - qbit), op2 << 2);
     uint64_t rb = fp64himult_ver2(rx << (51 - qbit), mu) >> 1;
@@ -230,24 +230,24 @@ template <ALGO algo> __device__ uint32_t modmult(const uint32_t a, const uint32_
 /** 64-bit integer improved Barret modular reduction implementation. (p < 2^62) */ // TODO test
 __forceinline__ __device__ uint64_t Neal_reduce_64(__uint128_t c, const uint64_t mu, const uint64_t prime, const uint32_t qbit) {
     /*
-    __uint128_t c = (__uint128_t)op1 * op2;
-    uint64_t rx = c >> (qbit - 2);
-    uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
-    rb *= prime;
-    uint64_t c_lo = c;
-    c_lo -= rb;
-    c_lo -= prime * (c_lo >= prime);
-    return c_lo;
+__uint128_t c = (__uint128_t)op1 * op2;
+uint64_t rx = c >> (qbit - 2);
+uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;
+rb *= prime;
+uint64_t c_lo = c;
+c_lo -= rb;
+c_lo -= prime * (c_lo >= prime);
+return c_lo;
 */
 
     /*
-    __uint128_t p2 = (__uint128_t)prime * prime;
-    for (int i = 10; i > 0; i--) {
-        if (c > (p2 << i)) {
-            c = c - (p2 << i);
-        }
+__uint128_t p2 = (__uint128_t)prime * prime;
+for (int i = 10; i > 0; i--) {
+    if (c > (p2 << i)) {
+        c = c - (p2 << i);
     }
-    */
+}
+*/
 
     uint64_t rx = c >> (qbit - 2);
     uint64_t rb = __umul64hi(rx << (62 - qbit), mu) >> 1;

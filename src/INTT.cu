@@ -157,8 +157,8 @@ __device__ __forceinline__
         }
 
         /*
-    if (OFFSET_2T(0) == 0 && primeid == 0)
-        printf("INTT load %lu %lu\n", A(0)[0], A(0)[1]);
+if (OFFSET_2T(0) == 0 && primeid == 0)
+    printf("INTT load %lu %lu\n", A(0)[0], A(0)[1]);
 */
     }
     __syncthreads();
@@ -253,9 +253,9 @@ __device__ __forceinline__
     {
         __syncthreads();
         /*
-    if (OFFSET_2T(0) == 0 && primeid == 0)
-        printf("INTT write %lu %lu\n", A(0)[0], A(0)[1]);
-    */
+if (OFFSET_2T(0) == 0 && primeid == 0)
+    printf("INTT write %lu %lu\n", A(0)[0], A(0)[1]);
+*/
         if constexpr (sizeof(T) == 8) {
             const int col_init = j & ~2;
             for (int i = 0; i < M; ++i) {

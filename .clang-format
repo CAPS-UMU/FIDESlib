@@ -52,3 +52,19 @@ SpacesInCStyleCastParentheses: false
 SpacesInContainerLiterals: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
+AttributeMacros:
+  - __grid_constant__
+  - grid_constant
+  - __host__
+  - __device__
+  - __global__
+  - __forceinline__
+  - __launch_bounds__
+QualifierAlignment: Custom
+QualifierOrder:
+  - static
+  - inline
+  - constexpr
+  - const
+  - volatile
+  - __grid_constant__

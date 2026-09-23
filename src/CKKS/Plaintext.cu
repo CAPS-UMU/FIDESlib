@@ -294,46 +294,46 @@ void Plaintext::rotate_hoisted(const std::vector<int>& indexes, std::vector<Plai
 
 #if false
 void Plaintext::multPt(const Plaintext& b, bool rescale) {
-	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 
-	if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
-		cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
-		if (NoiseLevel == 2)
-			this->rescale();
-	}
+    if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
+        cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
+        if (NoiseLevel == 2)
+            this->rescale();
+    }
 
-	if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
-		cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
-		// if (b.c0.getLevel() != this.getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
-		if (!hasSameScalingFactor(b)) {
-			Plaintext b_(cc);
-			if (NoiseLevel == 2)
-				this->rescale();
-			if (b_.NoiseLevel == 2)
-				b_.rescale();
-			multPt(b_, rescale);
-			return;
-		}
-	}
+    if (cc.rescaleTechnique == Context::FIXEDAUTO || cc.rescaleTechnique == Context::FLEXIBLEAUTO ||
+        cc.rescaleTechnique == Context::FLEXIBLEAUTOEXT) {
+        // if (b.c0.getLevel() != this.getLevel() || b.NoiseLevel == 2 /*!hasSameScalingFactor(b)*/) {
+        if (!hasSameScalingFactor(b)) {
+            Plaintext b_(cc);
+            if (NoiseLevel == 2)
+                this->rescale();
+            if (b_.NoiseLevel == 2)
+                b_.rescale();
+            multPt(b_, rescale);
+            return;
+        }
+    }
 
-	assert(NoiseLevel < 2);
-	assert(b.NoiseLevel < 2);
-	c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL);
+    assert(NoiseLevel < 2);
+    assert(b.NoiseLevel < 2);
+    c0.multPt(b.c0, rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL);
 
-	// Manage metadata
-	NoiseLevel += b.NoiseLevel;
-	NoiseFactor *= b.NoiseFactor;
-	if (rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL) {
-		NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
-		NoiseLevel -= 1;
-	}
+    // Manage metadata
+    NoiseLevel += b.NoiseLevel;
+    NoiseFactor *= b.NoiseFactor;
+    if (rescale && cc.rescaleTechnique == CKKS::Context::FIXEDMANUAL) {
+        NoiseFactor /= cc.param.ModReduceFactor.at(c0.getLevel() + 1);
+        NoiseLevel -= 1;
+    }
 }
 
 void Plaintext::addPt(const Plaintext& c) {
-	CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
 
-	// assert(NoiseLevel == b.NoiseLevel);
-	c0.add(c.c0);
+    // assert(NoiseLevel == b.NoiseLevel);
+    c0.add(c.c0);
 }
 
 #endif

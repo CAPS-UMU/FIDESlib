@@ -41,7 +41,6 @@ constexpr bool MODRAISE_WITH_P0 = false;
 constexpr int MAXG = 8;
 constexpr int NTT_1D_LOG_THRESHOLD = (11);
 constexpr int NTT_1D_THRESHOLD = (1 << NTT_1D_LOG_THRESHOLD);
-
 } // namespace FIDESlib
 
 // namespace FIDESlib::CKKS

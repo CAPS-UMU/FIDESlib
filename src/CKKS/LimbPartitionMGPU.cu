@@ -89,9 +89,9 @@ void LimbPartition::rescaleMGPU(int slots) {
             //                 STREAM(top).ptr());
             // stream.wait(STREAM(top));
             /*
-        std::cout << "GPU: " << id << " ";
-        SWITCH(top, printThisLimb(2));
-        std::cout << std::endl;
+    std::cout << "GPU: " << id << " ";
+    SWITCH(top, printThisLimb(2));
+    std::cout << std::endl;
 */
             // while (bufferLIMB == nullptr && limb.size() > limbsize - 1) {
             //     STREAM(limb.back()).wait(stream);
@@ -145,10 +145,10 @@ void LimbPartition::rescaleMGPU(int slots) {
         }
     }
     /* {
-    std::vector<uint64_t> data(cc.N, 0);
-    cudaMemcpyAsync(data.data(), buffer, cc.N * sizeof(uint64_t), cudaMemcpyDeviceToHost, stream.ptr());
-    cudaDeviceSynchronize();
-    std::cout << "GPU " << id << " (" << data[0] << " " << data[1] << ")" << std::endl;
+std::vector<uint64_t> data(cc.N, 0);
+cudaMemcpyAsync(data.data(), buffer, cc.N * sizeof(uint64_t), cudaMemcpyDeviceToHost, stream.ptr());
+cudaDeviceSynchronize();
+std::cout << "GPU " << id << " (" << data[0] << " " << data[1] << ")" << std::endl;
 } */
 
     {
@@ -244,9 +244,9 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
                     cudaMemcpyAsync(buffer[i], std::get<U64>(top).v.data, cc.N * sizeof(uint64_t), cudaMemcpyDeviceToDevice, stream[i]->ptr());
                 }
                 /*
-        std::cout << "GPU: " << id << " ";
-        SWITCH(top, printThisLimb(2));
-        std::cout << std::endl;
+    std::cout << "GPU: " << id << " ";
+    SWITCH(top, printThisLimb(2));
+    std::cout << std::endl;
 */
                 // while (part[i]->bufferLIMB == nullptr && part[i]->limb.size() > limbsize - 1) {
                 //     STREAM(part[i]->limb.back()).wait(*stream[i]);
@@ -328,11 +328,11 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 #endif
         }
         /* {
-        std::vector<uint64_t> data(cc.N, 0);
-        cudaMemcpyAsync(data.data(), buffer, cc.N * sizeof(uint64_t), cudaMemcpyDeviceToHost, stream.ptr());
-        cudaDeviceSynchronize();
-        std::cout << "GPU " << id << " (" << data[0] << " " << data[1] << ")" << std::endl;
-    } */
+    std::vector<uint64_t> data(cc.N, 0);
+    cudaMemcpyAsync(data.data(), buffer, cc.N * sizeof(uint64_t), cudaMemcpyDeviceToHost, stream.ptr());
+    cudaDeviceSynchronize();
+    std::cout << "GPU " << id << " (" << data[0] << " " << data[1] << ")" << std::endl;
+} */
     }
     for (int j = 0; j < 2; ++j) {
         // stream[j]->wait(part[j]->s);
@@ -373,20 +373,20 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
 
     /*
 if (cc.GPUid.size() > 1) {
-    if (MEMCPY_PEER) {
-        openmp_synchronize();
-        if (cc.limbGPUid[*level].x == id) {
-            for (int i = 0; i < cc.GPUid.size(); ++i) {
-                if (i != id) {
-                    {
-                        stream[0]->wait(cc.top_limb_stream[i]);
-                        stream[1]->wait(cc.top_limb_stream2[i]);
-                    }
+if (MEMCPY_PEER) {
+    openmp_synchronize();
+    if (cc.limbGPUid[*level].x == id) {
+        for (int i = 0; i < cc.GPUid.size(); ++i) {
+            if (i != id) {
+                {
+                    stream[0]->wait(cc.top_limb_stream[i]);
+                    stream[1]->wait(cc.top_limb_stream2[i]);
                 }
-                CudaCheckErrorModNoSync;
             }
+            CudaCheckErrorModNoSync;
         }
     }
+}
 }
 */
 } // namespace FIDESlib::CKKS
@@ -686,17 +686,17 @@ void LimbPartition::modup_ksk_moddown_mgpu(LimbPartition& c0,
     CudaCheckErrorModNoSync;
     /*
 std::cout << ksk_a.bufferLIMB << " " << ksk_a.bufferGATHER << " " << ksk_a.bufferDECOMPandDIGIT << " "
-          << ksk_a.bufferSPECIAL << std::endl;
+      << ksk_a.bufferSPECIAL << std::endl;
 std::cout << ksk_b.bufferLIMB << " " << ksk_b.bufferGATHER << " " << ksk_b.bufferDECOMPandDIGIT << " "
-          << ksk_b.bufferSPECIAL << std::endl;
+      << ksk_b.bufferSPECIAL << std::endl;
 std::cout << auxLimbs1.bufferLIMB << " " << auxLimbs1.bufferGATHER << " " << auxLimbs1.bufferDECOMPandDIGIT << " "
-          << auxLimbs1.bufferSPECIAL << std::endl;
+      << auxLimbs1.bufferSPECIAL << std::endl;
 std::cout << auxLimbs2.bufferLIMB << " " << auxLimbs2.bufferGATHER << " " << auxLimbs2.bufferDECOMPandDIGIT << " "
-          << auxLimbs2.bufferSPECIAL << std::endl;
+      << auxLimbs2.bufferSPECIAL << std::endl;
 std::cout << c0.bufferLIMB << " " << c0.bufferGATHER << " " << c0.bufferDECOMPandDIGIT << " " << c0.bufferSPECIAL
-          << std::endl;
+      << std::endl;
 std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPandDIGIT << " " << c1.bufferSPECIAL
-          << std::endl;
+      << std::endl;
 */
     if (GRAPH_CAPTURE) {
         if ((!MEMCPY_PEER || (MEMCPY_PEER && id == 0))) {
@@ -2244,11 +2244,11 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                         std::cout << cc.precom.constants[id].num_primeid_digit_to[d_][*level] << "<- num_prime_id_digit_to: " << d_ << std::endl;
                         std::cout << cc.precom.constants[id].num_primeid_digit_from[d_][*level] << "<- num_prime_id_digit_from: " << d_ << std::endl;
                         /*
-                        std::cout << host_constants_per_gpu[id].num_primeid_digit_to[d_][level - 1]
-                                  << "<- num_prime_id_digit_to: " << d_ << std::endl;
-                        std::cout << host_constants_per_gpu[id].num_primeid_digit_from[d_][level - 1]
-                                  << "<- num_prime_id_digit_from: " << d_ << std::endl;
-                                  */
+                    std::cout << host_constants_per_gpu[id].num_primeid_digit_to[d_][level - 1]
+                              << "<- num_prime_id_digit_to: " << d_ << std::endl;
+                    std::cout << host_constants_per_gpu[id].num_primeid_digit_from[d_][level - 1]
+                              << "<- num_prime_id_digit_from: " << d_ << std::endl;
+                              */
                     }
 
                 CudaCheckErrorModNoSync;

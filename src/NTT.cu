@@ -550,20 +550,20 @@ NTT_1D(const Global::Globals* Globals, T* dat, const T* psi_dat, const int __gri
     int maskPsi = m;
     // printf("m: %d\n", m);
     /*
-    for(;m > blockDim.x; m >>= 1, maskPsi = (maskPsi << 1) | 1){
-        __syncthreads();
-        for(int tile = 0; tile < N/2; tile += blockDim.x){
-            const int tid = tile + threadIdx.x;
-            const int mask = m - 1;
-            int j1 = (mask & tid) | ((~mask & tid) << 1);
-            int j2 = j1 | m;
+for(;m > blockDim.x; m >>= 1, maskPsi = (maskPsi << 1) | 1){
+    __syncthreads();
+    for(int tile = 0; tile < N/2; tile += blockDim.x){
+        const int tid = tile + threadIdx.x;
+        const int mask = m - 1;
+        int j1 = (mask & tid) | ((~mask & tid) << 1);
+        int j2 = j1 | m;
 
-            const T & psiaux = psi_dat[tid & maskPsi];
-            T &aux1 = dat[j1];
-            T &aux2 = dat[j2];
-            CT_butterfly<T, 4>(aux1, aux2, psiaux, primeid);
-        }
+        const T & psiaux = psi_dat[tid & maskPsi];
+        T &aux1 = dat[j1];
+        T &aux2 = dat[j2];
+        CT_butterfly<T, 4>(aux1, aux2, psiaux, primeid);
     }
+}
 */
 
     for (int tile = 0; tile < N / 2; tile += blockDim.x) {

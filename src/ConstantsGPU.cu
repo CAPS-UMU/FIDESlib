@@ -141,10 +141,9 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
     // name what to change. MAXP also sizes DecompAndModUp_matrix (MAXP^3 * MAXD uint64_t), so
     // raising constants is not free.
     if (q.size() + p.size() > (size_t)MAXP)
-        throw std::runtime_error("FIDESlib: this parameter set needs " + std::to_string(q.size()) + " ciphertext primes + " +
-                                 std::to_string(p.size()) + " special primes = " + std::to_string(q.size() + p.size()) +
-                                 ", but the GPU constant tables hold MAXP = " + std::to_string(MAXP) +
-                                 ". Lower `depth`, or raise MAXP in src/ConstantsGPU.cuh and rebuild.");
+        throw std::runtime_error("FIDESlib: this parameter set needs " + std::to_string(q.size()) + " ciphertext primes + " + std::to_string(p.size()) +
+            " special primes = " + std::to_string(q.size() + p.size()) + ", but the GPU constant tables hold MAXP = " + std::to_string(MAXP) +
+            ". Lower `depth`, or raise MAXP in src/ConstantsGPU.cuh and rebuild.");
     {
         int digits = 0;
         int maxDigit = -1;
@@ -157,8 +156,7 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
             maxDigit = std::max(maxDigit, l.digit);
         if (digits > MAXD || maxDigit >= MAXD)
             throw std::runtime_error("FIDESlib: this parameter set needs " + std::to_string(std::max(digits, maxDigit + 1)) +
-                                     " decomposition digits but the GPU constant tables hold MAXD = " + std::to_string(MAXD) +
-                                     ". Lower `dnum`, or raise MAXD in src/ConstantsGPU.cuh and rebuild.");
+                " decomposition digits but the GPU constant tables hold MAXD = " + std::to_string(MAXD) + ". Lower `dnum`, or raise MAXD in src/ConstantsGPU.cuh and rebuild.");
     }
 
     initGPUprop();

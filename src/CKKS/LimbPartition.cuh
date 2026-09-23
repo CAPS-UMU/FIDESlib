@@ -66,18 +66,18 @@ class LimbPartition {
 
     /*
 LimbPartition(LimbPartition && lp) :
-    device(lp.device),
-    rank(lp.rank),
-    meta(lp.meta),
-    SPECIALmeta(lp.SPECIALmeta),
-    DECOMPmeta(lp.DECOMPmeta),
-    limb(std::move(lp.limb)),
-    SPECIALlimb(std::move(lp.SPECIALlimb)),
-    DECOMPlimb(std::move(lp.DECOMPlimb)),
-    limbptr(std::move(lp.limbptr)),
-    SPECIALlimbptr(std::move(lp.SPECIALlimbptr)),
-    DECOMPlimbptr(std::move(lp.DECOMPlimbptr))
-    {}
+device(lp.device),
+rank(lp.rank),
+meta(lp.meta),
+SPECIALmeta(lp.SPECIALmeta),
+DECOMPmeta(lp.DECOMPmeta),
+limb(std::move(lp.limb)),
+SPECIALlimb(std::move(lp.SPECIALlimb)),
+DECOMPlimb(std::move(lp.DECOMPlimb)),
+limbptr(std::move(lp.limbptr)),
+SPECIALlimbptr(std::move(lp.SPECIALlimbptr)),
+DECOMPlimbptr(std::move(lp.DECOMPlimbptr))
+{}
 */
 
     uint32_t GetGridDimX() const;

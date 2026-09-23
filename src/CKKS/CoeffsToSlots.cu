@@ -142,7 +142,9 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 
                 int stride = step.bStep > 1 ? step.rotIn[1] - step.rotIn[0] : step.rotOut[1];
                 int offset = step.rotOut[0];
-                { LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset); }
+                {
+                    LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset);
+                }
             }
         }
     }

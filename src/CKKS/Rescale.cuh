@@ -19,22 +19,22 @@ auto om{m_modulus.m_value};
 this->NativeVectorT::SetModulus(modulus);
 auto nm{modulus.m_value};
 if (nm > om) {
-    auto diff{nm - om};
-    for (size_t i = 0; i < size; ++i) {
-        auto& v = m_data[i].m_value;
-        if (v > halfQ)
-            v = v + diff;
-    }
+auto diff{nm - om};
+for (size_t i = 0; i < size; ++i) {
+    auto& v = m_data[i].m_value;
+    if (v > halfQ)
+        v = v + diff;
+}
 }
 else {
-    auto diff{nm - (om % nm)};
-    for (size_t i = 0; i < size; ++i) {
-        auto& v = m_data[i].m_value;
-        if (v > halfQ)
-            v = v + diff;
-        if (v >= nm)
-            v = v % nm;
-    }
+auto diff{nm - (om % nm)};
+for (size_t i = 0; i < size; ++i) {
+    auto& v = m_data[i].m_value;
+    if (v > halfQ)
+        v = v + diff;
+    if (v >= nm)
+        v = v % nm;
+}
 }
 }
 */

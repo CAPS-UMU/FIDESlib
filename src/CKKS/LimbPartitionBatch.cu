@@ -313,9 +313,8 @@ void LimbPartition::LTdotProductPtBatch(std::vector<LimbPartition*>& out,
     const auto checkLimbs = [limbsize](const std::vector<LimbPartition*>& v, const char* what) {
         for (size_t k = 0; k < v.size(); ++k) {
             if (v[k] != nullptr && (int)v[k]->limb.size() < limbsize)
-                throw std::runtime_error(std::string("FIDESlib: LTdotProductPtBatch: ") + what + "[" + std::to_string(k) +
-                                         "] holds " + std::to_string(v[k]->limb.size()) + " limbs but the launch needs " +
-                                         std::to_string(limbsize) + "; the operands are at different levels.");
+                throw std::runtime_error(std::string("FIDESlib: LTdotProductPtBatch: ") + what + "[" + std::to_string(k) + "] holds " +
+                    std::to_string(v[k]->limb.size()) + " limbs but the launch needs " + std::to_string(limbsize) + "; the operands are at different levels.");
         }
     };
     checkLimbs(out, "out");
