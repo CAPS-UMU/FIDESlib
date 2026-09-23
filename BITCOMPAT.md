@@ -44,8 +44,25 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalBootstrapLTFixedManual` | PASS | combination sweep: level budget {1,1} (LT branch) × FIXEDMANUAL |
 | `EvalBootstrapSparseSecret` | PASS | combination sweep: SPARSE_TERNARY keys (`g_coefficientsSparse`, bootK=1.0 path) |
 | `EvalArithmeticFixedAuto` | PASS | combination sweep: FIXEDAUTO arithmetic (same-level ops) |
-| `DISABLED_EvalBootstrapFixedAuto` | **disabled** | combination sweep finding O6e: FIXEDAUTO add/sub operand adjustment missing on GPU |
-| `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock) |
+| `EvalBootstrapFixedAuto` | PASS | combination sweep: FIXEDAUTO bootstrap — re-enabled (O6e resolved: GPU add/sub operand adjustment now matches stock for every technique except FIXEDMANUAL) |
+| `EvalArithmeticInPlace` | PASS | EvalAdd/Sub/MultInPlace: (ct,ct), (ct,pt), (ct,scalar), and scalar−ct (EvalSubInPlace reverse) |
+| `EvalNegateSquareInPlace` | PASS | EvalNegateInPlace, EvalSquareInPlace |
+| `EvalMutableArguments` | PASS | Eval{Add,Sub,Mult}Mutable (+ `MutableInPlace`), EvalSquareMutable, and the (pt, ct) flipped mutable forms |
+| `EvalSwappedArgOrder` | PASS | EvalAdd/Sub/Mult with (pt, ct) and (scalar, ct) argument order; EvalSub's dedicated GPU negate+add paths |
+| `EvalAddManyInPlace` | PASS | serial in-place fold, result in slot 0 |
+| `EvalRotateInPlace` | PASS | mutating rotation (O1-unified hoisted core) |
+| `EvalChebyshevSeriesInPlace` | PASS | mutating Chebyshev series (FLEXIBLEAUTO) |
+| `RescaleInPlace` | PASS | FIXEDMANUAL in-place rescale (the only comparable setting per O3) |
+| `SetLevel` | PASS | tower-drop metadata op; GPU `dropToLevel` fix (skip_adjust) below |
+| `EvalBootstrapInPlace` | PASS | mutating form of the standard FLEXIBLEAUTO sparse bootstrap |
+| `AccumulateSumInPlace` | PASS | mutating form of the radix-fold AccumulateSum |
+| `EvalFastRotationExt` | PASS | extended-basis (no mod-down) rotations, single- and multi-index: GPU `rotate(.., moddown=false)` / `rotate_hoisted(.., ext=true)` produce the same 5-tower QL·P (extended) result as `EvalFastRotationExt` — fixed via the store/download extended-basis round-trip (R15) |
+| `UnloadCiphertext` | PASS | GPU→host export: `UnloadCiphertext` materializes the host copy (R15 basis-grow included) and evicts the GPU ciphertext; the host-only result serializes/deserializes and decrypts like the CPU reference (server→client return path) |
+| `SerializeCiphertextExtended` | PASS | extended-basis export: multi-index `EvalFastRotationExt` on GPU → unload → serialize → deserialize → decrypt equals direct decrypt and the CPU reference (R15 extended download) |
+| `DISABLED_AccumulateSumInPlaceStart` | **disabled** | O8 sub-item resolved on the FIDESlib side: the GPU now runs the single unified lazy radix fold `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots, start)` (P2b lazy c1-per-level/c0-once, metadata-neutral per O10, api-side slots restore); only the CPU fallback is still eager doubling because the built OpenFHE reference predates the start-offset `EvalPartialSumInPlace` draft — acceptance test for the reference (`deps/draft-start-accumulate-radix-lazy.patch`), see O8 |
+| `EvalBootstrapSparseEncapsDense` | value-level PASS | SPARSE_ENCAPSULATED × fully packed: dual sparse-switch key layout validated at value level; bit-exactness deferred to the O6c fix (carve-out) |
+| `EvalBootstrapSparseEncapsLT` | value-level PASS | SPARSE_ENCAPSULATED × LT {1,1}: same dual-context layout; value-level contract only (O6c carve-out) |
+| `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock); the generation itself decodes to ~zero at this configuration |
 
 ## Resolved issues
 
@@ -164,9 +181,70 @@ fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMU
 the OpenFHE-visible slot count after the fold (whether that restore belongs in `Accumulate`
 itself is an open decision — see O10). Radix-2 keeps the rotation-key footprint at the
 power-of-two set (see O8, radix/key-size tradeoff — key minimization drove this choice).
-Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant
-(`AccumulateCascadeImpl`, which settles both elements per level) still uses `bStep=4` on the GPU
-and keeps its eager doubling fallback — deferred (see O8).
+Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant now shares the
+unified lazy radix fold on the GPU (single `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots,
+start)`; the separate eager `AccumulateCascadeImpl` is gone — see O8). Its CPU fallback still
+runs the eager doubling until the reference gains the start-offset `EvalPartialSumInPlace`
+(draft: `deps/draft-start-accumulate-radix-lazy.patch`), so
+`DISABLED_AccumulateSumInPlaceStart` stays disabled (O8 sub-item).
+
+### R12. api `SetLevel` GPU path rescaled under AUTO techniques *(fixed)*
+`CiphertextImpl::SetLevel`'s device branch called `ct_gpu->dropToLevel(maxDepth - level)` with
+the default `skip_adjust = false`, which under FLEXIBLEAUTO/FLEXIBLEAUTOEXT runs
+`adjustScaleAndLevel` — a real rescaling of the data — while the CPU path (`DropLastElements`
++ metadata `SetLevel`) is a pure tower drop. The api contract is the CPU semantics (OpenFHE's
+`SetLevel` never touches values), so the two paths diverged bit-for-bit. **Fixed** by passing
+`skip_adjust = true` (pure tower drop) at the api call site. Surfaced by
+`OpenFHECompatTests.SetLevel`.
+
+### R13. api `CiphertextImpl` copy-constructor-from-`Ciphertext` recursed infinitely *(fixed)*
+`CiphertextImpl(const Ciphertext<DCRTPoly>&)` delegated to
+`CiphertextImpl(static_cast<const CiphertextImpl&>(other))` where `other` is the
+`shared_ptr<CiphertextImpl>` — the `static_cast` to `const CiphertextImpl&` from a
+`shared_ptr` resolves through the (implicit) converting constructor `CiphertextImpl(const
+Ciphertext&)`, i.e. the very constructor being defined, so constructing a `CiphertextImpl`
+from a `Ciphertext` (shared_ptr) argument recursed until stack overflow. All in-tree call
+sites passed `*ct` (dereferenced) or a context, so the bug never fired. **Fixed** by
+dereferencing before the cast (`*other`). Surfaced by `OpenFHECompatTests.EvalAddManyInPlace`
+(which deep-copies ciphertexts so the in-place fold cannot alias the shared encryption).
+
+### R15. Extended-basis (`EvalFastRotationExt`) store/download round-trip *(fixed)*
+`EvalFastRotationExt` initially failed the bit-exact comparison not because of a value or
+formulation divergence (the GPU's `rotate(index, moddown=false)` / `rotate_hoisted(ext=true)`
+produce the exact same 5-tower QL·P extended result as the CPU reference — the plain mod-down
+rotations already proved the extended pipeline bit-exact) but because the materialization path
+silently truncated extended ciphertexts: `Ciphertext::store` fixed `numRes = getLevel() + 1`
+and `RNSPoly::store` dumped only the QL limbs, dropping the special/P towers that a modUp
+result carries (`c0.isModUp()` — `specialMeta`-sized buffer). The api download
+(`EnsureUpToDateCPUCopy`) then grew the CPU copy only up to `GetElementParams()` (the QL
+ladder), after which `GetOpenFHECipherText` truncated the raw data back down. **Fixed**:
+- `Ciphertext::store` / `RNSPoly::store` include the special limbs when the poly is modUp
+  (towers `level+1 .. level+1+specialCount`, read from each device's `SPECIALlimb`).
+- The api grow path builds the QL·P basis via `DCRTPoly::GetExtendedCRTBasis(GetParamsP())`
+  when `gpu_towers` exceeds the element-params ladder, so the download holds the full
+  extended basis.
+`OpenFHECompatTests.EvalFastRotationExt` (single- and multi-index, addFirst=true) is green
+bit-exact; all bootstrap/arithmetic regressions re-validated.
+
+### R16. GPU→host ciphertext export + serialization (server↔client return path) *(new, reuses R15)*
+The api gains a host-export path for ciphertexts so a GPU-produced result can leave the
+session: `CryptoContextImpl::UnloadCiphertext(ct)` materializes the host copy
+(`ct->EnsureUpToDateCPUCopy()` — the R15 basis-grow path runs for extended/modUp results,
+so the 5-tower QL·P output of `EvalFastRotationExt` is downloaded whole) and then evicts
+the GPU ciphertext (`loaded=false`, `gpu=0`). On top of that, `fideslib::Serial` now
+serializes/deserializes ciphertexts: `SerializeToFile(filename, ct, serType)` materializes
+if loaded, then uses `lbcrypto::Serial::Serialize` (cereal over the stored
+`lbcrypto::Ciphertext<lbcrypto::DCRTPoly>`); `DeserializeFromFile(filename, ct, serType)`
+deserializes into a `CiphertextImpl` bound to the caller's parent context (the caller
+constructs it with the context — `CiphertextImpl` is not default-constructible; the
+payload embeds its own OpenFHE `CryptoContext` via `CryptoObject` serialization, which
+`CryptoContextFactory::GetFullContextByDeserializedContext` re-registers on load — the
+api-level `Decrypt` ignores it and uses the caller's context/key, so no `SetCryptoContext`
+step exists in this reference and none is needed). No new GPU kernels: the export path only
+reuses the R15 download + cereal. Tests: `UnloadCiphertext` (EvalAdd on GPU → unload →
+serialize → deserialize → decrypt ≡ CPU reference) and `SerializeCiphertextExtended`
+(multi-index `EvalFastRotationExt` on GPU → unload of the extended result → round-trip →
+decrypt ≡ direct decrypt ≡ CPU reference).
 
 ### O1. `EvalRotate` unification *(resolved — landed as `fideslib-ref-v1.5.1.2`)*
 The hoisted HYBRID formulation (already used by `EvalFastRotation`, added upstream for the GPU
@@ -212,14 +290,15 @@ tests use (−1, 1). Align the GPU prelude to the CPU order when needed.
 ### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU
 The GPU has no mirrored linear path. Only matters if low-degree series are used through the api.
 
-### O6. Tier-2 configurations *(swept; O6a/O6b/O6d fixed, O6c/O6e open)*
+### O6. Tier-2 configurations *(swept; O6a/O6b/O6d/O6e fixed, O6c open)*
 Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the five findings,
-O6a, O6b, and O6d are fixed and their tests in place; O6c and O6e remain as `DISABLED_`
-reproducers (the acceptance tests for their fixes). O6d arrived after the sweep via an external
-report — the sweep varied one configuration axis at a time and missed the dense×FIXEDMANUAL
-combination. That prompted a systematic **combination sweep** (packing × technique × budget ×
-key distribution): dense×FLEXIBLEAUTOEXT, LT{1,1}×FIXEDMANUAL, SPARSE_TERNARY keys, and
-FIXEDAUTO arithmetic all came back bit-exact with no changes; FIXEDAUTO bootstrap is O6e.
+O6a, O6b, O6d, and O6e are fixed and their tests in place (re-enabled); O6c remains a
+`DISABLED_` reproducer (the acceptance test for its fix). O6d arrived after the sweep via an
+external report — the sweep varied one configuration axis at a time and missed the
+dense×FIXEDMANUAL combination. That prompted a systematic **combination sweep** (packing ×
+technique × budget × key distribution): dense×FLEXIBLEAUTOEXT, LT{1,1}×FIXEDMANUAL,
+SPARSE_TERNARY keys, and FIXEDAUTO arithmetic all came back bit-exact with no changes;
+FIXEDAUTO bootstrap was O6e, fixed in the current tree (`EvalBootstrapFixedAuto` re-enabled).
 Known remaining coverage gaps: dense×LT{1,1} needs ≈2·slots raised-level LT plaintexts resident
 (several GB at N=4096 fully packed) and cannot run on this machine's 4GB GPU — validate on
 larger hardware; iterated bootstrap (`numIterations > 1`) and StC-first setups are api dispatch
@@ -365,8 +444,8 @@ gaps, not testable combinations (see O11).
   `EvalBootstrap` rejects outright — the test passes an explicit correction factor of 10
   (production-scale parameters don't trip this check).
 
-- **O6e — FIXEDAUTO add/sub operand adjustment missing** *(open; combination sweep)*
-  (`DISABLED_EvalBootstrapFixedAuto`, the acceptance test): FIXEDAUTO bootstrap produces
+- **O6e — FIXEDAUTO add/sub operand adjustment missing** *(resolved — re-enabled as `EvalBootstrapFixedAuto`)*
+  (`EvalBootstrapFixedAuto`, the acceptance test): FIXEDAUTO bootstrap produces
   bit-different outputs with identical metadata (the O6d signature — data-only divergence),
   while FIXEDAUTO *arithmetic* (`EvalArithmeticFixedAuto`, same-level operands) is bit-exact.
   Root-cause hypothesis, from the gate audit: stock `LeveledSHERNS::AdjustForAddOrSub` runs
@@ -379,7 +458,8 @@ gaps, not testable combinations (see O11).
   adjustment stock performs. Fix direction: widen those gates to match stock's contract
   (everything except FIXEDMANUAL), then check the adjustment arithmetic degenerates correctly
   for FIXEDAUTO's fixed scaling-factor table. Touches shared add/sub core paths — full-suite
-  revalidation required.
+  revalidation required. **Resolved in the current tree**: GPU add/sub gates now cover
+  FIXEDAUTO; the FIXEDAUTO bootstrap test passes bit-exact and is re-enabled.
 ### O7. api type-erasure design (`std::any`) — decide a direction
 The api layer stores its OpenFHE/FIDESlib objects type-erased (`std::any cpu/gpu/pimpl`,
 `shared_ptr<void>` GPU registry) so the public headers carry no OpenFHE or CUDA includes.
@@ -495,9 +575,22 @@ interact with the bootstrap key budget. Validated by an ad-hoc value test at rad
 EvalSum/EvalSumRows/EvalSumCols, BFV EvalSum (radix path and fully-packed legacy path), and a
 2-party `MultiEvalSumKeyGen` + joint EvalSum threshold flow — all pass.
 
-Open sub-item: the `start`-offset `AccumulateSum` variant (`AccumulateCascadeImpl`) still runs
-a literal `bStep=4` on the GPU with an unvalidated eager-doubling CPU fallback; binding it to
-the knob (and putting it under the compat test) would close the last AccumulateSum gap.
+Resolved sub-item (the `start`-offset `AccumulateSum` variant): the GPU's redundant second
+accumulator `AccumulateCascadeImpl` is deleted; both the plain paths and the start-offset api
+variant run **one** radix-parametrized `FIDESlib::CKKS::Accumulate(ct, bStep, stride, size,
+startFactor = 1)` — a BSGS fold from `startFactor` ({start·radix^level·i} rotations) that keeps
+the P2b lazy discipline for **all** start values (c1 settles once per level, c0 once at the end;
+no more per-level `extend()`+`modDown` round-trip). The api binds the start variant to the same
+`ACCUMULATE_SUM_RADIX` macro as the plain paths (never a literal radix) and restores
+`inputSlots` after the call, matching the R11–O10 slots convention. Start=1 GPU behavior is
+unchanged bit-for-bit (the bootstrap PartialSum guard). The CPU fallback still runs the eager
+doubling `{start·2^i}` because the installed OpenFHE reference has no start-aware
+`EvalPartialSumInPlace`; the concrete reference draft is
+`deps/draft-start-accumulate-radix-lazy.patch` (5-arg `EvalPartialSumInPlace(ct, stride, size,
+radix, startFactor)`, level loop from `startFactor`, radix-2 = doubling of the remaining range,
+plus the api CPU-fallback swap). Eager CPU ≠ lazy GPU (never bit-exact), so
+`DISABLED_AccumulateSumInPlaceStart` must stay disabled until that reference lands and is
+rebuilt — re-enabling it then closes the last AccumulateSum gap.
 
 ### O9. `MODES(name)` macro ignores its parameter
 `test/ParametrizedTest.cuh`'s `MODES(name)` declares identifiers literally named `name_fix`,
@@ -525,16 +618,18 @@ internal callers, both in `Bootstrap.cu` — one (`Bootstrap.cu:264`) immediatel
 (`Bootstrap.cu:100`) actually relies on it (downstream CtS rotations normalize indices through
 `ctxt.slots`).
 
-**Proposed FIDESlib-side fix (decision pending):**
-1. Delete the `slots` writes from `Accumulate` and `AccumulateCascadeImpl` — the fold becomes
-   metadata-neutral, matching its CPU mirror's contract.
-2. Add an explicit `ctxt.slots = slots;` after the `Bootstrap.cu:100` call site (mirroring what
-   the other call site already does), making the bootstrap's sparse re-interpretation visible
-   where it is decided.
-3. Drop the `inputSlots` save/restore from the api paths.
+**Resolution (implemented, see the O8 sub-item):**
+1. ✔ Delete the `slots` writes from `Accumulate` (and `AccumulateCascadeImpl` — deleted outright
+   in the unified start-aware fold): the fold is metadata-neutral, matching its CPU mirror's
+   contract.
+2. ✔ Add an explicit `ctxt.slots = slots;` after the `Bootstrap.cu:100` call site (now
+   `Bootstrap.cu:102`; condition preserved exactly: only when the fold covered the whole range,
+   `cc.N / 2 == ctxt.slots`), making the bootstrap's sparse re-interpretation visible where it
+   is decided — mirroring what the other call site already does.
+3. ✖ Keep the api `inputSlots` save/restore (deviation from the original proposal): the R11
+   convention stays at the api boundary so `Accumulate` itself needs none, and the start-offset
+   variant now does the same (O8 sub-item: it used to leak).
 
-Bonus: the `start`-offset api variant calls `AccumulateCascadeImpl` (no internal callers) and
-did **not** get the R11 save/restore — its slots leak (the O8 sub-item) is fixed for free.
 Caveat: this changes the observable behavior of a public FIDESlib function; any out-of-tree
 code relying on the narrowing convention would break — worth confirming with the FIDESlib
 maintainers. `Broadcast` has the same trailing `slots` rewrite with no in-tree consumers;
@@ -698,10 +793,12 @@ characterized (O6a–O6e). O6a, O6b, and O6d are fixed (T2km1 level alignment; d
 FIXEDMANUAL rescale moved to iteration end; dense-tail leftover rescale deleted) with tests in
 place — the full FIXEDMANUAL configuration, sparse and fully packed, is now bit-compatible.
 The follow-up combination sweep added four more green configurations (see O6) and surfaced
-O6e. Remaining: **O6c** — the SPARSE_ENCAPSULATED
+O6e, now closed in the current tree (`EvalBootstrapFixedAuto` re-enabled, bit-exact).
+Remaining: **O6c** — the SPARSE_ENCAPSULATED
 implementations are structurally different designs (dual-context GPU vs in-context stock) and
 the GPU output is value-wrong at the test configuration; fix deferred, plan documented (see
-O6c) — and **O6e** — FIXEDAUTO add/sub operand adjustment (fix direction documented). Then
+O6c). The SPARSE_ENCAPSULATED dense/LT variants assert value-level agreement only (the O6c
+carve-out) until that fix lands. Then
 close out the smaller semantic gaps (O3–O5, O11) and the api type-erasure decision (O7).
 
 ## Validation methodology (reusable)
