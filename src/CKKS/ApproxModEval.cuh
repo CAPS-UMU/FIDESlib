@@ -20,7 +20,6 @@ void approxModReduction(Ciphertext& ctxtEnc, Ciphertext& ctxtEncI, const KeySwit
 void multIntScalar(Ciphertext& ctxt, uint64_t op);
 
 void approxModReductionSparse(Ciphertext& ctxtEnc, uint64_t post);
-
 } // namespace FIDESlib::CKKS
 
 #endif // GPUCKKS_APPROXMODEVAL_CUH

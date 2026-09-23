@@ -7,7 +7,6 @@
 #include "Definitions.hpp"
 
 namespace fideslib {
-
 /// @brief Public key for the CKKS-RNS scheme.
 /// @tparam T Underlying representation type.
 template <typename T> class PublicKeyImpl;
@@ -18,23 +17,22 @@ template <typename T> using PublicKey = std::shared_ptr<PublicKeyImpl<T>>;
 /// @brief Specialization of PublicKey for the DCRTPoly representation.
 template <> class PublicKeyImpl<DCRTPoly> {
   public:
-	PublicKeyImpl()	 = default;
-	~PublicKeyImpl() = default;
+    PublicKeyImpl() = default;
+    ~PublicKeyImpl() = default;
 
-	// ---- Copy ----
+    // ---- Copy ----
 
-	PublicKeyImpl(const PublicKeyImpl&);
-	PublicKeyImpl& operator=(const PublicKeyImpl&) = delete;
+    PublicKeyImpl(const PublicKeyImpl&);
+    PublicKeyImpl& operator=(const PublicKeyImpl&) = delete;
 
-	// ---- Move ----
+    // ---- Move ----
 
-	PublicKeyImpl(PublicKeyImpl&&)			  = delete;
-	PublicKeyImpl& operator=(PublicKeyImpl&&) = delete;
+    PublicKeyImpl(PublicKeyImpl&&) = delete;
+    PublicKeyImpl& operator=(PublicKeyImpl&&) = delete;
 
-	// ---- Internal State ----
+    // ---- Internal State ----
 
-	std::any pimpl;
+    std::any pimpl;
 };
-
 } // namespace fideslib
 #endif // API_PUBLICKEY_HPP

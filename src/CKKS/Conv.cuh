@@ -41,6 +41,5 @@ DecompAndModUpConv_spec(void** __restrict__ a, const int __grid_constant__ n, vo
 template <ALGO algo = ALGO_SHOUP>
 __global__ void
 DecompAndModUpConv_spec2(void** __restrict__ a, const int __grid_constant__ n, void** __restrict__ b, const int __grid_constant__ d, const Global::Globals* Globals);
-
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_CKKS_CONV_CUH

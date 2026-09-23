@@ -12,10 +12,14 @@ build/
 
 /doxygen/latex/
 /doxygen/html/
-
+/install/
 .vscode/
 .idea/
 
 deps/openfhe-src/
 
 .cache/
+
+__pycache__/
+*.pyc
+build-*/

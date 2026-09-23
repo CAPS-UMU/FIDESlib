@@ -8,22 +8,21 @@
 #include "CudaUtils.cuh"
 
 namespace FIDESlib {
+template <typename T> __global__ void add_(T* a, const T* b, const int primeId, const __grid_constant__ int elem_b);
 
-template <typename T> __global__ void add_(T* a, const T* b, const int primeId);
-
-template <typename T> __global__ void sub_(T* a, const T* b, const int primeId);
+template <typename T> __global__ void sub_(T* a, const T* b, const int primeId, const __grid_constant__ int elem_b);
 
 /** a = a .+ b % p*/
-__global__ void add_(void** a, void** b, const int primeid_init);
+__global__ void add_(void** a, void** b, const __grid_constant__ int primeid_init, const __grid_constant__ int elem_b);
 
 /** a = a .- b % p*/
-__global__ void sub_(void** a, void** b, const int primeid_init);
+__global__ void sub_(void** a, void** b, const int primeid_init, const __grid_constant__ int elem_b);
 
 /** a = b .+ c % p*/
-__global__ void add_(void** a, void** b, void** c, const int primeid_init);
+__global__ void add_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c);
 
 /** a = b .- c % p*/
-__global__ void sub_(void** a, void** b, void** c, const int primeid_init);
+__global__ void sub_(void** a, void** b, void** c, const int primeid_init, const __grid_constant__ int elem_c);
 
 /** a = a + b % p*/
 __global__ void scalar_add_(void** a, uint64_t* b, const int primeid_init);
@@ -31,23 +30,22 @@ __global__ void scalar_add_(void** a, uint64_t* b, const int primeid_init);
 /** a = a - b % p*/
 __global__ void scalar_sub_(void** a, uint64_t* b, const int primeid_init);
 
-__global__ void add_scale_p_b_(void** a, void** b, const int primeid_init);
-__global__ void add_scale_p_a_(void** a, void** b, const int primeid_init);
+__global__ void add_scale_p_b_(void** a, void** b, const int primeid_init, const __grid_constant__ int elem_b);
+__global__ void add_scale_p_a_(void** a, void** b, const int primeid_init, const __grid_constant__ int elem_b);
 
 template <typename T> __forceinline__ __device__ T modadd(const T a, const T b, const int primeId) {
-	const T prime_p = C_.primes[primeId];
-	// if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu ", primeId, prime_p);
-	T tmp0 = a + b;
+    const T prime_p = C_.primes[primeId];
+    // if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu ", primeId, prime_p);
+    T tmp0 = a + b;
 
-	return (tmp0 >= prime_p) ? tmp0 - prime_p : tmp0;
+    return (tmp0 >= prime_p) ? tmp0 - prime_p : tmp0;
 }
 
 template <typename T> __forceinline__ __device__ T modsub(const T a, const T b, const int primeId) {
-	const T prime_p = C_.primes[primeId];
-	//   if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu ", primeId, prime_p);
-	T tmp0 = a - b;
-	return (tmp0 >= prime_p) ? tmp0 + prime_p : tmp0;
+    const T prime_p = C_.primes[primeId];
+    //   if(threadIdx.x == 0 && blockIdx.x == 0) printf("Prime %d: %lu ", primeId, prime_p);
+    T tmp0 = a - b;
+    return (tmp0 >= prime_p) ? tmp0 + prime_p : tmp0;
 }
-
 } // namespace FIDESlib
 #endif // FIDESLIB_ADDSUB_CUH

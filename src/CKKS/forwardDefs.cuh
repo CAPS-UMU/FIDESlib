@@ -35,11 +35,12 @@ enum ALGO { ALGO_NATIVE = 0, ALGO_NONE = 1, ALGO_SHOUP = 3, ALGO_BARRETT = 4, AL
 
 constexpr ALGO DEFAULT_ALGO = ALGO_BARRETT;
 
-enum BOOT_CONFIG { UNIFORM = 0, UNIFORM_2 = 1, SPARSE = 2, ENCAPS = 3, ENCAPS_2 = 4 };
+enum BOOT_CONFIG { UNIFORM = 0, SPARSE = 2, ENCAPS = 3 };
 
 constexpr bool MODRAISE_WITH_P0 = false;
-constexpr int MAXG				= 8;
-
+constexpr int MAXG = 8;
+constexpr int NTT_1D_LOG_THRESHOLD = (11);
+constexpr int NTT_1D_THRESHOLD = (1 << NTT_1D_LOG_THRESHOLD);
 } // namespace FIDESlib
 
 // namespace FIDESlib::CKKS

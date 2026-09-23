@@ -9,7 +9,6 @@
 #include <vector>
 
 namespace FIDESlib::CKKS {
-
 void LinearTransform(Ciphertext& ctxt, int rowSize, int bStep, const std::vector<Plaintext*>& pts, int stride = 1, int offset = 0);
 
 template <CiphertextPtr ptrT, PlaintextPtr ptrU>
@@ -26,37 +25,36 @@ std::vector<int> GetConvolutionTransformRotationIndices(int rowSize, int bStep, 
 // SpecialConvolutionTransform: Like ConvolutionTransform but with special masking logic
 // After each gStep's bStep sum: 3 rotations with additions + mask multiplication before accumulation
 void SpecialConvolutionTransform(Ciphertext& ctxt,
-  int rowSize,
-  int bStep,
-  const std::vector<Plaintext*>& pts,
-  Plaintext& mask,
-  int stride,
-  int maskRotationStride,
-  const std::vector<int>& indexes,
-  uint32_t gStep);
+    int rowSize,
+    int bStep,
+    const std::vector<Plaintext*>& pts,
+    Plaintext& mask,
+    int stride,
+    int maskRotationStride,
+    const std::vector<int>& indexes,
+    uint32_t gStep);
 
 void LinearTransformSpecial(FIDESlib::CKKS::Ciphertext& ctxt1,
-  FIDESlib::CKKS::Ciphertext& ctxt2,
-  FIDESlib::CKKS::Ciphertext& ctxt3,
-  int rowSize,
-  int bStep,
-  std::vector<Plaintext*> pts1,
-  std::vector<Plaintext*> pts2,
-  int stride,
-  int stride3);
+    FIDESlib::CKKS::Ciphertext& ctxt2,
+    FIDESlib::CKKS::Ciphertext& ctxt3,
+    int rowSize,
+    int bStep,
+    std::vector<Plaintext*> pts1,
+    std::vector<Plaintext*> pts2,
+    int stride,
+    int stride3);
 /*
-	void LinearTransformPt(FIDESlib::CKKS::Plaintext& ptxt, FIDESlib::CKKS::Context& cc, int rowSize, int bStep,
-										std::vector<Plaintext*> pts, int stride, int offset);
+void LinearTransformPt(FIDESlib::CKKS::Plaintext& ptxt, FIDESlib::CKKS::Context& cc, int rowSize, int bStep,
+                                std::vector<Plaintext*> pts, int stride, int offset);
 */
 void LinearTransformSpecialPt(FIDESlib::CKKS::Ciphertext& ctxt1,
-  FIDESlib::CKKS::Ciphertext& ctxt3,
-  FIDESlib::CKKS::Plaintext& ptxt,
-  int rowSize,
-  int bStep,
-  std::vector<Plaintext*> pts1,
-  std::vector<Plaintext*> pts2,
-  int stride,
-  int stride3);
-
+    FIDESlib::CKKS::Ciphertext& ctxt3,
+    FIDESlib::CKKS::Plaintext& ptxt,
+    int rowSize,
+    int bStep,
+    std::vector<Plaintext*> pts1,
+    std::vector<Plaintext*> pts2,
+    int stride,
+    int stride3);
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_LINEARTRANSFORM_CUH

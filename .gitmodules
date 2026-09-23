@@ -1,4 +1,6 @@
 [submodule "deps/openfhe-src"]
 	path = deps/openfhe-src
-	url = https://github.com/openfheorg/openfhe-development
+	url = https://github.com/carlostriste/openfhe-development
 	ignore = dirty
+[submodule "deps/openfhe-src/"]
+	url = https://github.com/carlostriste/openfhe-development.git
