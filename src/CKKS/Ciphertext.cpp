@@ -21,7 +21,20 @@ constexpr int PREFIX_SIZE = 23;
 
 namespace FIDESlib::CKKS {
 
-bool hoistRotateFused = true;
+namespace {
+// Operand adjustment (level / scaling-degree matching) can legitimately fail, e.g. a plaintext with fewer RNS limbs
+// than the ciphertext or a NoiseLevel-2 plaintext at the ciphertext's level. Report it instead of returning the
+// unmodified ciphertext (the previous assert(false) is compiled out in Release builds).
+[[noreturn]] void throwAdjustFailure(const char* op, const Ciphertext& c, int operandLevel, int operandNoiseLevel, const char* operandKind) {
+	throw std::runtime_error(std::string("FIDESlib::CKKS::Ciphertext::") + op + ": cannot adjust the " + operandKind +
+							 " operand to the ciphertext (ciphertext level " + std::to_string(c.getLevel()) + ", NoiseLevel " +
+							 std::to_string(c.NoiseLevel) + "; operand level " + std::to_string(operandLevel) + ", NoiseLevel " +
+							 std::to_string(operandNoiseLevel) + "). The operand needs at least as many RNS limbs as the ciphertext and a " +
+							 "NoiseLevel not above the ciphertext's; encode plaintexts at the ciphertext's level.");
+}
+} // namespace
+
+bool hoistRotateFused         = true;
 constexpr bool RESCALE_DOUBLE = true;
 
 enum OPS {
@@ -199,7 +212,7 @@ void Ciphertext::add(const Ciphertext& b) {
             if (b_.adjustForAddOrSub(*this))
                 add(b_);
             else
-                assert(false);
+                throwAdjustFailure("add", *this, b.c0.getLevel(), b.NoiseLevel, "ciphertext");
             return;
         }
     }
@@ -239,7 +252,7 @@ void Ciphertext::addMutable(Ciphertext& b) {
             if (b.adjustForAddOrSub(*this))
                 add(b);
             else
-                assert(false);
+                throwAdjustFailure("addMutable", *this, b.c0.getLevel(), b.NoiseLevel, "ciphertext");
             return;
         }
     }
@@ -275,7 +288,7 @@ void Ciphertext::sub(const Ciphertext& b) {
             if (b_.adjustForAddOrSub(*this))
                 sub(b_);
             else
-                assert(false);
+                throwAdjustFailure("sub", *this, b.c0.getLevel(), b.NoiseLevel, "ciphertext");
             return;
         }
     }
@@ -309,7 +322,7 @@ void Ciphertext::subMutable(Ciphertext& b) {
             if (b.adjustForAddOrSub(*this))
                 sub(b);
             else
-                assert(false);
+                throwAdjustFailure("addPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             return;
         }
     }
@@ -400,7 +413,7 @@ void Ciphertext::subPt(const Plaintext& b) {
         if (!this->adjustCiphertextToPlaintext(b)) {
             Plaintext b_(cc_);
             if (!b_.adjustPlaintextToCiphertext(b, *this)) {
-                assert(false);
+                throwAdjustFailure("subPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             } else {
                 subPt(b_);
             }
@@ -432,7 +445,7 @@ void Ciphertext::subPtMutable(Plaintext& b) {
 
         if (!this->adjustCiphertextToPlaintext(b)) {
             if (!b.adjustPlaintextToCiphertext(b, *this)) {
-                assert(false);
+                throwAdjustFailure("subPtMutable", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             } else {
                 subPt(b);
             }
@@ -532,7 +545,7 @@ void Ciphertext::multPt(const Plaintext& b, bool rescale, bool ignore_scale) {
                 if (!b_.adjustPlaintextToCiphertext(b, *this)) {
                     if constexpr (PRINT)
                         std::cout << "multPt: FAILED!" << std::endl;
-                    assert(false);
+                    throwAdjustFailure("multPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
                 } else {
                     if (NoiseLevel == 2)
                         this->rescaleInternal();
@@ -600,7 +613,7 @@ void Ciphertext::multPtMutable(Plaintext& b, bool rescale) {
             if (!b.adjustPlaintextToCiphertext(b, *this)) {
                 if constexpr (PRINT)
                     std::cout << "multPt: FAILED!" << std::endl;
-                assert(false);
+                throwAdjustFailure("multPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             } else {
                 if (NoiseLevel == 2)
                     this->rescaleInternal();
@@ -736,7 +749,7 @@ void Ciphertext::multMutable(Ciphertext& b, bool rescale, const bool moddown) {
             if (b.adjustForMult(*this))
                 mult(b, rescale, moddown);
             else
-                assert(false);
+                throwAdjustFailure("mult", *this, b.getLevel(), b.NoiseLevel, "ciphertext");
             return;
         }
     } else if (cc.rescaleTechnique == FIXEDMANUAL && getLevel() > b.getLevel()) {
@@ -1033,9 +1046,8 @@ void Ciphertext::rotate_hoisted(const std::vector<int>& indexes_, std::vector<Ci
                     // if (!ext)
                     //     results[i]->c0.moddown(true, false);
 
-                    results[i]->keyID = keyID;
-                    results[i]->NoiseLevel = NoiseLevel;
-                    results[i]->NoiseFactor = NoiseFactor;
+                    results[i]->copyMetadata(*this); // also copies `slots` (was keyID/NoiseLevel/NoiseFactor only -> slots stayed 0)
+
                 }
             }
         } else {

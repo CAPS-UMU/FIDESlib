@@ -6,6 +6,23 @@
 
 #include "CKKS/Context.cuh"
 
+#include <bit>
+#include <stdexcept>
+#include <string>
+
+namespace {
+// Accumulate/Broadcast advance the rotation stride by `logbStep = bit_width(bStep) - 1` and
+// generate `bStep - 1` hoisted rotations per round, so they are only correct when bStep is a
+// power of two >= 2: bStep == 1 gives logbStep == 0 and the round loop never terminates, and a
+// non-power-of-two bStep sums some shifts twice. Reject those instead of hanging or returning
+// wrong results.
+void checkBStep(const int bStep, const char* where) {
+	if (bStep < 2 || (bStep & (bStep - 1)) != 0) {
+		throw std::invalid_argument(std::string(where) + ": bStep must be a power of two >= 2, got " + std::to_string(bStep));
+	}
+}
+} // namespace
+
 void AccumulateCascadeImpl(FIDESlib::CKKS::Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor) {
     if (bStep <= 1 || startFactor <= 0 || size <= 0) {
         return;

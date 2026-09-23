@@ -9,6 +9,8 @@
 #include "CKKS/Ciphertext.cuh"
 #include "CKKS/CoeffsToSlots.cuh"
 #include "CKKS/Context.cuh"
+#include <stdexcept>
+#include <string>
 #if defined(__clang__)
 #include <experimental/source_location>
 using sc = std::experimental::source_location;

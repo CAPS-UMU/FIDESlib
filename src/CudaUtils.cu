@@ -254,7 +254,14 @@ bool initPool() {
 
 #define USEPOOL true
 #if USEPOOL
-bool initialized = initPool();
+// The pool is created on first use instead of from a static initializer. A static
+// initializer issues the first CUDA runtime calls of the process before main(); if one
+// of them fails (e.g. cudaGetDeviceCount on a host with a degraded GPU) the runtime
+// stays in the error state, the pool remains empty and Stream::init crashes later.
+bool poolInitialized() {
+	static const bool initialized = initPool();
+	return initialized;
+}
 #else
 bool initialized = false;
 #endif
@@ -270,9 +277,12 @@ void Stream::init(int priority) {
     }
 
 #if !DISABLE_STREAMS
-    if (high == -1) {
-        cudaDeviceGetStreamPriorityRange(&low, &high);
-    }
+#if USEPOOL
+	  poolInitialized();
+#endif
+	  if (high == -1) {
+		  cudaDeviceGetStreamPriorityRange(&low, &high);
+	  }
 
     // int prio = low + priority * ((high - low - 1)) / 100;
 
@@ -450,6 +460,8 @@ void CUDART_CB streamCallback(void* userData) {
     delete p;
 }
 
+thread_local bool gpufree_presynced = false;
+
 void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
     if (bytes < 64 * 1024) {
         int next_pow2 = 1024;
@@ -471,7 +483,8 @@ void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache) {
         CudaCheckErrorModNoSync;
         // cudaDeviceSynchronize();
         // if (stream != nullptr) {
-        s[id].wait(stream);
+        if (!gpufree_presynced)   // redundant while ContextData::clearAuxilarPoly holds the device synchronized
+            s[id].wait(stream);
         //}
         CudaCheckErrorModNoSync;
         mempool_lock[id].lock();
