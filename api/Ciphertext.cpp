@@ -191,8 +191,17 @@ void CiphertextImpl<DCRTPoly>::EnsureUpToDateCPUCopy() {
     size_t gpu_towers = static_cast<size_t>(raw_ct.numRes);
     if (cpu_towers < gpu_towers) {
         auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->parent_context->cpu);
-        auto params = std::make_shared<lbcrypto::DCRTPoly::Params>(*context->GetElementParams());
-
+        // The GPU data may exceed the QL ladder when the result is extended (modUp),
+        // e.g. after EvalFastRotationExt: the extra towers are the context's special
+        // (P) primes, so the CPU basis must be QL·P for the round-trip to be complete.
+        std::shared_ptr<lbcrypto::DCRTPoly::Params> params;
+        auto baseParams = context->GetElementParams();
+        if (gpu_towers > baseParams->GetParams().size()) {
+            auto cryptoParams = std::dynamic_pointer_cast<lbcrypto::CryptoParametersCKKSRNS>(context->GetCryptoParameters());
+            params = ct_cpu->GetElements()[0].GetExtendedCRTBasis(cryptoParams->GetParamsP());
+        } else {
+            params = std::make_shared<lbcrypto::DCRTPoly::Params>(*baseParams);
+        }
         size_t total_towers = params->GetParams().size();
         while (params->GetParams().size() > gpu_towers)
             params->PopLastParam();

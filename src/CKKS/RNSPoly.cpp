@@ -192,11 +192,24 @@ void RNSPoly::loadDecompDigit(const std::vector<std::vector<std::vector<uint64_t
 }
 
 void RNSPoly::store(std::vector<std::vector<uint64_t>>& data) {
-    data.resize(level + 1);
-    for (size_t i = 0; i < data.size(); ++i) {
+    const size_t specialCount = (modUp ? cc.specialMeta.at(0).size() : 0);
+    data.resize(level + 1 + specialCount);
+    for (size_t i = 0; i <= static_cast<size_t>(level) && i < data.size(); ++i) {
         // auto& rec = cc.meta[cc.limbGPUid[i].x][cc.limbGPUid[i].y];
         cudaSetDevice(GPU[cc.limbGPUid[i].x].device);
         SWITCH(GPU[cc.limbGPUid[i].x].limb[cc.limbGPUid[i].y], store_convert(data[i]));
+    }
+    // Extended (modUp) polys carry the special/P limbs in their own buffers; dump them
+    // after the QL towers so a store round-trip preserves the full extended basis.
+    size_t base = 0;
+    for (size_t d = 0; d < cc.specialMeta.size() && base < specialCount; ++d) {
+        for (size_t k = 0; k < cc.specialMeta.at(d).size(); ++k, ++base) {
+            const size_t r = (level + 1) + base;
+            if (r >= data.size())
+                break;
+            cudaSetDevice(GPU[d].device);
+            SWITCH(GPU[d].SPECIALlimb.at(k), store_convert(data[r]));
+        }
     }
 }
 

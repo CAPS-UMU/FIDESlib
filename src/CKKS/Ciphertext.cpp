@@ -472,7 +472,10 @@ void Ciphertext::store(RawCipherText& rawct) {
 
     CKKS::SetCurrentContext(cc_);
     cudaDeviceSynchronize();
-    rawct.numRes = c0.getLevel() + 1;
+    // An extended (modUp) ciphertext carries the special/P limbs after its QL towers;
+    // include them so the store round-trip preserves the full extended basis (the api
+    // download/EvalFastRotationExt comparison needs them).
+    rawct.numRes = c0.getLevel() + 1 + (c0.isModUp() ? cc.specialMeta.at(0).size() : 0);
     rawct.sub_0.resize(rawct.numRes);
     rawct.sub_1.resize(rawct.numRes);
     c0.store(rawct.sub_0);
