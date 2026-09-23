@@ -299,6 +299,23 @@ void CryptoContextImpl<DCRTPoly>::LoadCiphertext(Ciphertext<DCRTPoly>& ct) {
     ct->original_level = this->multiplicative_depth - ct->GetLevel();
 }
 
+void CryptoContextImpl<DCRTPoly>::UnloadCiphertext(Ciphertext<DCRTPoly>& ct) {
+    FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
+    if (!ct->loaded)
+        return;
+
+    // Materialize the host copy while the GPU still holds the data. The GPU is the
+    // source of truth while loaded; EnsureUpToDateCPUCopy() also grows the CPU basis
+    // for extended/modUp results (e.g. after EvalFastRotationExt) via the R15 path.
+    ct->EnsureUpToDateCPUCopy();
+
+    if (!this->EvictDeviceCiphertext(ct->gpu)) {
+        OPENFHE_THROW("Ciphertext eviction error: could not evict Ciphertext from device");
+    }
+    ct->loaded = false;
+    ct->gpu = 0;
+}
+
 // ---- Key Generation ----
 
 KeyPair<DCRTPoly> CryptoContextImpl<DCRTPoly>::KeyGen() {

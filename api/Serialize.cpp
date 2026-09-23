@@ -254,4 +254,75 @@ bool DeserializeFromFile(const std::string& filename, fideslib::PrivateKey<fides
 
     return res;
 }
+
+bool SerializeToFile(const std::string& filename, const fideslib::Ciphertext<fideslib::DCRTPoly>& obj, const SerType& sertype) {
+    if (!obj) {
+        OPENFHE_THROW("Cannot serialize a null Ciphertext");
+    }
+
+    // Materialize the host copy if the GPU currently holds the data (the GPU is the
+    // source of truth while loaded). EnsureUpToDateCPUCopy() also grows the CPU basis
+    // for extended/modUp results (e.g. after EvalFastRotationExt) via the R15 path,
+    // so the serialized blob carries the full QL·P basis.
+    auto& nonConst = const_cast<fideslib::CiphertextImpl<fideslib::DCRTPoly>&>(*obj);
+    nonConst.EnsureUpToDateCPUCopy();
+
+    // Stored type is lbcrypto::Ciphertext<lbcrypto::DCRTPoly> (the shared_ptr to the
+    // OpenFHE CiphertextImpl); cereal serializes the full object graph, including the
+    // embedded CryptoContext (cryptocontext-ser.h), which is what Decrypt on the
+    // deserialized side re-uses.
+    auto& ct = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(obj->cpu);
+
+    switch (sertype) {
+    case SerType::BINARY: {
+        return lbcrypto::Serial::SerializeToFile(filename, ct, lbcrypto::SerType::BINARY);
+    }
+    case SerType::JSON: {
+        return lbcrypto::Serial::SerializeToFile(filename, ct, lbcrypto::SerType::JSON);
+    }
+    default: std::cerr << "Unsupported serialization type" << std::endl; return false;
+    }
+}
+
+bool DeserializeFromFile(const std::string& filename, fideslib::Ciphertext<fideslib::DCRTPoly>& obj, const SerType& sertype) {
+    lbcrypto::Ciphertext<lbcrypto::DCRTPoly> ct;
+
+    bool res;
+    switch (sertype) {
+    case SerType::BINARY: {
+        res = lbcrypto::Serial::DeserializeFromFile(filename, ct, lbcrypto::SerType::BINARY);
+        break;
+    }
+    case SerType::JSON: {
+        res = lbcrypto::Serial::DeserializeFromFile(filename, ct, lbcrypto::SerType::JSON);
+        break;
+    }
+    default: std::cerr << "Unsupported serialization type" << std::endl; return false;
+    }
+
+    if (!res) {
+        return false;
+    }
+
+    // Wrap the raw OpenFHE ciphertext into a FIDESlib CiphertextImpl that is bound to
+    // the caller's parent context. The caller must construct the target object with its
+    // parent context first (e.g. make_shared<CiphertextImpl<DCRTPoly>>(std::move(cc))):
+    // CiphertextImpl is not default-constructible, and the serialized payload alone
+    // cannot provide the api-level parent (it carries its own OpenFHE CryptoContext —
+    // registered/returned by CryptoContextFactory on load — which Decrypt does not
+    // consult, since the api-level Decrypt uses the caller's context and secret key).
+    if (!obj) {
+        OPENFHE_THROW("Cannot deserialize into a null Ciphertext: construct it with a parent "
+                      "CryptoContext first (make_shared<CiphertextImpl<DCRTPoly>>(std::move(cc)))");
+    }
+
+    obj->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+    // Host-only handoff: no GPU copy, no pending lazy copy.
+    obj->loaded = false;
+    obj->gpu = 0;
+    obj->need_lazy_copy = false;
+    obj->original_level = (obj->parent_context) ? obj->parent_context->multiplicative_depth - ct->GetLevel() : 0;
+
+    return true;
+}
 } // namespace fideslib::Serial

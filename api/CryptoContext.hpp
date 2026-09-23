@@ -62,6 +62,9 @@ template <> class CryptoContextImpl<DCRTPoly> {
     /// @brief Load a ciphertext to the devices.
     /// @param ct Ciphertext to load.
     void LoadCiphertext(Ciphertext<DCRTPoly>& ct);
+    /// @brief Unload a ciphertext from the devices, materializing its host copy.
+    /// @param ct Ciphertext to unload.
+    void UnloadCiphertext(Ciphertext<DCRTPoly>& ct);
 
     // ---- Key Generation ----
 
