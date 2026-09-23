@@ -100,6 +100,11 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
         ////////////////////////////////////////////////////////////////
 
         Accumulate(ctxt, cc.GetBootPrecomputation(slots).accumulate_bStep, slots, cc.N / 2 / slots);
+        // The fold is metadata-neutral (O10 — `Accumulate` no longer narrows `ctxt.slots` after a
+        // full fold). Spell out the sparse re-interpretation this call site needs here, so the
+        // downstream CtS rotations keep normalizing indices through `ctxt.slots` exactly as before.
+        if (cc.N / 2 == ctxt.slots)
+            ctxt.slots = slots;
     }
 
     if (ctxt.NoiseLevel == 2) {

@@ -23,43 +23,6 @@ void checkBStep(const int bStep, const char* where) {
 }
 } // namespace
 
-void AccumulateCascadeImpl(FIDESlib::CKKS::Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor) {
-    checkBStep(bStep, "Accumulate");
-    if (startFactor <= 0 || size <= 0) {
-        return;
-    }
-
-    FIDESlib::CKKS::Context& cc_ = ctxt.cc_;
-    std::vector<FIDESlib::CKKS::Ciphertext> aux;
-    for (int i = 0; i < bStep - 1; ++i) {
-        aux.emplace_back(cc_);
-    }
-
-    int logbStep = std::bit_width((uint32_t)bStep) - 1;
-    for (int s = startFactor; s < size; s <<= logbStep) {
-        std::vector<int> indexes;
-        std::vector<FIDESlib::CKKS::Ciphertext*> auxptr;
-        for (int idx = stride * s; idx < stride * size && idx < bStep * stride * s; idx += stride * s) {
-            indexes.push_back(idx);
-            auxptr.emplace_back(&aux[idx / stride / s - 1]);
-        }
-
-        if (indexes.empty()) {
-            continue;
-        }
-
-        ctxt.rotate_hoisted(indexes, auxptr, true);
-        ctxt.extend();
-        for (size_t i = 0; i < indexes.size(); ++i) {
-            ctxt.add(*auxptr[i]);
-        }
-        ctxt.modDown(false);
-    }
-
-    if (size * stride == ctxt.slots)
-        ctxt.slots = stride * startFactor;
-} // namespace
-
 std::vector<int> FIDESlib::CKKS::GetAccumulateRotationIndices(const int bStep, const int stride, const int size) {
     checkBStep(bStep, "GetAccumulateRotationIndices");
     std::vector<int> indices;
@@ -96,8 +59,12 @@ std::vector<int> FIDESlib::CKKS::GetbroadcastRotationIndices(const int bStep, co
     return indices;
 }
 
-void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size) {
+void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor) {
     checkBStep(bStep, "Accumulate");
+    if (startFactor <= 0 || size <= 0) {
+        return;
+    }
+
     Context& cc_ = ctxt.cc_;
     std::vector<Ciphertext> aux;
 
@@ -105,14 +72,30 @@ void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int str
         aux.emplace_back(cc_);
     }
 
+    // BSGS radix fold with a start offset: levels run over s = startFactor, startFactor*bStep, ...
+    // and fold in the hoisted rotations of the *current* accumulator by {stride*s, 2*stride*s, ...}.
+    // This is the single accumulator for both plain api paths (startFactor == 1, unchanged from the
+    // pre-unification `Accumulate(ct, bStep, stride, size)`) and the start-offset variant (which
+    // replaced the eager `AccumulateCascadeImpl`). Laziness follows the P2b discipline exactly — the
+    // same discipline the bootstrap PartialSum mirrors bit-for-bit: ciphertext element c1 settles
+    // once per level (its digit decomposition feeds the next level's rotations) while element c0
+    // accumulates in the extended QlP basis across the whole fold and settles exactly once at the
+    // end. Unlike the old cascade there is no per-level `ctxt.extend()`/`modDown` round-trip, and
+    // unlike both old variants there is no trailing `slots` rewrite (O10 - the fold is metadata
+    // neutral; callers that need the sparse re-interpretation set `ctxt.slots` themselves).
     int logbStep = std::bit_width((uint32_t)bStep) - 1;
-    for (int s = 1; s < size; s <<= logbStep) {
+    for (int s = startFactor; s < size; s <<= logbStep) {
         std::vector<int> indexes;
         std::vector<Ciphertext*> auxptr;
         for (int idx = stride * s; idx < stride * size && idx < bStep * stride * s; idx += stride * s) {
             indexes.push_back(idx);
             auxptr.emplace_back(&aux[idx / stride / s - 1]);
         }
+
+        if (indexes.empty()) {
+            continue;
+        }
+
         ctxt.rotate_hoisted(indexes, auxptr, true);
         for (size_t i = 0; i < indexes.size(); ++i) {
             ctxt.add(*auxptr[i]);
@@ -121,13 +104,6 @@ void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int str
     }
     if (ctxt.c0.isModUp())
         ctxt.c0.moddown();
-
-    if (size * stride == ctxt.slots)
-        ctxt.slots = stride;
-}
-
-void FIDESlib::CKKS::Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor) {
-    AccumulateCascadeImpl(ctxt, bStep, stride, size, startFactor);
 }
 
 void FIDESlib::CKKS::Broadcast(Ciphertext& ctxt, const int bStep, const int initsize, const int outsize) {

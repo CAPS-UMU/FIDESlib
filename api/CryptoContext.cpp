@@ -1868,7 +1868,11 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 
     auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct->gpu));
 
-    FIDESlib::CKKS::Accumulate(*res_gpu, 4, stride, slots, start);
+    // Same radix as the plain variants (never a literal), with the same slots save/restore:
+    // the unified `Accumulate` is metadata-neutral (no trailing slots rewrite, O10).
+    const int inputSlots = res_gpu->slots;
+    FIDESlib::CKKS::Accumulate(*res_gpu, ACCUMULATE_SUM_RADIX, stride, slots, start);
+    res_gpu->slots = inputSlots;
 }
 
 void CryptoContextImpl<DCRTPoly>::ConvolutionTransformInPlace(Ciphertext<DCRTPoly>& ct,
