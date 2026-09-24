@@ -23,3 +23,6 @@ deps/openfhe-src/
 __pycache__/
 *.pyc
 build-*/
+
+# Coverage pipeline output (scripts/run_coverage.sh).
+coverage/
