@@ -1,6 +1,8 @@
 //
 // Created by carlosad on 8/06/25.
 //
+#include <algorithm>
+#include <stdexcept>
 
 #include "CKKS/Context.cuh"
 #include "CKKS/Conv.cuh"
@@ -227,11 +229,11 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
                         // stream[i]->wait(i ? partition.s : s);
                         uint32_t num_limbs = 1;
 
-                        INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(getGlobals(),
+                        INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, stream[i]->ptr()>>>(getGlobals(),
                             *part[i]->level == cc.L + 1 ? part[i]->SPECIALlimbptr.data + 0 : part[i]->limbptr.data + start + i_,
                             *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_),
                             ptraux[i]->data);
-                        INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, stream[i]->ptr()>>>(
+                        INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, stream[i]->ptr()>>>(
                             getGlobals(), ptraux[i]->data, *part[i]->level == cc.L + 1 ? SPECIAL(id, 0) : PARTITION(id, start + i_), ptr[i]->data);
                     }
 
@@ -354,7 +356,7 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
                 uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
 
                 NTT_<false, algo, mode>
-                    <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, id == top_gpu ? part[j]->s.ptr() : stream[j]->ptr()>>>(
+                    <<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, id == top_gpu ? part[j]->s.ptr() : stream[j]->ptr()>>>(
                         getGlobals(), ptr[j]->data, PARTITION(part[j]->id, i), part[j]->auxptr.data + i, nullptr, -1, *part[j]->level);
 
                 CudaCheckErrorModNoSync;
@@ -365,7 +367,7 @@ void LimbPartition::doubleRescaleMGPU(LimbPartition& partition) {
                 }
                 CudaCheckErrorModNoSync;
 
-                NTT_<true, algo, mode><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, part[j]->s.ptr()>>>(
+                NTT_<true, algo, mode><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, part[j]->s.ptr()>>>(
                     getGlobals(), part[j]->auxptr.data + i, PARTITION(part[j]->id, i), part[j]->limbptr.data + i, nullptr, -1, *part[j]->level);
             }
         }
@@ -856,13 +858,13 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
             {
                 // std::cout << "Parms INTT first: digit:" << d << " device:" << id << " s:" << stream.ptr() << " glob:" << getGlobals() << " auxptr:" << auxptr.data + start_d
                 //		  << " primeid_table_offset:" << PARTITION(id, start_d) << " ptr:" << limbptr.data + start_d << std::endl;
-                INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                     getGlobals(), limbptr.data + start_d, PARTITION(id, start_d), auxptr.data + start_d);
 
                 CudaCheckErrorModNoSync;
                 // std::cout << "Parms INTT second: digit:" << d << " device:" << id << " s:" << stream.ptr() << " glob:" << getGlobals() << " auxptr:" << auxptr.data + start_d
                 //		  << " primeid_table_offset:" << PARTITION(id, start_d) << " GATHERptr:" << GATHERptr.data + gather_offset + start_d << std::endl;
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                     getGlobals(), auxptr.data + start_d, PARTITION(id, start_d), GATHERptr.data + gather_offset + start_d);
             }
             CudaCheckErrorModNoSync;
@@ -1161,10 +1163,11 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                 start += DECOMPlimb.at(j).size();
             int size = std::min((int)DECOMPlimb.at(d_).size(), *level + 1 - start);
 
-            if (size <= 0) {
-                std::cerr << "void modup, aborting" << std::endl;
-                exit(-1);
-            }
+            // With a contiguous digit partition a trailing digit has no live limbs at low levels
+            // (size == n_d_n == 0): skipping it is correct, exit() was only treating the
+            // interleaved-digit mismatch as an error.
+            if (size <= 0)
+                continue;
 
             if constexpr (PRINT)
                 if (SELECT) {
@@ -1176,14 +1179,23 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
             if (!PEER_ACCESS) {
                 dim3 blockSize{ 64, 2 };
                 dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-                int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
+                // The kernel stages n_d_n = num_primeid_digit_from[digit][level] "from" limbs in
+                // shared memory; with a contiguous digit partition size == n_d_n always, enforce it
+                // instead of sizing the buffer by the max of the two.
+                const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid[d_]][*level];
+                if (size != conv_from)
+                    throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+                int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
 
                 DecompAndModUpConv<ALGO_SHOUP>
                     <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
             } else {
                 dim3 blockSize{ 64, 2 };
                 dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
-                int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x * 2;
+                const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid[d_]][*level];
+                if (size != conv_from)
+                    throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+                int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x * 2;
                 if (d_ > 0)
                     cudaStreamWaitEvent(stream1.ptr(), ev);
                 DecompAndModUpConv_spec2<ALGO_SHOUP>
@@ -1205,10 +1217,10 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                 const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
                 if (size > 0) {
-                    NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
+                    NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
                         getGlobals(), DIGITlimbptr[d_].data, DIGIT(d_, 0), c0.DIGITlimbptr[d_].data);
 
-                    NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
+                    NTT_<true, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
                         getGlobals(), c0.DIGITlimbptr[d_].data, DIGIT(d_, 0), DIGITlimbptr[d_].data);
                 }
             }
@@ -1296,10 +1308,10 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                 if (limbs > 0) {
                     const int j = cc.splitSpecialMeta.at(id).at(0).id - cc.specialMeta.at(id).at(0).id;
 
-                    INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                    INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                         getGlobals(), out.SPECIALlimbptr.data + j, SPECIAL(id, j), out.SPECIALauxptr.data + j);
 
-                    INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                    INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                         getGlobals(), out.SPECIALauxptr.data + j, SPECIAL(id, j), aux_limbs.SPECIALlimbptr.data + j);
                 }
             }
@@ -1518,7 +1530,12 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                     dim3 blockSize{ 64, 2 };
 
                     dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-                    int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x;
+                    // ModDown2 stages C_.K special lanes in shared memory; size by K, not by the
+                    // (possibly partial) SPECIALlimb.size() (see LimbPartition.cu moddown guard).
+                    const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+                    if (SPECIALlimb.size() < moddown_K)
+                        throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
+                    int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
                     if (limb_size > 0)
                         ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
                             auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
@@ -1528,7 +1545,11 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                     dim3 blockSize{ 64, 2 };
 
                     dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
-                    int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x * 2;
+                    // ModDown3 stages C_.K ulonglong2 special lanes in shared memory; size by K.
+                    const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+                    if (SPECIALlimb.size() < moddown_K)
+                        throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
+                    int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x * 2;
                     if (limb_size > 0)
                         ModDown3<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
                             auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
@@ -1572,10 +1593,10 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                 const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
                 {
-                    NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                    NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                         getGlobals(), DIGITlimbptr[d].data + start, DIGIT(d, start), c0.DIGITlimbptr[d].data + start);
 
-                    NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                    NTT_<true, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                         getGlobals(), c0.DIGITlimbptr[d].data + start, DIGIT(d, start), DIGITlimbptr[d].data + start);
                 }
             }
@@ -1657,12 +1678,12 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                 const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
                 {
-                    NTT_<false, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                    NTT_<false, algo, NTT_MODDOWN><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                         getGlobals(), auxLimbs.limbptr.data, PARTITION(id, 0), out.auxptr.data);
 
                     stream.wait(cc.digitStream2.at(0).at(id));
 
-                    NTT_<true, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                    NTT_<true, algo, NTT_MODDOWN><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                         getGlobals(), out.auxptr.data, PARTITION(id, 0), out.limbptr.data);
                 }
             }
@@ -2000,9 +2021,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                 gather_offset += cc.meta.at(i).size();
             }
             {
-                INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), size_d }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                     getGlobals(), limbptr.data + start_d, PARTITION(id, start_d), auxptr.data + start_d);
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), size_d }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                     getGlobals(), auxptr.data + start_d, PARTITION(id, start_d), GATHERptr.data + gather_offset + start_d);
             }
         }
@@ -2235,10 +2256,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                 for (int j = 0; j < d_; ++j)
                     start += DECOMPlimb.at(j).size();
                 int size = std::min((int)DECOMPlimb.at(d_).size(), *level + 1 - start);
-                if (size <= 0) {
-                    std::cerr << "void modup, aborting" << std::endl;
-                    exit(-1);
-                }
+                // Trailing digit with no live limbs at this level (size == n_d_n == 0): skip.
+                if (size <= 0)
+                    continue;
                 if constexpr (PRINT)
                     if (SELECT) {
                         std::cout << cc.precom.constants[id].num_primeid_digit_to[d_][*level] << "<- num_prime_id_digit_to: " << d_ << std::endl;
@@ -2258,14 +2278,20 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                 if (!PEER_ACCESS) {
                     dim3 blockSize{ 64, 2 };
                     dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-                    int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
+                    const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid[d_]][*level];
+                    if (size != conv_from)
+                        throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+                    int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
                     DecompAndModUpConv<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(
                         DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
                     cc.digitStream2.at(d_).at(id).wait(stream1); /** Get dependency for limb NTTs later */
                 } else {
                     dim3 blockSize{ 64, 2 };
                     dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
-                    int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x * 2;
+                    const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid[d_]][*level];
+                    if (size != conv_from)
+                        throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+                    int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x * 2;
                     DecompAndModUpConv_spec2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(
                         DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
                     cc.digitStream2.at(d_).at(id).wait(stream1); /** Get dependency for limb NTTs later */
@@ -2285,9 +2311,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                     const int bytesFirst = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
                     const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
                     if (size > 0) {
-                        NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
+                        NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), size }, blockDimFirst, bytesFirst, stream1.ptr()>>>(
                             getGlobals(), DIGITlimbptr[d_].data, DIGIT(d_, 0), c0.DIGITlimbptr[d_].data);
-                        NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
+                        NTT_<true, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), size }, blockDimSecond, bytesSecond, stream1.ptr()>>>(
                             getGlobals(), c0.DIGITlimbptr[d_].data, DIGIT(d_, 0), DIGITlimbptr[d_].data);
                     }
                 }
@@ -2324,9 +2350,9 @@ void LimbPartition::modupMGPU(LimbPartition& aux, const std::vector<uint64_t*>& 
                     const int bytesFirst = NTT_shmem<M, uint64_t, algo>(blockDimFirst.x);
                     const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
                     {
-                        NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                        NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                             getGlobals(), DIGITlimbptr[d].data + start, DIGIT(d, start), c0.DIGITlimbptr[d].data + start);
-                        NTT_<true, algo, NTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                        NTT_<true, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                             getGlobals(), c0.DIGITlimbptr[d].data + start, DIGIT(d, start), DIGITlimbptr[d].data + start);
                     }
                 }
@@ -2493,10 +2519,10 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
 
                 const int i = cc.splitSpecialMeta.at(id).at(0).id - cc.specialMeta.at(id).at(0).id;
 
-                INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), limbs }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                     getGlobals(), out.SPECIALlimbptr.data + i, SPECIAL(id, i), out.SPECIALauxptr.data + i);
                 CudaCheckErrorModNoSync;
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), limbs }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                     getGlobals(), out.SPECIALauxptr.data + i, SPECIAL(id, i), auxLimbs.SPECIALlimbptr.data + i);
                 CudaCheckErrorModNoSync;
             }
@@ -2623,7 +2649,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
             dim3 blockSize{ 64, 2 };
 
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x;
+            // ModDown2 stages C_.K special lanes in shared memory; size by K (see modup guard).
+            const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+            if (SPECIALlimb.size() < moddown_K)
+                throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
+            int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
             if (limb_size > 0)
                 ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
                     auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
@@ -2631,7 +2661,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
             dim3 blockSize{ 64, 2 };
 
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
-            int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x * 2;
+            // ModDown3 stages C_.K ulonglong2 special lanes in shared memory; size by K.
+            const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+            if (SPECIALlimb.size() < moddown_K)
+                throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
+            int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x * 2;
             if (limb_size > 0)
                 ModDown3<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
                     auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
@@ -2670,11 +2704,11 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
             const int bytesSecond = NTT_shmem<M, uint64_t, algo>(blockDimSecond.x);
 
             {
-                NTT_<false, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimFirst.x * M * 2), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
+                NTT_<false, algo, NTT_MODDOWN><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), limb_size }, blockDimFirst, bytesFirst, stream.ptr()>>>(
                     getGlobals(), auxLimbs.limbptr.data, PARTITION(id, 0), out.auxptr.data);
                 CudaCheckErrorModNoSync;
 
-                NTT_<true, algo, NTT_MODDOWN><<<dim3{ cc.N / (blockDimSecond.x * M * 2), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
+                NTT_<true, algo, NTT_MODDOWN><<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), limb_size }, blockDimSecond, bytesSecond, stream.ptr()>>>(
                     getGlobals(), out.auxptr.data, PARTITION(id, 0), out.limbptr.data);
                 CudaCheckErrorModNoSync;
             }

@@ -38,6 +38,15 @@ template <uint32_t M, bool second> uint32_t NTT_grid_dim_X(int logN) {
     return second ? (1 << logN) / blockDimX / 2 / M : (1 << logN) / blockDimX / 2 / M;
 }
 
+// Runtime-M variant for the batched (LimbPartition) launches, whose kernel M
+// (M = (sizeof(T) == 8) ? 4 : 8, see NTT__/INTT__) is only known from the runtime limb type.
+// The formula is the same as the template above (N / (2 * M * blockDim)); the block size
+// (NTT_block_dim_X) does not depend on M.
+inline uint32_t NTT_grid_dim_X(uint32_t M, bool second, int logN) {
+    const uint32_t blockDimX = second ? NTT_block_dim_X<4, true>(logN) : NTT_block_dim_X<4, false>(logN);
+    return (1u << logN) / blockDimX / 2u / M;
+}
+
 template <uint32_t M, bool second> uint32_t INTT_block_dim_X(int logN) {
     return second ? (uint32_t)(1 << ((logN + 1 + (logN > 13 ? 0 : 0)) / 2 - 1)) : (uint32_t)(1 << ((logN + (logN > 13 ? 0 : 0)) / 2 - 1));
 }
@@ -45,6 +54,12 @@ template <uint32_t M, bool second> uint32_t INTT_block_dim_X(int logN) {
 template <uint32_t M, bool second> uint32_t INTT_grid_dim_X(int logN) {
     uint32_t blockDimX = INTT_block_dim_X<M, second>(logN);
     return second ? (1 << logN) / blockDimX / 2 / M : (1 << logN) / blockDimX / 2 / M;
+}
+
+// Runtime-M variant for the batched (LimbPartition) launches; see NTT_grid_dim_X above.
+inline uint32_t INTT_grid_dim_X(uint32_t M, bool second, int logN) {
+    const uint32_t blockDimX = second ? INTT_block_dim_X<4, true>(logN) : INTT_block_dim_X<4, false>(logN);
+    return (1u << logN) / blockDimX / 2u / M;
 }
 
 template <uint32_t M, typename T, ALGO algo> uint32_t NTT_shmem(uint32_t blockDimX) {

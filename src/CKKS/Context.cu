@@ -187,6 +187,8 @@ int ContextData::computeLogQ(const int L, std::vector<PrimeRecord>& primes) {
 }
 
 const int& ContextData::validateDnum(const std::vector<int>& GPUid, const int& dnum) {
+    if (dnum < 1)
+        throw std::runtime_error("dnum must be >= 1 (the digit decomposition needs at least one digit)");
     return dnum;
 }
 
@@ -215,7 +217,7 @@ ContextData::generateMeta(const std::vector<int>& GPUid, const int dnum, const s
         int threshhold2 = threshhold1 * devs;
         int dev = 0;
         for (int i = 0; i < (int)prime.size(); ++i) {
-            int digit_ = !param.raw ? i % dnum : findDigitOnParam(param, prime.at(i).p);
+            int digit_ = !param.raw ? (int)((int64_t)i * dnum / (int)prime.size()) : findDigitOnParam(param, prime.at(i).p);
 
             if (i < threshhold1) {
             } else if (i < threshhold2) {
@@ -241,8 +243,22 @@ ContextData::generateMeta(const std::vector<int>& GPUid, const int dnum, const s
             // std::cout << "i: " << i << " gpu:" << dev << std::endl;
         }
     } else {
+        // Digits must be a *contiguous ascending partition* of the flat prime-id order: modup /
+        // moddown addressing (limb.at(S_d + i), digit sizes, num_primeid_digit_from/to tables) is
+        // built on digit d owning the flat id range [S_d, S_d + D_d). The old index-interleaved
+        // assignment (i % dnum) violates that (wrong source limbs, size != n_d_n shared-memory
+        // overflow in DecompAndModUpConv), so multi-digit non-raw configs use balanced contiguous
+        // chunking, and any other assignment (e.g. interleaved raw partitions) is rejected.
+        int prev_digit_ = -1;
         for (int i = 0; i < (int)prime.size(); ++i) {
-            int digit_ = !param.raw ? i % dnum : findDigitOnParam(param, prime.at(i).p);
+            int digit_ = !param.raw ? (int)((int64_t)i * dnum / (int)prime.size()) : findDigitOnParam(param, prime.at(i).p);
+            // Reject anything that is not a contiguous ascending partition: interleaved/reordered
+            // digits break the flat limb addressing (size != n_d_n in modup/moddown), and values
+            // outside [0, dnum) (unpartitioned primes, more partitions than dnum) would index
+            // res[j.digit] out of bounds in generateDigitGPUid.
+            if (digit_ < prev_digit_ || digit_ < 0 || digit_ >= dnum)
+                throw std::runtime_error("digit decomposition must be a contiguous ascending partition of the prime order, with every prime assigned to exactly one of the dnum digits");
+            prev_digit_ = digit_;
 
             int dev = i % GPUid.size();
             /*{
@@ -647,22 +663,40 @@ KeySwitchingKey& ContextData::GetEvalKey(const KeyHash& keyID) {
 }
 
 void ContextData::AddBootPrecomputation(int slots, BootstrapPrecomputation&& precomp) {
+    // Compressed bootstrap plaintexts keep only the used slots: each limb (regular, as well as
+    // special when mod-up) stores 2*pt.slots uint64 (16*pt.slots bytes), where pt.slots is the
+    // plaintext's own slot count. That count is NOT the bootstrapping `slots` for every plaintext:
+    // the sparse SlotToCoeff/CoeffToSlots precomputation concatenates real+imaginary, so those
+    // plaintexts carry 2*slots (OpenFHE Eval{SlotsToCoeffs,CoeffsToSlots}Precompute), while the
+    // linear-transform plaintexts stay at `slots` (EvalLinearTransformPrecompute).
+    const auto plaintextsMB = [&](const std::vector<Plaintext>& pts) {
+        long long bytes = 0;
+        for (const auto& pt : pts) {
+            const long long limbs = 1 + pt.c0.getLevel() + (pt.c0.isModUp() ? specialMeta[0].size() : 0);
+            bytes += limbs * 16 * pt.slots;
+        }
+        return bytes / static_cast<double>(1 << 20);
+    };
+
+    long long plaintextCount = 0;
+    double MB = 0;
+    if (precomp.CtS.size() == 0) {
+        plaintextCount = precomp.LT.A.size() + precomp.LT.invA.size();
+        MB = plaintextsMB(precomp.LT.A) + plaintextsMB(precomp.LT.invA);
+    } else {
+        for (const auto& step : precomp.StC) {
+            plaintextCount += step.A.size();
+            MB += plaintextsMB(step.A);
+        }
+        for (const auto& step : precomp.CtS) {
+            plaintextCount += step.A.size();
+            MB += plaintextsMB(step.A);
+        }
+    }
+
     {
         std::cout << "Adding bootstrap precomputation to GPU for " << slots << " slots.\n"
-
-                  << "Plaintexts loaded: "
-                  << (precomp.CtS.size() == 0 ? (precomp.LT.A.size() + precomp.LT.invA.size()) :
-                                                (precomp.StC.size() * precomp.StC.at(0).A.size() + precomp.CtS.size() * precomp.CtS.at(0).A.size()))
-                  << " ~ "
-                  << (precomp.CtS.size() == 0 ?
-                             (precomp.LT.A.size() * (precomp.LT.A.at(0).c0.getLevel() + precomp.LT.A.at(0).c0.isModUp() * specialMeta[0].size()) +
-                                 precomp.LT.invA.size() * (precomp.LT.invA.at(0).c0.getLevel() + precomp.LT.invA.at(0).c0.isModUp() * specialMeta[0].size())) :
-                             (precomp.StC.size() * precomp.StC.at(0).A.size() *
-                                     (1 + precomp.StC.at(0).A.at(0).c0.getLevel() + precomp.StC.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()) +
-                                 precomp.CtS.size() * precomp.CtS.at(0).A.size() *
-                                     (1 + precomp.CtS.at(0).A.at(0).c0.getLevel() + precomp.CtS.at(0).A.at(0).c0.isModUp() * specialMeta[0].size()))) *
-                N * 8 / (1 << 20)
-                  << "MB\n"; // TODO: account for compressed plaintexts
+                  << "Plaintexts loaded: " << plaintextCount << " ~ " << MB << "MB\n";
     }
 
     precom.boot.emplace(slots, std::move(precomp));

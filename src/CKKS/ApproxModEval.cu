@@ -285,6 +285,16 @@ void FIDESlib::CKKS::evalChebyshevSeries(Ciphertext& ctxt, std::vector<double>& 
     // computes linear transformation y = -1 + 2 (x-a)/(b-a)
     // consumes one level when a <> -1 && b <> 1
     Ciphertext& x = ctxt;
+    // The evalPartialLinearWSumWithBias machinery (and the T recurrence that
+    // feeds it) requires every input at NoiseLevel == 1: OpenFHE's own
+    // EvalChebyshevSeries states the same contract ("Ensure all T[i] ciphertexts
+    // are kept at noiseScaleDegree == 1 so that evalPartialLinearWSumWithBias
+    // works correctly"). Normalize here so a caller that hands over a
+    // still-unrescaled ciphertext (NoiseLevel 2 — e.g. a freshly loaded one)
+    // does not leave T[0] at NoiseLevel 2 and trip the WSum bookkeeping.
+    if (x.NoiseLevel == 2) {
+        x.rescaleInternal();
+    }
     double& a = lower_bound;
     double& b = upper_bound;
     auto cc = ctxt.cc_;

@@ -116,6 +116,45 @@ FIDESlib.
 
 Check examples for projects that use FIDESlib.
 
+## Coverage
+
+The repository ships a local coverage pipeline (`scripts/run_coverage.sh`) that measures how much of the
+library is executed while the test suite runs.
+
+Requirements:
+
+- A working CUDA environment (the tests need a GPU).
+- `gcovr`: `pip3 install gcovr`
+- `codecov-cli` (only to upload reports to Codecov): `pip3 install codecov-cli`
+
+Run the pipeline (configures a `build-coverage/` directory, builds the tests, runs them and generates
+HTML + Cobertura reports under `coverage/`):
+
+```bash
+./scripts/run_coverage.sh
+```
+
+To fail the run when line coverage is below a target, or to upload the report to Codecov:
+
+```bash
+COVERAGE_MIN_LINE=60 ./scripts/run_coverage.sh
+CODECOV_TOKEN=<upload token> ./scripts/run_coverage.sh
+```
+
+Additional environment variables (all optional): `FIDESLIB_ARCH` (pin CUDA architectures, e.g. `89-real`
+or `auto`; unset = portable list that runs on any GPU), `OPENFHE_INSTALL_PREFIX` (non-default OpenFHE
+install), `BUILD_DIR` (default `build-coverage`), `REPORT_DIR` (default `coverage`), `JOBS`.
+
+Coverage is collected with gcov (`--coverage`, enabled through the `FIDESLIB_ENABLE_COVERAGE` CMake
+option) and reported with gcovr. Only `src/` and `api/` are measured; tests, benchmarks and
+third-party code are excluded.
+
+> [!WARNING]
+> gcov instruments the **host** side of `.cpp`/`.cu` files. CUDA **device** code
+> (`__device__`/`__global__` bodies) is not instrumented and will show up as uncovered, so
+> kernel-heavy files report low percentages even when they are well tested. Treat the numbers as
+> host-code coverage.
+
 ## Docker
 
 Check docker directory to obtain instructions on running FIDESlib inside a Docker environment.

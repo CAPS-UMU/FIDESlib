@@ -3,6 +3,7 @@
 //
 #include <algorithm>
 #include <array>
+#include <stdexcept>
 #include <variant>
 #include <vector>
 
@@ -229,7 +230,7 @@ void LimbPartition::generate(std::vector<LimbRecord>& records,
                 limbs.emplace_back(Limb<uint32_t>(cc, (uint32_t*)buffer, 2 * offset, id, USE_PARTITION_STREAM ? s : records.at(i).stream, r.id, nullptr, 0, num_elems));
                 offset += cc.N;
             } else
-                limbs.emplace_back(Limb<uint32_t>(cc, id, USE_PARTITION_STREAM ? s : records.at(i).stream, r.id, auxptrs ? 1 : 0, num_elems));
+                limbs.emplace_back(Limb<uint32_t>(cc, id, USE_PARTITION_STREAM ? s : records.at(i).stream, r.id, auxptrs ? 0 : 1, num_elems));
             cpu_ptr[i - limbs_size] = { &(std::get<U32>(limbs.back()).v.data)[0] };
             cpu_auxptr[i - limbs_size] = { &(std::get<U32>(limbs.back()).aux.data)[0] };
         }
@@ -353,6 +354,14 @@ void LimbPartition::ApplyNTT(int batch,
     ContextData& cc,
     const int primeid_init,
     const int limbsize) {
+    // The batched NTT_/INTT_ kernels dispatch per limb on the prime type and run internally with
+    // M = (sizeof(T) == 8) ? 4 : 8 (NTT__/INTT__ in NTT.cu/INTT.cu). The grid size
+    // (N = 2 * M * blockDim * gridDim) must therefore be computed with that kernel M (gridM
+    // below); the block dims / shared memory below use M = 4, which does not depend on the
+    // kernel's M. Hardcoding M = 4 in the grid would launch 32-bit limbs with a grid twice as
+    // wide as N and the kernels over-read past the last limb (crash in fideslib-bench
+    // LimbDeviceBatch{NTT,INTT}32 benchmarks).
+    const uint32_t gridM = (!limb.empty() && limb[0].index() == U32) ? 8u : 4u;
     constexpr int M = 4;
 
     const int logN = GetLogN();
@@ -367,7 +376,7 @@ void LimbPartition::ApplyNTT(int batch,
         for (int i = 0; i < size; i += batch) {
             uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(size - i));
 
-            NTT_<false, algo, mode><<<dim3{ NTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
+            NTT_<false, algo, mode><<<dim3{ NTT_grid_dim_X(gridM, false, logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
                 (mode == NTT_RESCALE || mode == NTT_MULTPT) ? limbptr.data + size :
                     (mode == NTT_MODDOWN)                   ? fields.op2->limbptr.data + i :
                                                               limbptr.data + i,
@@ -379,7 +388,7 @@ void LimbPartition::ApplyNTT(int batch,
                 nullptr,
                 nullptr);
 
-            NTT_<true, algo, mode><<<dim3{ NTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
+            NTT_<true, algo, mode><<<dim3{ NTT_grid_dim_X(gridM, true, logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(getGlobals(),
                 auxptr.data + i,
                 primeid_init + i,
                 limbptr.data + i,
@@ -458,6 +467,10 @@ void LimbPartition::ApplyINTT(int batch,
     ContextData& cc,
     const int primeid_init,
     const int limbsize) {
+    // See ApplyNTT: the batched kernels run with M = (sizeof(T) == 8) ? 4 : 8 and the grid
+    // (N = 2 * M * blockDim * gridDim) must be computed with that kernel M (gridM below);
+    // block dims / shared memory use M = 4 and do not depend on the kernel's M.
+    const uint32_t gridM = (!limb.empty() && limb[0].index() == U32) ? 8u : 4u;
     constexpr int M = 4;
 
     const uint32_t logN = GetLogN();
@@ -470,10 +483,10 @@ void LimbPartition::ApplyINTT(int batch,
         for (int i = 0; i < limbsize; i += batch) {
             uint32_t num_limbs = std::min((uint32_t)batch, (uint32_t)(limbsize - i));
 
-            INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(
+            INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X(gridM, false, logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(i)).ptr()>>>(
                 getGlobals(), limbptr.data + i, primeid_init + i, auxptr.data + i);
 
-            INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(
+            INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X(gridM, true, logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(i)).ptr()>>>(
                 getGlobals(), auxptr.data + i, primeid_init + i, limbptr.data + i);
         }
     } else if (logN > 0) {
@@ -816,10 +829,10 @@ void LimbPartition::modup(LimbPartition& aux_partition) {
                 STREAM(limb.at(start + i)).wait(s_d);
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
-                INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(
+                INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(
                     getGlobals(), limbptr.data + start + i, PARTITION(id, start + i), auxptr.data + start + i);
 
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
                     getGlobals(), auxptr.data + start + i, PARTITION(id, start + i), DECOMPlimbptr[d].data + i);
             }
             for (int32_t i = 0; i < size; i += cc.batch) {
@@ -840,7 +853,15 @@ void LimbPartition::modup(LimbPartition& aux_partition) {
         {
             dim3 blockSize{ 64, 2 };
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
+            // The kernel stages n_d_n = num_primeid_digit_from[digit][level] "from" limbs in shared
+            // memory (buff[tid + blockDim.x * i_] with i_ < n_d_n). With a contiguous digit
+            // partition, size == n_d_n always; the old interleaved i % dnum digits made size < n_d_n
+            // and overran shared memory (fideslib-bench RNSPolyModUp level-16 crash). Enforce the
+            // invariant instead of silently sizing the buffer by the max of the two.
+            const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid.at(d)][*level];
+            if (size != conv_from)
+                throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+            int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
             DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s_d.ptr()>>>(DECOMPlimbptr[d].data, *level + 1, DIGITlimbptr[d].data, digitid[d], getGlobals());
         }
         if constexpr (PRINT) {
@@ -1444,7 +1465,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                 INTT_<false, algo, INTT_MULT_AND_SAVE>
-                    <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
+                    <<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
                         c1.limbptr.data + start + i,
                         start + i,
                         c1.auxptr.data + start + i,
@@ -1456,7 +1477,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
                         c0.limbptr.data + start + i,
                         c0tilde.limbptr.data + start + i);
 
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
                     getGlobals(), c1.auxptr.data + start + i, start + i, DECOMPlimbptr[d].data + i);
             }
             for (int32_t i = 0; i < size; i += cc.batch) {
@@ -1472,7 +1493,12 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
         {
             dim3 blockSize{ 64, 2 };
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (DECOMPlimb[d].size()) * blockSize.x;
+            // size == n_d_n by the contiguous-digit invariant (see modup() for the rationale):
+            // enforce it instead of sizing shared memory by the max of the two.
+            const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid.at(d)][level_plus_1 - 1];
+            if (size != conv_from)
+                throw std::runtime_error("key-switch modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+            int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
             DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(DECOMPlimbptr[d].data, level_plus_1, DIGITlimbptr[d].data, digitid[d], getGlobals());
         }
 
@@ -1490,12 +1516,12 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
                 STREAM(c0.SPECIALlimb.at(i)).wait(s);
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
-                NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
+                NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
                     getGlobals(), DIGITlimbptr[d].data + i, SPECIAL(id, i), c1.SPECIALauxptr.data + i, nullptr, -1, 0, nullptr, nullptr);
 
                 if (d == 0) {
                     NTT_<true, algo, NTT_KSK_DOT>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1506,7 +1532,7 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
                             ksk_b.DIGITlimbptr[d].data + i);
                 } else {
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1561,11 +1587,11 @@ void LimbPartition::multModupDotKSK(LimbPartition& c1, const LimbPartition& c1ti
                     uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                     NTT_<false, algo, NTT_NONE>
-                        <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
+                        <<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
                             getGlobals(), DIGITlimbptr[d].data + Dstart + i, Lstart + i, c1.auxptr.data + Lstart + i, nullptr, -1, 0, nullptr, nullptr);
 
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
                             c1.auxptr.data + Lstart + i,
                             Lstart + i,
                             c0.limbptr.data + Lstart + i,
@@ -1654,7 +1680,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                 INTT_<false, algo, INTT_ROTATE_AND_SAVE>
-                    <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
+                    <<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
                         c1.limbptr.data + start + i,
                         start + i,
                         c1.auxptr.data + start + i,
@@ -1666,7 +1692,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                         c0.limbptr.data + start + i,
                         nullptr);
 
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
                     getGlobals(), c1.auxptr.data + start + i, start + i, DECOMPlimbptr[d].data + i);
             }
             for (int32_t i = 0; i < size; i += cc.batch) {
@@ -1682,7 +1708,12 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
         {
             dim3 blockSize{ 64, 2 };
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (DECOMPlimb[d].size()) * blockSize.x;
+            // size == n_d_n by the contiguous-digit invariant (see modup() for the rationale):
+            // enforce it instead of sizing shared memory by the max of the two.
+            const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid.at(d)][level_plus_1 - 1];
+            if (size != conv_from)
+                throw std::runtime_error("key-switch modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+            int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
             DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(DECOMPlimbptr[d].data, level_plus_1, DIGITlimbptr[d].data, digitid[d], getGlobals());
         }
 
@@ -1700,12 +1731,12 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                 STREAM(c0.SPECIALlimb.at(i)).wait(s);
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
-                NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
+                NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
                     getGlobals(), DIGITlimbptr[d].data + i, SPECIAL(id, i), c1.SPECIALauxptr.data + i, nullptr, -1, 0, nullptr, nullptr);
 
                 if (d == 0) {
                     NTT_<true, algo, NTT_KSK_DOT>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1716,7 +1747,7 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                             ksk_b.DIGITlimbptr[d].data + i);
                 } else {
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1769,11 +1800,11 @@ void LimbPartition::rotateModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                     uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                     NTT_<false, algo, NTT_NONE>
-                        <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
+                        <<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
                             getGlobals(), DIGITlimbptr[d].data + Dstart + i, Lstart + i, c1.auxptr.data + Lstart + i, nullptr, -1, 0, nullptr, nullptr);
 
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
                             c1.auxptr.data + Lstart + i,
                             Lstart + i,
                             c0.limbptr.data + Lstart + i,
@@ -1849,7 +1880,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                 INTT_<false, algo, INTT_SQUARE_AND_SAVE>
-                    <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
+                    <<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(getGlobals(),
                         c1.limbptr.data + start + i,
                         start + i,
                         c1.auxptr.data + start + i,
@@ -1861,7 +1892,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                         c0.limbptr.data + start + i,
                         nullptr);
 
-                INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
+                INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
                     getGlobals(), c1.auxptr.data + start + i, start + i, DECOMPlimbptr[d].data + i);
             }
             for (int32_t i = 0; i < size; i += cc.batch) {
@@ -1877,7 +1908,12 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
         {
             dim3 blockSize{ 64, 2 };
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (DECOMPlimb[d].size()) * blockSize.x;
+            // size == n_d_n by the contiguous-digit invariant (see modup() for the rationale):
+            // enforce it instead of sizing shared memory by the max of the two.
+            const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid.at(d)][level_plus_1 - 1];
+            if (size != conv_from)
+                throw std::runtime_error("key-switch modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+            int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
             DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(DECOMPlimbptr[d].data, level_plus_1, DIGITlimbptr[d].data, digitid[d], getGlobals());
         }
 
@@ -1895,12 +1931,12 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                 STREAM(c0.SPECIALlimb.at(i)).wait(s);
                 uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
-                NTT_<false, algo, NTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
+                NTT_<false, algo, NTT_NONE><<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(
                     getGlobals(), DIGITlimbptr[d].data + i, SPECIAL(id, i), c1.SPECIALauxptr.data + i, nullptr, -1, 0, nullptr, nullptr);
 
                 if (d == 0) {
                     NTT_<true, algo, NTT_KSK_DOT>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1911,7 +1947,7 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                             ksk_b.DIGITlimbptr[d].data + i);
                 } else {
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.SPECIALlimb.at(i)).ptr()>>>(getGlobals(),
                             c1.SPECIALauxptr.data + i,
                             SPECIAL(id, i),
                             c0.SPECIALlimbptr.data + i,
@@ -1964,11 +2000,11 @@ void LimbPartition::squareModupDotKSK(LimbPartition& c1, LimbPartition& c0, cons
                     uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
                     NTT_<false, algo, NTT_NONE>
-                        <<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
+                        <<<dim3{ NTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(
                             getGlobals(), DIGITlimbptr[d].data + Dstart + i, Lstart + i, c1.auxptr.data + Lstart + i, nullptr, -1, 0, nullptr, nullptr);
 
                     NTT_<true, algo, NTT_KSK_DOT_ACC>
-                        <<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
+                        <<<dim3{ NTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(c0.limb.at(Lstart + i)).ptr()>>>(getGlobals(),
                             c1.auxptr.data + Lstart + i,
                             Lstart + i,
                             c0.limbptr.data + Lstart + i,
@@ -2038,7 +2074,13 @@ template <ALGO algo> void LimbPartition::moddown(LimbPartition& auxLimbs, bool n
             dim3 blockSize{ 64, 2 }; // blockSize.x * blockSize.y * blockSize.z <= 1024, blockSize.x a multiple of 32
 
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (SPECIALlimb.size()) * blockSize.x;
+            // ModDown2 stages C_.K "from" lanes in shared memory (buff[tid + blockDim.x*i], i < C_.K);
+            // C_.K == Sprimes.size() == SPECIALmeta.size(), so the buffer must be sized by K, not by
+            // the (possibly partial) SPECIALlimb.size().
+            const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+            if (SPECIALlimb.size() < moddown_K)
+                throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
+            int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
 
             ModDown2<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(auxLimbs.limbptr.data, limbsize, SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
         }
@@ -2179,10 +2221,10 @@ void LimbPartition::modupInto(LimbPartition& partition, LimbPartition& aux_parti
             STREAM(limb.at(start + i)).wait(s);
             uint32_t num_limbs = std::min((uint32_t)cc.batch, (uint32_t)(size - i));
 
-            INTT_<false, algo, INTT_NONE><<<dim3{ cc.N / (blockDimFirst.x * M * 2), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(
+            INTT_<false, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, false>(cc.logN), num_limbs }, blockDimFirst, bytesFirst, STREAM(limb.at(start + i)).ptr()>>>(
                 getGlobals(), limbptr.data + start + i, PARTITION(id, start + i), auxptr.data + start + i);
 
-            INTT_<true, algo, INTT_NONE><<<dim3{ cc.N / (blockDimSecond.x * M * 2), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
+            INTT_<true, algo, INTT_NONE><<<dim3{ INTT_grid_dim_X<M, true>(cc.logN), num_limbs }, blockDimSecond, bytesSecond, STREAM(limb.at(start + i)).ptr()>>>(
                 getGlobals(), auxptr.data + start + i, PARTITION(id, start + i), partition.DECOMPlimbptr[d].data + i);
         }
         for (int32_t i = 0; i < size; i += cc.batch) {
@@ -2196,7 +2238,10 @@ void LimbPartition::modupInto(LimbPartition& partition, LimbPartition& aux_parti
         {
             dim3 blockSize{ 64, 2 };
             dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
-            int shared_bytes = sizeof(uint64_t) * (size /*DECOMPlimb[d].size()*/) * blockSize.x;
+            const int conv_from = cc.precom.constants[id].num_primeid_digit_from[digitid.at(d)][*level];
+            if (size != conv_from)
+                throw std::runtime_error("modupInto: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
+            int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
             DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(
                 partition.DECOMPlimbptr[d].data, *level + 1, partition.DIGITlimbptr[d].data, digitid[d], getGlobals());
         }

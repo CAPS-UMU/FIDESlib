@@ -3008,6 +3008,11 @@ TEST_P(OpenFHEBootstrapTest, LinearTransform) {
             GPUct1.store(raw_res1);
             auto cResGPU = c2->Clone();
             GetOpenFHECipherText(cResGPU, raw_res1);
+            // FIDESlib tracks the transform's combined slot count (max of the ciphertext's and the
+            // sparse precomputed plaintexts' 2*slots), which is correct metadata for further FIDESlib
+            // use; OpenFHE keeps the input slot count on the ciphertext. Normalize the downloaded
+            // ciphertext to the OpenFHE reference so the comparison/decrypt align.
+            cResGPU->SetSlots(ctxtEnc->GetSlots());
 
             {
                 auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(cResGPU->GetKeyTag());
@@ -3221,9 +3226,12 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
     std::cout << "Run SlotsToCoeffs" << std::endl;
 
     auto ctxtEnc = FHE->EvalSlotsToCoeffs(FHE->m_bootPrecomMap.at(slots)->m_U0PreFFT, raised);
-    auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-    auto conj = FHE->Conjugate(ctxtEnc, evalKeyMap);
-    cc->EvalAddInPlace(ctxtEnc, conj);
+    // NOTE: no conjugation/addition here — the dense SlotsToCoeffs output is already the real-valued
+    // coefficient domain result (OpenFHE's EvalSlotsToCoeffs), and the GPU EvalCoeffsToSlots(decode)
+    // mirrors it bit-exactly (see OpenFHEBootstrapDense/OpenFHECompatTests.EvalBootstrapDense).
+    // auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
+    // auto conj = FHE->Conjugate(ctxtEnc, evalKeyMap);
+    // cc->EvalAddInPlace(ctxtEnc, conj);
 
     //    lbcrypto::Plaintext result;
     cc->Decrypt(keys.secretKey, ctxtEnc, &result);
@@ -3250,11 +3258,11 @@ TEST_P(OpenFHEBootstrapTest, SlotsToCoeffs) {
             auto cResGPU = c2->Clone();
             GetOpenFHECipherText(cResGPU, raw_res1);
 
-            if (slots < GPUcc.N / 2) {
-                auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ctxtEnc->GetKeyTag());
-                auto conj = FHE->Conjugate(ctxtEnc, evalKeyMap);
-                cc->EvalAddInPlace(ctxtEnc, conj);
-            }
+            // NOTE: no conjugation on the GPU result either (see above); the previous block
+            // conjugated ctxtEnc — the CPU reference — by mistake, and never touched cResGPU.
+            // FIDESlib tracks the transform's combined slot count (correct for further FIDESlib
+            // use); OpenFHE keeps the input slot count. Normalize to the OpenFHE reference.
+            cResGPU->SetSlots(ctxtEnc->GetSlots());
 
             lbcrypto::Plaintext resultGPU;
             cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
