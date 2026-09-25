@@ -27,6 +27,14 @@ struct my_domain {
 
 nvtx3::domain const& D = nvtx3::domain::get<my_domain>();
 
+// The memory-pool ranges live on their own domain so nsight-systems renders them as a separate
+// NVTX row ("FIDESlibPool") instead of intermixing them with the FIDESlib stack/lifetime ranges.
+struct memory_pool_domain {
+    static constexpr char const* name{ "FIDESlibPool" };
+};
+
+nvtx3::domain const& D_pool = nvtx3::domain::get<memory_pool_domain>();
+
 namespace {
 // A LIFETIME range aggregates every live object of one label: the entry keeps the number of
 // live objects and, per object, a getter returning its current memory footprint (in bytes), so
@@ -162,7 +170,7 @@ namespace {
 // freed until process exit, so these ranges are created on first allocation and never stopped;
 // additional slabs of the same chunk size accumulate into the message.
 struct PoolLifetime {
-    std::unique_ptr<nvtx3::unique_range_in<my_domain>> range;
+    std::unique_ptr<nvtx3::unique_range_in<memory_pool_domain>> range;
     uint64_t chunks = 0;
     uint64_t totalBytes = 0;
 };
@@ -201,9 +209,9 @@ void NvtxPoolRender(int device, int chunkBytes) {
         payload{ static_cast<int>(info.chunks) },
         category{ static_cast<unsigned int>(LIFETIME) } };
     if (!info.range) {
-        info.range = std::make_unique<unique_range_in<my_domain>>(attr);
+        info.range = std::make_unique<unique_range_in<memory_pool_domain>>(attr);
     } else {
-        *info.range = unique_range_in<my_domain>(attr);
+        *info.range = unique_range_in<memory_pool_domain>(attr);
     }
 }
 
