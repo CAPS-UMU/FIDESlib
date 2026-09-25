@@ -81,6 +81,11 @@ std::map<OPS, int> op_count;
 Ciphertext::Ciphertext(Ciphertext&& ct_moved) noexcept
 : my_range(std::move(ct_moved.my_range)), keyID(std::move(ct_moved.keyID)), cc_(std::move(ct_moved.cc_)), cc(ct_moved.cc), c0(std::move(ct_moved.c0)),
   c1(std::move(ct_moved.c1)), NoiseFactor(ct_moved.NoiseFactor), NoiseLevel(ct_moved.NoiseLevel), slots(ct_moved.slots) {
+    // Carry the NVTX lifetime registration over to the destination object.
+    CudaNvtxLifetimeUnregisterBytes(loc, &ct_moved);
+    c0.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Ciphertext::loc); };
+    c1.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Ciphertext::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
 }
 
 Ciphertext::Ciphertext(const Context& cc)
@@ -91,6 +96,9 @@ Ciphertext::Ciphertext(const Context& cc)
     c0.SetModUp(false);
     c1.SetModUp(false);
     CudaNvtxStop();
+    c0.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Ciphertext::loc); };
+    c1.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Ciphertext::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
 }
 
 Ciphertext::Ciphertext(const Context& cc, const RawCipherText& rawct) : Ciphertext(cc) {
@@ -98,10 +106,19 @@ Ciphertext::Ciphertext(const Context& cc, const RawCipherText& rawct) : Cipherte
 }
 
 Ciphertext::~Ciphertext() {
+    // Drop the registry entry while both members (c0, c1) are still alive, and detach the
+    // size-change notifiers before returning the polynomials to the aux pool.
+    CudaNvtxLifetimeUnregisterBytes(loc, this);
+    c0.onSizeChanged = nullptr;
+    c1.onSizeChanged = nullptr;
     if (!c1.GPU.empty())
         cc_->returnAuxilarPoly(std::move(c1));
     if (!c0.GPU.empty())
         cc_->returnAuxilarPoly(std::move(c0));
+}
+
+uint64_t Ciphertext::getMemoryUsage() const {
+    return c0.getBytes() + c1.getBytes();
 }
 
 void Ciphertext::copyMetadata(const Ciphertext& a) {

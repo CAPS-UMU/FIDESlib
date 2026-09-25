@@ -31,12 +31,11 @@ class Plaintext {
     int slots = 0;
 
     /**
-     * @brief Defaulted move constructor.
-     *
-     * Moves resources from another Plaintext instance. The default implementation
-     * is sufficient because the class only contains trivially movable members.
+     * @brief Move constructor. Transfers ownership of the internal GPU resources and carries the
+     *        NVTX lifetime registration over to the destination object.
      */
-    Plaintext(Plaintext&& pt) = default;
+    Plaintext(Plaintext&& pt) noexcept;
+    ~Plaintext();
     /**
      * @brief Copy metadata from another plaintext.
      *
@@ -209,6 +208,9 @@ class Plaintext {
     void subPt(const Plaintext& c);
     void multPt(const Plaintext& b, bool rescale = false);
     void multPt(const Plaintext& b1, const Plaintext& b, bool rescale = false);
+
+    /** Total GPU bytes held by this plaintext (its c0 polynomial). */
+    uint64_t getMemoryUsage() const;
 };
 } // namespace FIDESlib::CKKS
 #endif // FIDESLIB_CKKS_PLAINTEXT_CUH

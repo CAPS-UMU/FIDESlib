@@ -23,6 +23,45 @@
 #define OMP_ASSERT(x) assert(x);
 
 namespace FIDESlib::CKKS {
+namespace {
+// Bytes held by a single limb: its main vector plus its aux buffer when that is a distinct
+// allocation (carved buffers such as DECOMP/DIGIT share the same memory, so aliased aux buffers
+// are only counted once).
+uint64_t LimbBytes(const LimbImpl& limb) {
+    if (limb.index() == U32) {
+        const auto& l = std::get<U32>(limb);
+        uint64_t bytes = static_cast<uint64_t>(l.v.size) * sizeof(uint32_t);
+        if (l.aux.data != l.v.data)
+            bytes += static_cast<uint64_t>(l.aux.size) * sizeof(uint32_t);
+        return bytes;
+    }
+    const auto& l = std::get<U64>(limb);
+    uint64_t bytes = static_cast<uint64_t>(l.v.size) * sizeof(uint64_t);
+    if (l.aux.data != l.v.data)
+        bytes += static_cast<uint64_t>(l.aux.size) * sizeof(uint64_t);
+    return bytes;
+}
+} // namespace
+
+uint64_t RNSPoly::getBytes() const {
+    uint64_t bytes = 0;
+    for (const auto& g : GPU) {
+        for (const auto& l : g.limb)
+            bytes += LimbBytes(l);
+        for (const auto& l : g.SPECIALlimb)
+            bytes += LimbBytes(l);
+        for (const auto& digit : g.DECOMPlimb)
+            for (const auto& l : digit)
+                bytes += LimbBytes(l);
+        for (const auto& digit : g.DIGITlimb)
+            for (const auto& l : digit)
+                bytes += LimbBytes(l);
+        for (const auto& l : g.GATHERlimb)
+            bytes += LimbBytes(l);
+    }
+    return bytes;
+}
+
 void RNSPoly::grow(int new_level, bool single_malloc, bool constant, int num_elems) {
     if (level >= new_level)
         return;
@@ -58,6 +97,8 @@ void RNSPoly::grow(int new_level, bool single_malloc, bool constant, int num_ele
             }
         }
     }
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 RNSPoly::RNSPoly(ContextData& context, int level, bool single_malloc, bool def_stream) : uid(next_uid++), cc(context), level(-1) {
@@ -98,6 +139,8 @@ void RNSPoly::freeSpecialLimbs() {
         GPU.at(i).freeSpecialLimbs();
     }
     this->SetModUp(false);
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 void RNSPoly::generateSpecialLimbs(const bool zero_out, const bool for_communication) {
@@ -140,6 +183,8 @@ void RNSPoly::generateSpecialLimbs(const bool zero_out, const bool for_communica
             }
         }
     }
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 void RNSPoly::generateDecompAndDigit(bool iskey) {
@@ -181,6 +226,8 @@ void RNSPoly::generateDecompAndDigit(bool iskey) {
             }
         }
     }
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 void RNSPoly::loadDecompDigit(const std::vector<std::vector<std::vector<uint64_t>>>& data, const std::vector<std::vector<uint64_t>>& moduli) {
@@ -324,6 +371,8 @@ void RNSPoly::modup() {
             GPU.at(i).modupMGPU(aux.GPU.at(i), buffergather, thread_stop, external_s);
         }
     }
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 void RNSPoly::sync() {
@@ -585,6 +634,8 @@ template <ALGO algo> void RNSPoly::moddown(bool ntt, bool free, int aux_num) {
         // assert(nullptr == "ModDown Multi-GPU not implemented.");
     }
     this->SetModUp(false);
+    if (onSizeChanged)
+        onSizeChanged();
 }
 
 #define YY(algo) template void RNSPoly::moddown<algo>(bool ntt, bool free, int aux_num);

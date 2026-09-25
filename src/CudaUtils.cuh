@@ -22,6 +22,16 @@ enum NVTX_CATEGORIES { NONE, LIFETIME, FUNCTION };
 void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat = FUNCTION, int val = 0);
 void CudaNvtxStop(const std::string msg = "", NVTX_CATEGORIES cat = FUNCTION);
 
+// Lifetime-range memory tracking. Objects that open a LIFETIME range (via CudaNvtxStart /
+// CudaNvtxRange) can register a getter returning their current memory footprint; the range
+// message then renders as "N x Label - X.XX MB". Unregister is idempotent, and the getter is
+// only queried while the object is registered (an object must unregister before its members die).
+using NvtxLifetimeBytesProvider = std::function<uint64_t()>;
+void CudaNvtxLifetimeRegisterBytes(const std::string& msg, const void* obj, const NvtxLifetimeBytesProvider& getter);
+void CudaNvtxLifetimeUnregisterBytes(const std::string& msg, const void* obj);
+void CudaNvtxLifetimeRefresh(const std::string& msg);
+std::string CudaNvtxFormatBytes(uint64_t bytes);
+
 class CudaNvtxRange {
     const std::string msg;
     const NVTX_CATEGORIES cat;

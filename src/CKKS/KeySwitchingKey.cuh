@@ -26,8 +26,13 @@ class KeySwitchingKey {
     // std::vector<RNSPoly> mgpu_b;
 
     explicit KeySwitchingKey(Context& cc);
+    KeySwitchingKey(KeySwitchingKey&& k) noexcept;
+    ~KeySwitchingKey();
 
     void Initialize(RawKeySwitchKey& rkk);
+
+    /** Total GPU bytes held by this key (its a + b polynomials). */
+    uint64_t getMemoryUsage() const;
 };
 } // namespace CKKS
 } // namespace FIDESlib
