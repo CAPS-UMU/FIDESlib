@@ -132,8 +132,6 @@ uint64_t ContextData::getAuxBuffersBytes() const {
     for (const auto& aux : moddown_aux)
         if (aux)
             bytes += aux->getBytes();
-    for (const auto& poly : precom.auxPoly)
-        bytes += poly.getBytes();
     for (const auto& [power, mon] : precom.monomialCache)
         bytes += mon.getBytes();
     for (size_t i = 0; i < top_limb_buffer.size(); ++i)
@@ -1001,23 +999,17 @@ RNSPoly ContextData::getAuxilarPoly() {
     } else {
         RNSPoly res(std::move(precom.auxPoly.back()));
         precom.auxPoly.pop_back();
-        // A polynomial left the pool: keep the Buffers timeline in sync (it is now owned by a caller
-        // and shows up under that object's label instead).
-        CudaNvtxLifetimeRefresh(buffers_loc);
         return res;
     }
 }
 
 void ContextData::returnAuxilarPoly(RNSPoly&& c) {
-    // The polynomial (and its GPU buffers) moves back into the pool, so it now belongs to Buffers.
-    CudaNvtxLifetimeRefresh(buffers_loc);
     precom.auxPoly.emplace_back(std::move(c));
 }
 
 void ContextData::trimAuxilarPoly(size_t size) {
     while (precom.auxPoly.size() > size)
         precom.auxPoly.pop_back();
-    CudaNvtxLifetimeRefresh(buffers_loc);
     // precom.auxPoly.erase(precom.auxPoly.begin() + std::min(size, precom.auxPoly.size()), precom.auxPoly.end());
 }
 
@@ -1030,7 +1022,6 @@ void ContextData::clearAuxilarPoly() {
     FIDESlib::gpufree_presynced = true;
     precom.auxPoly.clear();
     FIDESlib::gpufree_presynced = false;
-    CudaNvtxLifetimeRefresh(buffers_loc);
 }
 
 void ContextData::clearAutomorphismKeys(const KeyHash& KeyID) {

@@ -121,7 +121,7 @@ class ContextData {
 
     /** Total GPU bytes of the precomputed tables (per-prime psi tables + per-device Global/Constants). */
     uint64_t getPrecomputationsBytes() const;
-    /** Total GPU bytes of the auxiliary buffers (key-switch/moddown aux polys, aux-poly pool, monomial cache, MGPU top-limb buffers). */
+    /** Total GPU bytes of the auxiliary buffers (key-switch/moddown aux polys, monomial cache, MGPU top-limb buffers). */
     uint64_t getAuxBuffersBytes() const;
 
     static int computeLogQ(const int L, std::vector<PrimeRecord>& primes);
