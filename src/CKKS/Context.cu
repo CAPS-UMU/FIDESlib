@@ -87,12 +87,14 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
     }
 
     OK = true;
-    // Track the context-held GPU memory on its own NVTX timelines.
-    CudaNvtxStart(precom_loc, LIFETIME);
-    CudaNvtxLifetimeRegisterBytes(precom_loc, this, [this] { return this->getPrecomputationsBytes(); });
-    CudaNvtxStart(buffers_loc, LIFETIME);
-    CudaNvtxLifetimeRegisterBytes(buffers_loc, this, [this] { return this->getAuxBuffersBytes(); });
+    // The Context lifetime already opened above (my_range); fold the context-held GPU memory
+    // (precomputed tables + auxiliary buffers) into that same timeline.
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
     CudaNvtxStop();
+}
+
+uint64_t ContextData::getMemoryUsage() const {
+    return getPrecomputationsBytes() + getAuxBuffersBytes();
 }
 
 uint64_t ContextData::getPrecomputationsBytes() const {
@@ -405,7 +407,7 @@ std::vector<std::vector<int>> ContextData::generateGPUdigits(const int dnum, con
 RNSPoly& ContextData::getKeySwitchAux() {
     if (key_switch_aux == nullptr) {
         key_switch_aux = std::make_unique<RNSPoly>(*this, L, false);
-        key_switch_aux->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::buffers_loc); };
+        key_switch_aux->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
     }
 
     key_switch_aux->generateDecompAndDigit(false);
@@ -416,7 +418,7 @@ RNSPoly& ContextData::getKeySwitchAux() {
 RNSPoly& ContextData::getKeySwitchAux2() {
     if (key_switch_aux2 == nullptr) {
         key_switch_aux2 = std::make_unique<RNSPoly>(*this, L, false);
-        key_switch_aux2->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::buffers_loc); };
+        key_switch_aux2->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
     }
     key_switch_aux2->generateDecompAndDigit(false);
     key_switch_aux2->generateSpecialLimbs(false, false);
@@ -426,7 +428,7 @@ RNSPoly& ContextData::getKeySwitchAux2() {
 RNSPoly& ContextData::getModdownAux(const int num) {
     if (moddown_aux[num % moddown_aux.size()] == nullptr) {
         moddown_aux[num % moddown_aux.size()] = std::make_unique<RNSPoly>(*this, L, false);
-        moddown_aux[num % moddown_aux.size()]->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::buffers_loc); };
+        moddown_aux[num % moddown_aux.size()]->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
     }
     moddown_aux[num % moddown_aux.size()]->generateSpecialLimbs(false, true);
     return *moddown_aux[num % moddown_aux.size()];
@@ -924,11 +926,9 @@ std::vector<std::vector<LimbRecord>> ContextData::generateSplitSpecialMeta(std::
 }
 
 ContextData::~ContextData() {
-    // Drop the precomputation/buffer registry entries while all members are still alive.
-    CudaNvtxLifetimeUnregisterBytes(precom_loc, this);
-    CudaNvtxLifetimeUnregisterBytes(buffers_loc, this);
-    CudaNvtxStop(precom_loc, LIFETIME);
-    CudaNvtxStop(buffers_loc, LIFETIME);
+    // Drop the registry entry while all members are still alive (my_range stops the lifetime after
+    // this body runs).
+    CudaNvtxLifetimeUnregisterBytes(loc, this);
     for (uint32_t i = 0; i < GPUid.size(); ++i) {
         cudaSetDevice(GPUid[i]);
         CudaCheckErrorMod;

@@ -2068,12 +2068,12 @@ void Ciphertext::multMonomial(/*Ciphertext& ctxt,*/ int power) {
         monomial.NTT(cc.batch, true);
         // cudaDeviceSynchronize();
 
-        // The monomial becomes a context-held auxiliary buffer: keep the Buffers timeline in sync
+        // The monomial becomes a context-held auxiliary buffer: keep the Context timeline in sync
         // while it is built and once it is deposited in the cache.
-        monomial.onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::buffers_loc); };
+        monomial.onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
         cc.precom.monomialCache.erase(power);
         cc.precom.monomialCache.emplace(power, std::move(monomial));
-        CudaNvtxLifetimeRefresh(ContextData::buffers_loc);
+        CudaNvtxLifetimeRefresh(ContextData::loc);
     }
 
     RNSPoly& monomial = cc.precom.monomialCache.find(power)->second;

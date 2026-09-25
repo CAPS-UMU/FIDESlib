@@ -46,10 +46,6 @@ extern std::atomic_uint64_t next_uid;
 class ContextData {
   public:
     static constexpr const char* loc{ "Context" };
-    /** @brief NVTX label for the precomputed GPU tables (globals/constants). */
-    static constexpr const char* precom_loc{ "Precomputations" };
-    /** @brief NVTX label for the auxiliary GPU buffers held by the context. */
-    static constexpr const char* buffers_loc{ "Buffers" };
     CudaNvtxRange my_range;
     Parameters param;
     Precomputations precom;
@@ -119,6 +115,8 @@ class ContextData {
     ContextData(const Parameters& param_, const std::vector<int>& devs, const int secBits = 0);
     ~ContextData();
 
+    /** Total GPU bytes held by the context: precomputed tables + auxiliary buffers. */
+    uint64_t getMemoryUsage() const;
     /** Total GPU bytes of the precomputed tables (per-prime psi tables + per-device Global/Constants). */
     uint64_t getPrecomputationsBytes() const;
     /** Total GPU bytes of the auxiliary buffers (key-switch/moddown aux polys, monomial cache, MGPU top-limb buffers). */
