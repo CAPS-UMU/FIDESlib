@@ -37,13 +37,23 @@ nvtx3::domain const& D_pool = nvtx3::domain::get<memory_pool_domain>();
 
 namespace {
 // A LIFETIME range aggregates every live object of one label: the entry keeps the number of
-// live objects and, per object, a getter returning its current memory footprint (in bytes), so
-// the range message can render both the live count and the aggregate memory (e.g.
-// "124 x Plaintext - 345.67 MB").
+// live objects and, per named component, per-object getters returning their current memory
+// footprint (in bytes), so the range message can render both the live count and the aggregate
+// memory (e.g. "124 x Plaintext - 345.67 MB" or "1 x Context - 345.67 MB (Buffers 100.50 MB,
+// Precomputed 245.17 MB)"). Re-rendering is deduplicated against the last emitted (count, bytes).
 struct LifetimeEntry {
+    void reset() {
+        range.reset();
+        count = 0;
+        objects.clear();
+        renderedCount = -1;
+        renderedBytes = 0;
+    }
     std::unique_ptr<nvtx3::unique_range_in<my_domain>> range;
     int count = 0;
-    std::map<const void*, NvtxLifetimeBytesProvider> objects;
+    std::map<std::string, std::map<const void*, NvtxLifetimeBytesProvider>> objects; // component -> obj -> getter
+    int renderedCount = -1;
+    uint64_t renderedBytes = 0;
 };
 } // namespace
 
@@ -71,12 +81,35 @@ static void NvtxLifetimeRender(const std::string& msg, int count) {
     int size = msg.size();
     auto& entry = lifetimes_map[msg];
 
+    // Sum the registered getters per component.
     uint64_t totalBytes = 0;
-    for (const auto& [obj, getter] : entry.objects) {
-        totalBytes += getter();
+    std::map<std::string, uint64_t> componentBytes;
+    for (const auto& [component, objs] : entry.objects) {
+        uint64_t compBytes = 0;
+        for (const auto& [obj, getter] : objs)
+            compBytes += getter();
+        componentBytes[component] = compBytes;
+        totalBytes += compBytes;
     }
 
-    const std::string m = std::to_string(count) + std::string(" x ") + msg + " - " + CudaNvtxFormatBytes(totalBytes);
+    // Nothing observable changed and the range is already emitted: skip to avoid churning the
+    // timeline with identical updates (count unchanged and total memory unchanged).
+    if (entry.range && entry.renderedCount == count && entry.renderedBytes == totalBytes) {
+        return;
+    }
+
+    std::string m = std::to_string(count) + std::string(" x ") + msg + " - " + CudaNvtxFormatBytes(totalBytes);
+    if (entry.objects.size() > 1) {
+        m += " (";
+        bool first = true;
+        for (const auto& [component, compBytes] : componentBytes) {
+            if (!first)
+                m += ", ";
+            m += component + " " + CudaNvtxFormatBytes(compBytes);
+            first = false;
+        }
+        m += ")";
+    }
     const event_attributes attr{ m,
         rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
         payload{ count },
@@ -87,6 +120,8 @@ static void NvtxLifetimeRender(const std::string& msg, int count) {
     } else {
         *entry.range = unique_range_in<my_domain>(attr);
     }
+    entry.renderedCount = count;
+    entry.renderedBytes = totalBytes;
 }
 
 void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat, int val) {
@@ -119,29 +154,35 @@ void CudaNvtxStop(const std::string msg, NVTX_CATEGORIES cat) {
         auto& entry = it->second;
         entry.count -= 1;
         if (entry.count <= 0) {
-            entry.objects.clear();
-            entry.range.reset();
+            entry.reset();
         } else {
             NvtxLifetimeRender(msg, entry.count);
         }
     }
 }
 
-void CudaNvtxLifetimeRegisterBytes(const std::string& msg, const void* obj, const NvtxLifetimeBytesProvider& getter) {
+void CudaNvtxLifetimeRegisterBytes(const std::string& msg, const void* obj, const NvtxLifetimeBytesProvider& getter, const std::string& component) {
     auto& entry = lifetimes_map[msg];
-    entry.objects[obj] = getter;
+    entry.objects[component][obj] = getter;
     if (entry.range) {
         NvtxLifetimeRender(msg, entry.count);
     }
 }
 
-void CudaNvtxLifetimeUnregisterBytes(const std::string& msg, const void* obj) {
+void CudaNvtxLifetimeUnregisterBytes(const std::string& msg, const void* obj, const std::string& component) {
     auto it = lifetimes_map.find(msg);
     if (it == lifetimes_map.end()) {
         return;
     }
     auto& entry = it->second;
-    entry.objects.erase(obj);
+    auto compIt = entry.objects.find(component);
+    if (compIt == entry.objects.end()) {
+        return;
+    }
+    compIt->second.erase(obj);
+    if (compIt->second.empty()) {
+        entry.objects.erase(compIt);
+    }
     if (entry.range) {
         NvtxLifetimeRender(msg, entry.count);
     }

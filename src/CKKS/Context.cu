@@ -88,13 +88,10 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
 
     OK = true;
     // The Context lifetime already opened above (my_range); fold the context-held GPU memory
-    // (precomputed tables + auxiliary buffers) into that same timeline.
-    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
+    // into that same timeline while keeping the two components separately labelled.
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getPrecomputationsBytes(); }, "Precomputed");
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getAuxBuffersBytes(); }, "Buffers");
     CudaNvtxStop();
-}
-
-uint64_t ContextData::getMemoryUsage() const {
-    return getPrecomputationsBytes() + getAuxBuffersBytes();
 }
 
 uint64_t ContextData::getPrecomputationsBytes() const {
@@ -926,9 +923,10 @@ std::vector<std::vector<LimbRecord>> ContextData::generateSplitSpecialMeta(std::
 }
 
 ContextData::~ContextData() {
-    // Drop the registry entry while all members are still alive (my_range stops the lifetime after
+    // Drop the registry entries while all members are still alive (my_range stops the lifetime after
     // this body runs).
-    CudaNvtxLifetimeUnregisterBytes(loc, this);
+    CudaNvtxLifetimeUnregisterBytes(loc, this, "Precomputed");
+    CudaNvtxLifetimeUnregisterBytes(loc, this, "Buffers");
     for (uint32_t i = 0; i < GPUid.size(); ++i) {
         cudaSetDevice(GPUid[i]);
         CudaCheckErrorMod;

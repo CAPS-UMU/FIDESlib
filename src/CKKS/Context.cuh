@@ -115,8 +115,6 @@ class ContextData {
     ContextData(const Parameters& param_, const std::vector<int>& devs, const int secBits = 0);
     ~ContextData();
 
-    /** Total GPU bytes held by the context: precomputed tables + auxiliary buffers. */
-    uint64_t getMemoryUsage() const;
     /** Total GPU bytes of the precomputed tables (per-prime psi tables + per-device Global/Constants). */
     uint64_t getPrecomputationsBytes() const;
     /** Total GPU bytes of the auxiliary buffers (key-switch/moddown aux polys, monomial cache, MGPU top-limb buffers). */
