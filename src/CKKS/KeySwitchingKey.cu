@@ -38,6 +38,9 @@ KeySwitchingKey::KeySwitchingKey(Context& cc)
 : my_range(loc, LIFETIME), keyID(""), cc((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)),
   a(*cc, -1, false, true), b(*cc, -1, false, true) {
     CudaNvtxStop();
+    a.onSizeChanged = [] { CudaNvtxLifetimeRefresh(KeySwitchingKey::loc); };
+    b.onSizeChanged = [] { CudaNvtxLifetimeRefresh(KeySwitchingKey::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
     /*
 if (cc.GPUid.size() > 1) {
 for (int j = 0; j < cc.dnum; ++j) {
@@ -46,5 +49,23 @@ for (int j = 0; j < cc.dnum; ++j) {
 }
 }
 */
+}
+
+KeySwitchingKey::KeySwitchingKey(KeySwitchingKey&& k) noexcept
+: my_range(std::move(k.my_range)), keyID(std::move(k.keyID)), cc(k.cc), a(std::move(k.a)), b(std::move(k.b)) {
+    // Carry the NVTX lifetime registration over to the destination object.
+    CudaNvtxLifetimeUnregisterBytes(loc, &k);
+    a.onSizeChanged = [] { CudaNvtxLifetimeRefresh(KeySwitchingKey::loc); };
+    b.onSizeChanged = [] { CudaNvtxLifetimeRefresh(KeySwitchingKey::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
+}
+
+KeySwitchingKey::~KeySwitchingKey() {
+    // Drop the registry entry while both members (a, b) are still alive.
+    CudaNvtxLifetimeUnregisterBytes(loc, this);
+}
+
+uint64_t KeySwitchingKey::getMemoryUsage() const {
+    return a.getBytes() + b.getBytes();
 }
 } // namespace FIDESlib::CKKS

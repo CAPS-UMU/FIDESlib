@@ -4,7 +4,9 @@
 
 #include "CudaUtils.cuh"
 #include <cassert>
+#include <cstdio>
 #include <list>
+#include <set>
 #include <string>
 
 #include "nvtx3/nvtx3.hpp"
@@ -25,7 +27,102 @@ struct my_domain {
 
 nvtx3::domain const& D = nvtx3::domain::get<my_domain>();
 
-std::map<std::string, std::pair<std::unique_ptr<nvtx3::unique_range_in<my_domain>>, int>> lifetimes_map;
+// The memory-pool ranges live on their own domain so nsight-systems renders them as a separate
+// NVTX row ("FIDESlibPool") instead of intermixing them with the FIDESlib stack/lifetime ranges.
+struct memory_pool_domain {
+    static constexpr char const* name{ "FIDESlibPool" };
+};
+
+nvtx3::domain const& D_pool = nvtx3::domain::get<memory_pool_domain>();
+
+namespace {
+// A LIFETIME range aggregates every live object of one label: the entry keeps the number of
+// live objects and, per named component, per-object getters returning their current memory
+// footprint (in bytes), so the range message can render both the live count and the aggregate
+// memory (e.g. "124 x Plaintext - 345.67 MB" or "1 x Context - 345.67 MB (Buffers 100.50 MB,
+// Precomputed 245.17 MB)"). Re-rendering is deduplicated against the last emitted (count, bytes).
+struct LifetimeEntry {
+    void reset() {
+        range.reset();
+        count = 0;
+        objects.clear();
+        renderedCount = -1;
+        renderedBytes = 0;
+    }
+    std::unique_ptr<nvtx3::unique_range_in<my_domain>> range;
+    int count = 0;
+    std::map<std::string, std::map<const void*, NvtxLifetimeBytesProvider>> objects; // component -> obj -> getter
+    int renderedCount = -1;
+    uint64_t renderedBytes = 0;
+};
+} // namespace
+
+std::map<std::string, LifetimeEntry> lifetimes_map;
+
+std::string CudaNvtxFormatBytes(uint64_t bytes) {
+    const double KB = 1024.0;
+    const double MB = 1024.0 * 1024.0;
+    const double GB = 1024.0 * 1024.0 * 1024.0;
+    char buf[64];
+    if (bytes >= GB) {
+        snprintf(buf, sizeof(buf), "%.2f GB", bytes / GB);
+    } else if (bytes >= MB) {
+        snprintf(buf, sizeof(buf), "%.2f MB", bytes / MB);
+    } else if (bytes >= KB) {
+        snprintf(buf, sizeof(buf), "%.2f KB", bytes / KB);
+    } else {
+        snprintf(buf, sizeof(buf), "%llu B", static_cast<unsigned long long>(bytes));
+    }
+    return std::string(buf);
+}
+
+static void NvtxLifetimeRender(const std::string& msg, int count) {
+    using namespace nvtx3;
+    int size = msg.size();
+    auto& entry = lifetimes_map[msg];
+
+    // Sum the registered getters per component.
+    uint64_t totalBytes = 0;
+    std::map<std::string, uint64_t> componentBytes;
+    for (const auto& [component, objs] : entry.objects) {
+        uint64_t compBytes = 0;
+        for (const auto& [obj, getter] : objs)
+            compBytes += getter();
+        componentBytes[component] = compBytes;
+        totalBytes += compBytes;
+    }
+
+    // Nothing observable changed and the range is already emitted: skip to avoid churning the
+    // timeline with identical updates (count unchanged and total memory unchanged).
+    if (entry.range && entry.renderedCount == count && entry.renderedBytes == totalBytes) {
+        return;
+    }
+
+    std::string m = std::to_string(count) + std::string(" x ") + msg + " - " + CudaNvtxFormatBytes(totalBytes);
+    if (entry.objects.size() > 1) {
+        m += " (";
+        bool first = true;
+        for (const auto& [component, compBytes] : componentBytes) {
+            if (!first)
+                m += ", ";
+            m += component + " " + CudaNvtxFormatBytes(compBytes);
+            first = false;
+        }
+        m += ")";
+    }
+    const event_attributes attr{ m,
+        rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
+        payload{ count },
+        category{ static_cast<unsigned int>(LIFETIME) } };
+
+    if (!entry.range) {
+        entry.range = std::make_unique<unique_range_in<my_domain>>(attr);
+    } else {
+        *entry.range = unique_range_in<my_domain>(attr);
+    }
+    entry.renderedCount = count;
+    entry.renderedBytes = totalBytes;
+}
 
 void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat, int val) {
     if (cat == FUNCTION) {
@@ -39,20 +136,9 @@ void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat, int val) {
         nvtxDomainRangePushEx_impl_init_v3(D, reinterpret_cast<const nvtxEventAttributes_t*>(&attr));
         // nvtxRangePushEx(reinterpret_cast<const nvtxEventAttributes_t*>(&attr));
     } else if (cat == LIFETIME) {
-        using namespace nvtx3;
-        int size = msg.size();
-        auto& [r, i] = lifetimes_map[msg];
-        std::string m = std::to_string(i + 1) + std::string(" x ") + msg;
-        const event_attributes attr{ m,
-            rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
-            payload{ i + 1 },
-            category{ static_cast<unsigned int>(cat) } };
-        i = i + 1;
-        if (!r) {
-            r = std::make_unique<unique_range_in<my_domain>>(attr);
-        } else {
-            *r = unique_range_in<my_domain>(attr);
-        }
+        auto& entry = lifetimes_map[msg];
+        entry.count += 1;
+        NvtxLifetimeRender(msg, entry.count);
     }
     // nvtxRangePushA(msg.c_str());
 }
@@ -61,26 +147,51 @@ void CudaNvtxStop(const std::string msg, NVTX_CATEGORIES cat) {
     if (cat == FUNCTION) {
         nvtxDomainRangePop(D);
     } else if (cat == LIFETIME) {
-        using namespace nvtx3;
-        int size = msg.size();
-
-        auto& [r, i] = lifetimes_map[msg];
-        std::string m = std::to_string(i - 1) + std::string(" x ") + msg;
-        const event_attributes attr{ m,
-            rgb{ (uint8_t)(255 - 101 * msg[size / 6]), (uint8_t)(255 - 101 * msg[size * 3 / 6]), (uint8_t)(255 - 101 * msg[size * 5 / 6]) },
-            payload{ i - 1 },
-            category{ static_cast<unsigned int>(cat) } };
-
-        i = i - 1;
-        if (i <= 0) {
-            if (r) {
-                r.reset();
-            }
-        } else {
-            *r = unique_range_in<my_domain>(attr);
+        auto it = lifetimes_map.find(msg);
+        if (it == lifetimes_map.end()) {
+            return;
         }
+        auto& entry = it->second;
+        entry.count -= 1;
+        if (entry.count <= 0) {
+            entry.reset();
+        } else {
+            NvtxLifetimeRender(msg, entry.count);
+        }
+    }
+}
 
-        // nvtxRangePushEx(reinterpret_cast<const nvtxEventAttributes_t*>(&attr));
+void CudaNvtxLifetimeRegisterBytes(const std::string& msg, const void* obj, const NvtxLifetimeBytesProvider& getter, const std::string& component) {
+    auto& entry = lifetimes_map[msg];
+    entry.objects[component][obj] = getter;
+    if (entry.range) {
+        NvtxLifetimeRender(msg, entry.count);
+    }
+}
+
+void CudaNvtxLifetimeUnregisterBytes(const std::string& msg, const void* obj, const std::string& component) {
+    auto it = lifetimes_map.find(msg);
+    if (it == lifetimes_map.end()) {
+        return;
+    }
+    auto& entry = it->second;
+    auto compIt = entry.objects.find(component);
+    if (compIt == entry.objects.end()) {
+        return;
+    }
+    compIt->second.erase(obj);
+    if (compIt->second.empty()) {
+        entry.objects.erase(compIt);
+    }
+    if (entry.range) {
+        NvtxLifetimeRender(msg, entry.count);
+    }
+}
+
+void CudaNvtxLifetimeRefresh(const std::string& msg) {
+    auto it = lifetimes_map.find(msg);
+    if (it != lifetimes_map.end() && it->second.range) {
+        NvtxLifetimeRender(msg, it->second.count);
     }
 }
 
@@ -93,6 +204,67 @@ int getNumDevices() {
 void CudaHostSync() {
     cudaDeviceSynchronize();
 }
+
+namespace {
+// NVTX lifetime ranges for the FIDESlib memory pool (see GPUmalloc): one persistent range per
+// (device, chunk size) rendered as e.g. "Chunks of 512KB (2048 chunks) = 1GB". Slabs are never
+// freed until process exit, so these ranges are created on first allocation and never stopped;
+// additional slabs of the same chunk size accumulate into the message.
+struct PoolLifetime {
+    std::unique_ptr<nvtx3::unique_range_in<memory_pool_domain>> range;
+    uint64_t chunks = 0;
+    uint64_t totalBytes = 0;
+};
+
+std::map<int, std::map<int, PoolLifetime>> pool_lifetimes; // [device][chunkBytes]
+std::set<int> pool_devices;                                // devices that allocated pool slabs
+std::mutex pool_lifetimes_lock;                            // pool allocs are multi-threaded (per-device mempool locks differ)
+
+std::string NvtxPoolFormatSize(uint64_t bytes) {
+    const double KB = 1024.0;
+    const double MB = 1024.0 * 1024.0;
+    const double GB = 1024.0 * 1024.0 * 1024.0;
+    char buf[64];
+    if (bytes >= GB) {
+        snprintf(buf, sizeof(buf), "%.0fGB", bytes / GB);
+    } else if (bytes >= MB) {
+        snprintf(buf, sizeof(buf), "%.0fMB", bytes / MB);
+    } else if (bytes >= KB) {
+        snprintf(buf, sizeof(buf), "%.0fKB", bytes / KB);
+    } else {
+        snprintf(buf, sizeof(buf), "%lluB", static_cast<unsigned long long>(bytes));
+    }
+    return std::string(buf);
+}
+
+void NvtxPoolRender(int device, int chunkBytes) {
+    using namespace nvtx3;
+    auto& info = pool_lifetimes[device][chunkBytes];
+    std::string m = "Chunks of " + NvtxPoolFormatSize(chunkBytes) + " (" + std::to_string(info.chunks) + " chunks) = " + NvtxPoolFormatSize(info.totalBytes);
+    if (pool_devices.size() > 1) {
+        m = "GPU " + std::to_string(device) + ": " + m;
+    }
+    int size = m.size();
+    const event_attributes attr{ m,
+        rgb{ (uint8_t)(255 - 101 * m[size / 6]), (uint8_t)(255 - 101 * m[size * 3 / 6]), (uint8_t)(255 - 101 * m[size * 5 / 6]) },
+        payload{ static_cast<int>(info.chunks) },
+        category{ static_cast<unsigned int>(LIFETIME) } };
+    if (!info.range) {
+        info.range = std::make_unique<unique_range_in<memory_pool_domain>>(attr);
+    } else {
+        *info.range = unique_range_in<memory_pool_domain>(attr);
+    }
+}
+
+void NvtxPoolRecordSlab(int device, int chunkBytes, uint64_t slabBytes) {
+    std::lock_guard<std::mutex> lock(pool_lifetimes_lock);
+    pool_devices.insert(device);
+    auto& info = pool_lifetimes[device][chunkBytes];
+    info.chunks += slabBytes / chunkBytes;
+    info.totalBytes += slabBytes;
+    NvtxPoolRender(device, chunkBytes);
+}
+} // namespace
 
 template <bool capture> void run_in_graph(cudaGraphExec_t& exec, Stream& s, std::function<void()> run) {
     cudaGraph_t graph;
@@ -397,6 +569,8 @@ void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache) {
             for (uint32_t i = 0; i < MBs * 1024 * 1024; i += bytes) {
                 free_limb.emplace_back(((char*)base) + i);
             }
+            // Keep the pool NVTX lifetime in sync with the memory actually reserved for this chunk size.
+            NvtxPoolRecordSlab(id, bytes, MBs * 1024 * 1024);
             mempool_lock[id].unlock();
         }
         CudaCheckErrorModNoSync;

@@ -647,6 +647,9 @@ class Ciphertext {
      * @param power Exponent of the monomial.
      */
     void multMonomial(int power);
+
+    /** Total GPU bytes held by this ciphertext (its c0 + c1 polynomials). */
+    uint64_t getMemoryUsage() const;
 };
 
 } // namespace FIDESlib::CKKS

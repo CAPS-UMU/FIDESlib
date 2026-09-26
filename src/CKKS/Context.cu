@@ -87,7 +87,57 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
     }
 
     OK = true;
+    // The Context lifetime already opened above (my_range); fold the context-held GPU memory
+    // into that same timeline while keeping the two components separately labelled.
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getPrecomputationsBytes(); }, "Precomputed");
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getAuxBuffersBytes(); }, "Buffers");
     CudaNvtxStop();
+}
+
+uint64_t ContextData::getPrecomputationsBytes() const {
+    if (!precom.globals)
+        return 0;
+
+    // Per-prime per-device psi tables allocated in SetupConstants: psi, inv_psi, psi_middle_scale,
+    // inv_psi_middle_scale, psi_shoup, inv_psi_shoup hold N elements each (6 writes), while
+    // psi_no/inv_psi_no hold 2N each, i.e. 10x the per-element table size per prime.
+    const auto elemBytes = [](const PrimeRecord& p) {
+        const bool isU64 = p.type ? *p.type == U64 : p.bits > 30;
+        return isU64 ? (uint64_t)8 : (uint64_t)4;
+    };
+    const auto arrayBytes = [&](const std::vector<PrimeRecord>& primes) {
+        uint64_t bytes = 0;
+        for (const auto& p : primes)
+            bytes += 10ull * (uint64_t)N * elemBytes(p);
+        return bytes;
+    };
+
+    uint64_t bytes = 0;
+    for (size_t i = 0; i < GPUid.size(); ++i) {
+        bytes += arrayBytes(prime);
+        bytes += arrayBytes(specialPrime);
+        bytes += sizeof(Global::Globals); // per-device moddown/modup matrix tables
+        bytes += sizeof(Constants);       // per-device __constant__ copy
+    }
+    return bytes;
+}
+
+uint64_t ContextData::getAuxBuffersBytes() const {
+    uint64_t bytes = 0;
+    if (key_switch_aux)
+        bytes += key_switch_aux->getBytes();
+    if (key_switch_aux2)
+        bytes += key_switch_aux2->getBytes();
+    for (const auto& aux : moddown_aux)
+        if (aux)
+            bytes += aux->getBytes();
+    for (const auto& [power, mon] : precom.monomialCache)
+        bytes += mon.getBytes();
+    for (size_t i = 0; i < top_limb_buffer.size(); ++i)
+        bytes += (uint64_t)N * sizeof(uint64_t);
+    for (size_t i = 0; i < top_limb_buffer2.size(); ++i)
+        bytes += (uint64_t)N * sizeof(uint64_t);
+    return bytes;
 }
 
 std::vector<dim3>
@@ -352,8 +402,10 @@ std::vector<std::vector<int>> ContextData::generateGPUdigits(const int dnum, con
 }
 
 RNSPoly& ContextData::getKeySwitchAux() {
-    if (key_switch_aux == nullptr)
+    if (key_switch_aux == nullptr) {
         key_switch_aux = std::make_unique<RNSPoly>(*this, L, false);
+        key_switch_aux->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
+    }
 
     key_switch_aux->generateDecompAndDigit(false);
     key_switch_aux->generateSpecialLimbs(false, false);
@@ -361,16 +413,20 @@ RNSPoly& ContextData::getKeySwitchAux() {
 }
 
 RNSPoly& ContextData::getKeySwitchAux2() {
-    if (key_switch_aux2 == nullptr)
+    if (key_switch_aux2 == nullptr) {
         key_switch_aux2 = std::make_unique<RNSPoly>(*this, L, false);
+        key_switch_aux2->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
+    }
     key_switch_aux2->generateDecompAndDigit(false);
     key_switch_aux2->generateSpecialLimbs(false, false);
     return *key_switch_aux2;
 }
 
 RNSPoly& ContextData::getModdownAux(const int num) {
-    if (moddown_aux[num % moddown_aux.size()] == nullptr)
+    if (moddown_aux[num % moddown_aux.size()] == nullptr) {
         moddown_aux[num % moddown_aux.size()] = std::make_unique<RNSPoly>(*this, L, false);
+        moddown_aux[num % moddown_aux.size()]->onSizeChanged = [] { CudaNvtxLifetimeRefresh(ContextData::loc); };
+    }
     moddown_aux[num % moddown_aux.size()]->generateSpecialLimbs(false, true);
     return *moddown_aux[num % moddown_aux.size()];
 }
@@ -867,6 +923,10 @@ std::vector<std::vector<LimbRecord>> ContextData::generateSplitSpecialMeta(std::
 }
 
 ContextData::~ContextData() {
+    // Drop the registry entries while all members are still alive (my_range stops the lifetime after
+    // this body runs).
+    CudaNvtxLifetimeUnregisterBytes(loc, this, "Precomputed");
+    CudaNvtxLifetimeUnregisterBytes(loc, this, "Buffers");
     for (uint32_t i = 0; i < GPUid.size(); ++i) {
         cudaSetDevice(GPUid[i]);
         CudaCheckErrorMod;
@@ -932,7 +992,6 @@ bool ContextData::hasAuxilarPoly() const {
 }
 
 RNSPoly ContextData::getAuxilarPoly() {
-
     if (precom.auxPoly.empty()) {
         return RNSPoly(*this);
     } else {

@@ -52,6 +52,8 @@ Plaintext::Plaintext(Context& cc)
 : my_range(loc, LIFETIME), cc_((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)), cc(*cc_),
   c0(this->cc, -1, false, true) {
     CudaNvtxStop();
+    c0.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Plaintext::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
 }
 
 Plaintext::Plaintext(Context& cc, const RawPlainText& raw)
@@ -59,6 +61,26 @@ Plaintext::Plaintext(Context& cc, const RawPlainText& raw)
   c0(this->cc, -1, false, true) {
     load(raw);
     CudaNvtxStop();
+    c0.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Plaintext::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
+}
+
+Plaintext::Plaintext(Plaintext&& pt) noexcept
+: my_range(std::move(pt.my_range)), cc_(pt.cc_), cc(pt.cc), c0(std::move(pt.c0)), NoiseFactor(pt.NoiseFactor), NoiseLevel(pt.NoiseLevel),
+  slots(pt.slots) {
+    // Carry the NVTX lifetime registration over to the destination object.
+    CudaNvtxLifetimeUnregisterBytes(loc, &pt);
+    c0.onSizeChanged = [] { CudaNvtxLifetimeRefresh(Plaintext::loc); };
+    CudaNvtxLifetimeRegisterBytes(loc, this, [this] { return this->getMemoryUsage(); });
+}
+
+Plaintext::~Plaintext() {
+    // Drop the registry entry while the members (c0) are still alive.
+    CudaNvtxLifetimeUnregisterBytes(loc, this);
+}
+
+uint64_t Plaintext::getMemoryUsage() const {
+    return c0.getBytes();
 }
 
 void Plaintext::load(const RawPlainText& raw) {

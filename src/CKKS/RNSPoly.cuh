@@ -21,6 +21,14 @@ class RNSPoly {
   public:
     std::vector<LimbPartition> GPU;
 
+    // Optional callback fired whenever this polynomial (re)allocates or frees GPU limb buffers so a
+    // tracking owner can keep its NVTX lifetime stats fresh. It must not capture anything beyond the
+    // owner's lifetime label: RNSPolys can outlive their owner through the aux-poly pool.
+    std::function<void()> onSizeChanged;
+
+    /** Total bytes currently held in GPU buffers (main + special + decomp/digit + gather limbs). */
+    uint64_t getBytes() const;
+
     explicit RNSPoly(ContextData& context, int level = -1, bool single_malloc = false, bool def_stream = false);
     explicit RNSPoly(ContextData& context, const std::vector<std::vector<uint64_t>>& data);
     RNSPoly(RNSPoly&& src) noexcept;
