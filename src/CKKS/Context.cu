@@ -642,9 +642,15 @@ bool ContextData::HasBootPrecomputation(int slots) {
 }
 
 BootstrapPrecomputation& ContextData::GetBootPrecomputation(int slots) {
-    if (!precom.boot.contains(slots))
-        assert("No precomputation." == nullptr);
-    return precom.boot[slots];
+    auto it = precom.boot.find(slots);
+    if (it == precom.boot.end()) {
+        // Guardrail, not a get-or-create: AddBootPrecomputation() is the creator. A raw
+        // assert here (or the map's operator[]) left release builds silently using a
+        // default-constructed precomputation.
+        throw std::runtime_error("No bootstrap precomputation for " + std::to_string(slots) +
+                                 " slots (run EvalBootstrapSetup/EvalBootstrapKeyGen before LoadContext)");
+    }
+    return it->second;
 }
 
 KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID) {
@@ -1226,8 +1232,7 @@ KeySwitchingKey& GetSecretSwitchingKey(const Context& a, const Context& b, const
         }
     }
 
-    assert("No key present");
-    exit(-1);
+    throw std::runtime_error("No secret switching key present for the requested parameter pair");
 }
 
 int32_t normalyzeIndex(int32_t index, int32_t slots, int32_t N) {

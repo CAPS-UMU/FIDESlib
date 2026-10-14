@@ -8,6 +8,8 @@
 #include "Math.cuh"
 #include <bit>
 #include <cassert>
+#include <stdexcept>
+#include <string>
 using namespace lbcrypto;
 
 /**
@@ -445,10 +447,8 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetEvalKeySwitchKey(const lbcryp
         const auto ek = std::dynamic_pointer_cast<EvalKeyRelinImpl<DCRTPoly>>(key.at(0));
         return GetKeySwitchKey(ek);
     } else {
-        assert("EvalKey is not present !!!" == nullptr);
+        throw std::runtime_error("EvalMult key not present; call EvalMultKeyGen before LoadContext");
     }
-
-    return RawKeySwitchKey{};
 }
 
 FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetEvalKeySwitchKey(const lbcrypto::PublicKey<lbcrypto::DCRTPoly>& publicKey) {
@@ -461,10 +461,8 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetEvalKeySwitchKey(const lbcryp
 
         return GetKeySwitchKey(ek);
     } else {
-        assert("EvalKey is not present !!!" == nullptr);
+        throw std::runtime_error("EvalMult key not present; call EvalMultKeyGen before LoadContext");
     }
-
-    return RawKeySwitchKey{};
 }
 
 FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const KeyPair<lbcrypto::DCRTPoly>& keys, int index, lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc) {
@@ -484,10 +482,8 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const Ke
             return GetKeySwitchKey(ek);
         }
     } else {
-        assert("RotKey is not present !!!" == nullptr);
-        std::cout << "RotKey is not present !!!" << std::endl;
+        throw std::runtime_error("Rotation key not present for index " + std::to_string(index));
     }
-    return RawKeySwitchKey{};
 }
 
 FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const lbcrypto::PublicKey<lbcrypto::DCRTPoly>& publicKey, int index) {
@@ -506,10 +502,8 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetRotationKeySwitchKey(const lb
             return GetKeySwitchKey(ek);
         }
     } else {
-        assert("RotKey is not present !!!" == nullptr);
-        std::cout << "RotKey is not present !!!" << std::endl;
+        throw std::runtime_error("Rotation key not present for index " + std::to_string(index));
     }
-    return RawKeySwitchKey{};
 }
 
 FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetConjugateKeySwitchKey(const lbcrypto::PublicKey<lbcrypto::DCRTPoly>& publicKey) {
@@ -523,10 +517,8 @@ FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetConjugateKeySwitchKey(const l
         // std::cout << std::endl << "Clave " << ek->GetKeyTag() << "\n";
         return GetKeySwitchKey(ek);
     } else {
-        assert("RotKey is not present for rotation !!!" == nullptr);
-        std::cout << "RotKey is not present for conjugation!!!" << std::endl;
+        throw std::runtime_error("Conjugation key not present; call EvalRotateKeyGen before LoadContext");
     }
-    return RawKeySwitchKey{};
 }
 
 #include "CKKS/BootstrapPrecomputation.cuh"

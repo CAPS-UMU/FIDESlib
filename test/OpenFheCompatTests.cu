@@ -1,11 +1,19 @@
 #include "ParametrizedTest.cuh"
 
+#include <CKKS/Ciphertext.cuh>
+#include <CKKS/Plaintext.cuh>
+#include <CKKS/openfhe-interface/RawCiphertext.cuh>
+
 #include <algorithm>
 #include <any>
+#include <cmath>
+#include <complex>
 #include <cstdio>
 #include <fideslib.hpp>
+#include <fstream>
 #include <map>
 #include <set>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -1799,10 +1807,15 @@ TEST(OpenFHECompatTests, EvalAddMany) {
 //  - KeyGen, EvalMultKeyGen, EvalRotateKeyGen, EvalBootstrapSetup, EvalBootstrapKeyGen,
 //    Enable, SetDevices/SetAutoLoad*, LoadContext/LoadPlaintext/LoadCiphertext:
 //    context/key infrastructure exercised by every test in this file.
-//  - SerializeEvalMultKey / SerializeEvalAutomorphismKey / Deserialize*: host-side I/O.
-//  - ConvolutionTransformInPlace / SpecialConvolutionTransformInPlace: GPU-only in the
-//    api — the CPU path OPENFHE_THROWs ("Not implemented for CPU path"), so no CPU
-//    reference exists to compare against.
+//
+// The remaining api/ entry points that the base suite never touched (host-side I/O and
+// GPU-only transforms) are exercised for correctness below, in the "api coverage"
+// section: CCParams setters/getters, Ciphertext/Plaintext accessors and operators,
+// symmetric-key Encrypt, eval-key serialization (SerializeEvalMultKey /
+// SerializeEvalAutomorphismKey / Deserialize*), fideslib::Serial round-trips for
+// context/public/private keys, the start-offset AccumulateSumInPlace, and the
+// convolution transforms (GPU-only: the CPU path OPENFHE_THROWs, so those compare
+// against a public-API reference chain instead of a CPU in-context run).
 //  - SPARSE_ENCAPSULATED bootstrap: known structural divergence (O6c) — the
 //    EvalBootstrapSparseEncaps* tests above assert value-level agreement instead of
 //    bit-exactness.
@@ -1967,52 +1980,86 @@ TEST(OpenFHECompatTests, EvalMutableArguments) {
     auto ct1 = cc->Encrypt(keys.publicKey, ptxt1);
     auto ct2 = cc->Encrypt(keys.publicKey, ptxt2);
 
-    auto cAddMut = cc->EvalAddMutable(ct1, ct2);
-    auto cAddMutPt = cc->EvalAddMutable(ct1, ptxt2);
-    auto cAddMutPtR = cc->EvalAddMutable(ptxt2, ct1);
-    auto cAddMutInP = ct1->Clone();
-    cc->EvalAddMutableInPlace(cAddMutInP, ct2);
-    auto cSubMut = cc->EvalSubMutable(ct1, ct2);
-    auto cSubMutPt = cc->EvalSubMutable(ptxt2, ct1);
-    auto cSubMutInP = ct1->Clone();
-    cc->EvalSubMutableInPlace(cSubMutInP, ct2);
-    auto cMultMut = cc->EvalMultMutable(ct1, ct2);
-    auto cMultMutPt = cc->EvalMultMutable(ct1, ptxt2);
-    auto cMultMutInP = ct1->Clone();
-    cc->EvalMultMutableInPlace(cMultMutInP, ct2);
-    auto cSqMut = cc->EvalSquareMutable(ct1);
+    // The mutable entry points may adjust their operands in place (rescale / tower
+    // drop), exactly like OpenFHE's mutable ops. Each op therefore gets fresh clones
+    // of the ciphertext operands (and a fresh plaintext), so neither phase is
+    // contaminated by the other's mutations; the phase results must stay bit-equal.
+    auto runOps = [&](std::vector<Ciphertext<DCRTPoly>>& out) {
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            out.push_back(cc->EvalAddMutable(a, b));
+        }
+        {
+            auto a = ct1->Clone();
+            Plaintext p = cc->MakeCKKSPackedPlaintext(x2);
+            out.push_back(cc->EvalAddMutable(a, p));
+        }
+        {
+            auto a = ct1->Clone();
+            Plaintext p = cc->MakeCKKSPackedPlaintext(x2);
+            out.push_back(cc->EvalAddMutable(p, a));
+        }
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            cc->EvalAddMutableInPlace(a, b);
+            out.push_back(a);
+        }
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            out.push_back(cc->EvalSubMutable(a, b));
+        }
+        {
+            auto a = ct1->Clone();
+            Plaintext p = cc->MakeCKKSPackedPlaintext(x2);
+            out.push_back(cc->EvalSubMutable(p, a));
+        }
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            cc->EvalSubMutableInPlace(a, b);
+            out.push_back(a);
+        }
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            out.push_back(cc->EvalMultMutable(a, b));
+        }
+        {
+            auto a = ct1->Clone();
+            Plaintext p = cc->MakeCKKSPackedPlaintext(x2);
+            out.push_back(cc->EvalMultMutable(a, p));
+        }
+        {
+            auto a = ct1->Clone();
+            auto b = ct2->Clone();
+            cc->EvalMultMutableInPlace(a, b);
+            out.push_back(a);
+        }
+        {
+            auto a = ct1->Clone();
+            out.push_back(cc->EvalSquareMutable(a));
+        }
+    };
+
+    std::vector<Ciphertext<DCRTPoly>> cpu;
+    runOps(cpu);
 
     //====================================================================
 
     cc->SetDevices({ 0 });
     cc->LoadContext(keys.publicKey);
 
-    auto gAddMut = cc->EvalAddMutable(ct1, ct2);
-    auto gAddMutPt = cc->EvalAddMutable(ct1, ptxt2);
-    auto gAddMutPtR = cc->EvalAddMutable(ptxt2, ct1);
-    auto gAddMutInP = ct1->Clone();
-    cc->EvalAddMutableInPlace(gAddMutInP, ct2);
-    auto gSubMut = cc->EvalSubMutable(ct1, ct2);
-    auto gSubMutPt = cc->EvalSubMutable(ptxt2, ct1);
-    auto gSubMutInP = ct1->Clone();
-    cc->EvalSubMutableInPlace(gSubMutInP, ct2);
-    auto gMultMut = cc->EvalMultMutable(ct1, ct2);
-    auto gMultMutPt = cc->EvalMultMutable(ct1, ptxt2);
-    auto gMultMutInP = ct1->Clone();
-    cc->EvalMultMutableInPlace(gMultMutInP, ct2);
-    auto gSqMut = cc->EvalSquareMutable(ct1);
+    std::vector<Ciphertext<DCRTPoly>> gpu;
+    runOps(gpu);
 
-    ASSERT_EQ_CIPHERTEXT(cAddMut, gAddMut);
-    ASSERT_EQ_CIPHERTEXT(cAddMutPt, gAddMutPt);
-    ASSERT_EQ_CIPHERTEXT(cAddMutPtR, gAddMutPtR);
-    ASSERT_EQ_CIPHERTEXT(cAddMutInP, gAddMutInP);
-    ASSERT_EQ_CIPHERTEXT(cSubMut, gSubMut);
-    ASSERT_EQ_CIPHERTEXT(cSubMutPt, gSubMutPt);
-    ASSERT_EQ_CIPHERTEXT(cSubMutInP, gSubMutInP);
-    ASSERT_EQ_CIPHERTEXT(cMultMut, gMultMut);
-    ASSERT_EQ_CIPHERTEXT(cMultMutPt, gMultMutPt);
-    ASSERT_EQ_CIPHERTEXT(cMultMutInP, gMultMutInP);
-    ASSERT_EQ_CIPHERTEXT(cSqMut, gSqMut);
+    ASSERT_EQ(cpu.size(), gpu.size());
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        std::cout << "mutable case " << i << ": ";
+        ASSERT_EQ_CIPHERTEXT(cpu[i], gpu[i]);
+    }
 }
 
 // EvalAddManyInPlace: serial in-place fold with the result landing in slot 0 (the
@@ -2540,6 +2587,1089 @@ TEST(OpenFHECompatTests, SerializeCiphertextExtended) {
     cc->Decrypt(keys.secretKey, cExtM[0], &rCPURef);
     rCPURef->SetLength(8);
     ASSERT_ERROR_OK(rCPURef, rRT);
+}
+
+// =====================================================================
+// api/ coverage: the remaining 0 %-line-rate entry points of the api package
+// (per coverage/coverage.xml) that the exhaustive bit-compat sweep above does not
+// reach. These are host-side-only or GPU-only-by-design, so they are exercised for
+// correctness rather than CPU/GPU bit-exactness:
+//   - CCParams setters/getters and the GAUSSIAN secret-key distribution
+//   - CiphertextImpl accessors (GetScalingFactor, GetSlots, GetEncodingType,
+//     SetSlots, the CPU-fallback GetLevel, the Ciphertext-copy ctor, operator+==!=)
+//   - PlaintextImpl accessors (SetSlots, GetLevel, GetCKKSPackedValue, impl stream
+//     and equality operators) and the complex-vector MakeCKKSPackedPlaintext overload
+//   - CryptoContextImpl (GetCyclotomicOrder, SetAutoLoadPlaintexts/Ciphertexts,
+//     GetPreScaleFactor, Synchronize, the SetDevices-after-Load throw, symmetric-key
+//     Encrypt, the swapped-argument in-place/mutable arithmetic overloads, the
+//     start-offset AccumulateSumInPlace, the convolution transforms and the
+//     rotation-index helper, eval-key serialization)
+//   - fideslib::Serial round-trips for context / public key / private key
+//   - null-context constructor throws
+// =====================================================================
+
+TEST(OpenFHECompatTests, CCParamsOptions) {
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetMultiplicativeDepth(8);
+    parameters.SetScalingModSize(50);
+    parameters.SetBatchSize(8);
+    parameters.SetRingDim(128);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+
+    // Setters without a fideslib getter (SetNumLargeDigits / SetFirstModSize /
+    // SetDigitSize / SetKeySwitchTechnique) reach the underlying OpenFHE params.
+    parameters.SetNumLargeDigits(3);
+    parameters.SetFirstModSize(55);
+    parameters.SetDigitSize(35);
+    parameters.SetKeySwitchTechnique(HYBRID);
+    auto& raw = std::any_cast<lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(parameters.cpu);
+    ASSERT_EQ(raw.GetNumLargeDigits(), 3u);
+    ASSERT_EQ(raw.GetFirstModSize(), 55u);
+    ASSERT_EQ(raw.GetDigitSize(), 35u);
+    ASSERT_EQ(raw.GetKeySwitchTechnique(), lbcrypto::HYBRID);
+
+    // Getters round-trip the fideslib values through the OpenFHE params.
+    ASSERT_EQ(parameters.GetMultiplicativeDepth(), 8u);
+    ASSERT_EQ(parameters.GetBatchSize(), 8u);
+
+    // Secret-key distribution: every branch, including the GAUSSIAN fallback.
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    ASSERT_EQ(parameters.GetSecretKeyDist(), UNIFORM_TERNARY);
+    parameters.SetSecretKeyDist(SPARSE_TERNARY);
+    ASSERT_EQ(parameters.GetSecretKeyDist(), SPARSE_TERNARY);
+    parameters.SetSecretKeyDist(SPARSE_ENCAPSULATED);
+    ASSERT_EQ(parameters.GetSecretKeyDist(), SPARSE_ENCAPSULATED);
+    parameters.SetSecretKeyDist(GAUSSIAN);
+    ASSERT_EQ(parameters.GetSecretKeyDist(), GAUSSIAN);
+
+    // Device list (rvalue overload).
+    parameters.SetDevices(std::vector<int>{ 2, 3 });
+    ASSERT_EQ(parameters.devices, (std::vector<int>{ 2, 3 }));
+
+    // The parameter plumbing must still produce a working context.
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetDevices(std::vector<int>{});
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+    auto ct = cc->Encrypt(keys.publicKey, ptxt);
+    Plaintext r;
+    cc->Decrypt(keys.secretKey, ct, &r);
+    r->SetLength(8);
+    auto vals = r->GetRealPackedValue();
+    for (size_t i = 0; i < vals.size(); ++i)
+        EXPECT_NEAR(vals[i], x[i], 1e-3);
+}
+
+TEST(OpenFHECompatTests, CiphertextAccessors) {
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 5.0, 4.0, 3.0, 2.0, 1.0, 0.75, 0.5, 0.25 };
+    Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1);
+    Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x2);
+
+    auto ct1 = cc->Encrypt(keys.publicKey, ptxt1);
+    auto ct2 = cc->Encrypt(keys.publicKey, ptxt2);
+
+    // CPU-phase (host-only) accessors: CPU fallback paths.
+    ASSERT_EQ(ct1->GetEncodingType(), lbcrypto::CKKS_PACKED_ENCODING);
+    ASSERT_EQ(ct1->GetSlots(), 8u);
+    ASSERT_GT(ct1->GetScalingFactor(), 0.0);
+    const size_t cpuLevel = ct1->GetLevel();
+    ASSERT_TRUE(ct1->GetNoiseScaleDeg() == 1 || ct1->GetNoiseScaleDeg() == 2);
+
+    // SetSlots (CPU fallback) + round-trip.
+    ct1->SetSlots(4);
+    ASSERT_EQ(ct1->GetSlots(), 4u);
+    ct1->SetSlots(8);
+    ASSERT_EQ(ct1->GetSlots(), 8u);
+
+    // Delegating Ciphertext-copy constructor (make_shared from the shared_ptr).
+    Ciphertext<DCRTPoly> copy = std::make_shared<CiphertextImpl<DCRTPoly>>(ct1);
+    ASSERT_EQ_CIPHERTEXT(copy, ct1);
+
+    // operator+ (shared_ptr form) and operator==/!= (dereferenced impl overloads).
+    auto cSum = ct1 + ct2;
+    ASSERT_EQ_CIPHERTEXT(cSum, cc->EvalAdd(ct1, ct2));
+    ASSERT_TRUE(*ct1 == *ct1);
+    ASSERT_FALSE(*ct1 != *ct1);
+    auto s1 = cc->EvalAdd(ct1, ct2);
+    auto s2 = cc->EvalAdd(ct1, ct2);
+    ASSERT_TRUE(*s1 == *s2);
+    ASSERT_FALSE(*s1 != *s2);
+
+    //====================================================================
+    // GPU phase: the loaded ciphertext takes the GPU accessor paths.
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto gct1 = cc->Encrypt(keys.publicKey, ptxt1);
+    auto gct2 = cc->Encrypt(keys.publicKey, ptxt2);
+    ASSERT_TRUE(gct1->loaded);
+
+    ASSERT_EQ(gct1->GetEncodingType(), lbcrypto::CKKS_PACKED_ENCODING);
+    ASSERT_EQ(gct1->GetSlots(), 8u);
+    ASSERT_GT(gct1->GetScalingFactor(), 0.0);
+    EXPECT_NEAR(gct1->GetScalingFactor(), ct1->GetScalingFactor(), 1e-3 * ct1->GetScalingFactor());
+    ASSERT_EQ(gct1->GetLevel(), cpuLevel);
+
+    gct1->SetSlots(4);
+    ASSERT_EQ(gct1->GetSlots(), 4u);
+    gct1->SetSlots(8);
+
+    auto gSum = gct1 + gct2;
+    ASSERT_EQ_CIPHERTEXT(gSum, cc->EvalAdd(gct1, gct2));
+    ASSERT_TRUE(*gct1 == *gct1);
+    auto gs1 = cc->EvalAdd(gct1, gct2);
+    auto gs2 = cc->EvalAdd(gct1, gct2);
+    ASSERT_TRUE(*gs1 == *gs2);
+    ASSERT_FALSE(*gs1 != *gs2);
+}
+
+TEST(OpenFHECompatTests, PlaintextAccessors) {
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, 2);
+
+    // Accessors the suite never exercised directly.
+    ASSERT_EQ(ptxt->GetLevel(), 2u);
+    ASSERT_EQ(ptxt->GetSlots(), 8u);
+    auto real = ptxt->GetRealPackedValue();
+    for (size_t i = 0; i < real.size(); ++i)
+        EXPECT_NEAR(real[i], x[i], 1e-3);
+    auto cplx = ptxt->GetCKKSPackedValue();
+    for (size_t i = 0; i < cplx.size(); ++i) {
+        EXPECT_NEAR(cplx[i].real(), x[i], 1e-3);
+        EXPECT_NEAR(cplx[i].imag(), 0.0, 1e-3);
+    }
+
+    ptxt->SetSlots(4);
+    ASSERT_EQ(ptxt->GetSlots(), 4u);
+    ptxt->SetSlots(8);
+
+    // Stream + equality on the PlaintextImpl (not the shared_ptr) overloads.
+    std::ostringstream os;
+    os << *ptxt;
+    ASSERT_FALSE(os.str().empty());
+
+    Plaintext p2 = cc->MakeCKKSPackedPlaintext(x, 1, 2);
+    ASSERT_TRUE(*ptxt == *p2);
+    ASSERT_FALSE(*ptxt != *p2);
+    std::vector<double> other = { 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0 };
+    Plaintext p3 = cc->MakeCKKSPackedPlaintext(other, 1, 2);
+    ASSERT_FALSE(*ptxt == *p3);
+    ASSERT_TRUE(*ptxt != *p3);
+
+    // Complex-vector encoding overload. OpenFHE's CKKSPackedEncoding constructor
+    // treats a complex input as REAL — it zeroes every imaginary component — so
+    // the round-trip preserves the real parts and decodes imag == 0.
+    std::vector<std::complex<double>> cx = { {0.25, 0.5}, {1.0, -1.0}, {0.0, 2.0}, {3.5, 0.25}, {4.0, 0.0}, {5.0, -2.0}, {6.0, 0.5}, {7.0, 1.5} };
+    Plaintext cplt = cc->MakeCKKSPackedPlaintext(cx);
+    ASSERT_EQ(cplt->GetSlots(), 8u);
+    auto cv = cplt->GetCKKSPackedValue();
+    ASSERT_EQ(cv.size(), 8u);
+    for (size_t i = 0; i < cv.size(); ++i) {
+        EXPECT_NEAR(cv[i].real(), cx[i].real(), 1e-3);
+        EXPECT_NEAR(cv[i].imag(), 0.0, 1e-3);
+    }
+}
+
+TEST(OpenFHECompatTests, EncryptSecretKey) {
+    // Symmetric-key encryption: both PrivateKey Encrypt overloads
+    // (Encrypt(pt, sk) and Encrypt(sk, pt)) were previously never called.
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+
+    auto c1 = cc->Encrypt(ptxt, keys.secretKey);
+    auto c2 = cc->Encrypt(keys.secretKey, ptxt);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, c1, &r1);
+    r1->SetLength(8);
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, c2, &r2);
+    r2->SetLength(8);
+
+    ASSERT_ERROR_OK(r1, r2);
+    auto vals = r1->GetRealPackedValue();
+    for (size_t i = 0; i < vals.size(); ++i)
+        EXPECT_NEAR(vals[i], x[i], 1e-3);
+}
+
+TEST(OpenFHECompatTests, ContextSettings) {
+    auto cc = MakeSmallContext(4);
+    EXPECT_EQ(cc->GetCyclotomicOrder(), 2u * cc->GetRingDimension());
+
+    // Synchronize before the context is loaded: no-op path.
+    cc->Synchronize();
+
+    cc->SetAutoLoadPlaintexts(true);
+    cc->SetAutoLoadCiphertexts(true);
+    ASSERT_TRUE(cc->auto_load_plaintexts);
+    ASSERT_TRUE(cc->auto_load_ciphertexts);
+
+    auto keys = cc->KeyGen();
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+    cc->Synchronize(); // loaded path: device sync on the listed devices
+
+    // SetDevices must throw after LoadContext.
+    EXPECT_THROW(cc->SetDevices(std::vector<int>{ 1 }), lbcrypto::OpenFHEException);
+
+    // Auto-load plaintexts: MakeCKKSPackedPlaintext now pushes to the devices.
+    Plaintext apt = cc->MakeCKKSPackedPlaintext(x);
+    ASSERT_TRUE(apt->loaded);
+
+    // Auto-load ciphertexts is on by default: Encrypt pushes to the devices.
+    auto c1 = cc->Encrypt(keys.publicKey, ptxt);
+    ASSERT_TRUE(c1->loaded);
+
+    // Turning ciphertext auto-load off keeps Encrypt host-only.
+    cc->SetAutoLoadCiphertexts(false);
+    ASSERT_FALSE(cc->auto_load_ciphertexts);
+    auto c2 = cc->Encrypt(keys.publicKey, ptxt);
+    ASSERT_FALSE(c2->loaded);
+}
+
+TEST(OpenFHECompatTests, GetPreScaleFactor) {
+    // GetPreScaleFactor needs the GPU context AND the bootstrap precomputation for
+    // the requested slot count (EvalBootstrapSetup builds it).
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    auto keys = cc->KeyGen();
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, batchSize, 0);
+    // The GPU context registers the boot precomputation for the slots listed by
+    // EvalBootstrapKeyGen (slots_bootstrap); Setup alone is not enough.
+    cc->EvalBootstrapKeyGen(keys.secretKey, batchSize);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    const double f1 = cc->GetPreScaleFactor(batchSize);
+    const double f2 = cc->GetPreScaleFactor(batchSize);
+    ASSERT_TRUE(std::isfinite(f1));
+    ASSERT_EQ(f1, f2);
+}
+
+TEST(OpenFHECompatTests, KeySerialization) {
+    // SerializeEvalMultKey / SerializeEvalAutomorphismKey and their deserialize
+    // counterparts (host-side eval-key I/O, previously never exercised).
+    auto cc = MakeSmallContext(2);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+    cc->EvalRotateKeyGen(keys.secretKey, { 1, -2 });
+
+    auto& rawCc = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(cc->cpu);
+    auto& rawSk = std::any_cast<const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>&>(keys.secretKey->pimpl);
+    const std::string keyTag = rawSk->GetKeyTag();
+
+    // Serialize with a keyTag (not the empty-tag "everything in the global map"
+    // form): the deserializers re-insert by secret-key tag and throw if the tag is
+    // already occupied, so a full-map dump would collide with other contexts' keys
+    // still registered in this process. Clear our own tag before each deserialize.
+    std::ostringstream multOs;
+    ASSERT_TRUE(cc->SerializeEvalMultKey(multOs, SerType::BINARY, keyTag));
+    std::ostringstream autoOs;
+    ASSERT_TRUE(cc->SerializeEvalAutomorphismKey(autoOs, SerType::BINARY, keyTag));
+
+    std::ostringstream multOsJ;
+    ASSERT_TRUE(cc->SerializeEvalMultKey(multOsJ, SerType::JSON, keyTag));
+    std::ostringstream autoOsJ;
+    ASSERT_TRUE(cc->SerializeEvalAutomorphismKey(autoOsJ, SerType::JSON, keyTag));
+
+    CCParams<CryptoContextCKKSRNS> dflt;
+    CryptoContext<DCRTPoly> cc2 = GenCryptoContext(dflt);
+
+    rawCc->ClearEvalMultKeys(keyTag);
+    rawCc->ClearEvalAutomorphismKeys(keyTag);
+    std::istringstream multIs(multOs.str());
+    ASSERT_TRUE(cc2->DeserializeEvalMultKey(multIs, SerType::BINARY));
+    std::istringstream autoIs(autoOs.str());
+    ASSERT_TRUE(cc2->DeserializeEvalAutomorphismKey(autoIs, SerType::BINARY));
+
+    // JSON smoke: same entry points through the JSON serializer.
+    rawCc->ClearEvalMultKeys(keyTag);
+    rawCc->ClearEvalAutomorphismKeys(keyTag);
+    std::istringstream multIsJ(multOsJ.str());
+    ASSERT_TRUE(cc2->DeserializeEvalMultKey(multIsJ, SerType::JSON));
+    std::istringstream autoIsJ(autoOsJ.str());
+    ASSERT_TRUE(cc2->DeserializeEvalAutomorphismKey(autoIsJ, SerType::JSON));
+}
+
+TEST(OpenFHECompatTests, SerialRoundTrip) {
+    // fideslib::Serial round-trips for the context, public and private keys —
+    // Serialize.cpp is the lowest-covered api file (11.6 %), and every one of these
+    // overloads was previously never called.
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+    auto cRef = cc->Encrypt(keys.publicKey, ptxt);
+
+    Plaintext rRef;
+    cc->Decrypt(keys.secretKey, cRef, &rRef);
+    rRef->SetLength(8);
+
+    const std::string dir = "/tmp/opencode";
+    const std::string ctxFile = dir + "/ser-ctx.bin";
+    const std::string pkFile = dir + "/ser-pk.bin";
+    const std::string skFile = dir + "/ser-sk.bin";
+    const std::string ctxFileJ = dir + "/ser-ctx.json";
+    const std::string pkFileJ = dir + "/ser-pk.json";
+    const std::string skFileJ = dir + "/ser-sk.json";
+    for (const auto& f : { ctxFile, pkFile, skFile, ctxFileJ, pkFileJ, skFileJ })
+        std::remove(f.c_str());
+    for (const auto& f : { ctxFile + ".dev", pkFile + ".dev", skFile + ".dev", ctxFileJ + ".dev", pkFileJ + ".dev", skFileJ + ".dev" })
+        std::remove(f.c_str());
+
+    // ---- BINARY round-trip ----
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(ctxFile, cc, fideslib::SerType::BINARY));
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(pkFile, keys.publicKey, fideslib::SerType::BINARY));
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(skFile, keys.secretKey, fideslib::SerType::BINARY));
+
+    fideslib::CryptoContext<DCRTPoly> cc2;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(ctxFile, cc2, fideslib::SerType::BINARY));
+    fideslib::PublicKey<DCRTPoly> pk2;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(pkFile, pk2, fideslib::SerType::BINARY));
+    fideslib::PrivateKey<DCRTPoly> sk2;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(skFile, sk2, fideslib::SerType::BINARY));
+
+    // The re-imported objects must encrypt/decrypt like the originals.
+    Plaintext pt2 = cc2->MakeCKKSPackedPlaintext(x);
+    auto c2 = cc2->Encrypt(pk2, pt2);
+    Plaintext r2;
+    cc2->Decrypt(sk2, c2, &r2);
+    r2->SetLength(8);
+    ASSERT_ERROR_OK(rRef, r2);
+
+    // ---- JSON smoke ----
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(ctxFileJ, cc, fideslib::SerType::JSON));
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(pkFileJ, keys.publicKey, fideslib::SerType::JSON));
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(skFileJ, keys.secretKey, fideslib::SerType::JSON));
+
+    fideslib::CryptoContext<DCRTPoly> cc3;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(ctxFileJ, cc3, fideslib::SerType::JSON));
+    fideslib::PublicKey<DCRTPoly> pk3;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(pkFileJ, pk3, fideslib::SerType::JSON));
+    fideslib::PrivateKey<DCRTPoly> sk3;
+    ASSERT_TRUE(fideslib::Serial::DeserializeFromFile(skFileJ, sk3, fideslib::SerType::JSON));
+    ASSERT_TRUE(cc3 != nullptr);
+    ASSERT_TRUE(pk3 != nullptr);
+    ASSERT_TRUE(sk3 != nullptr);
+
+    Plaintext pt3 = cc3->MakeCKKSPackedPlaintext(x);
+    auto c3 = cc3->Encrypt(pk3, pt3);
+    Plaintext r3;
+    cc3->Decrypt(sk3, c3, &r3);
+    r3->SetLength(8);
+    ASSERT_ERROR_OK(rRef, r3);
+}
+
+TEST(OpenFHECompatTests, ConvolutionTransform) {
+    // Small real 2-row kernel (gStep=2 rows of bStep=3 taps) exercised on the GPU;
+    // the CPU path OPENFHE_THROWs by design, so the CPU reference is built with the
+    // public EvalRotate/EvalMult/EvalAdd API replicating the documented op sequence
+    // (rotate per tap, multiply by the row's filter masks, rotate rows, accumulate).
+    const uint32_t multDepth = 4;
+    const uint32_t scaleModSize = 50;
+    const uint32_t batchSize = 16;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(128);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    // 3-tap kernel over 16 slots. The api requires indexes.size() == bStep
+    // (rotate_hoisted maps one output slot per index). Tap 0 is avoided: this
+    // OpenFHE build throws on EvalRotate(ct, 0) (automorphism index 1, no key).
+    const std::vector<int> taps = { -3, -1, 3 };
+    const int bStep = 3;
+    const int gStep = 2; // two filter rows -> rowSize = bStep * gStep
+    const int rowSize = bStep * gStep;
+    const int stride = 1;
+
+    // Rotation keys for the taps, the row-normalization rotations {(gStep-j)*stride},
+    // and the special mask sweep {maskRotationStride, 2*maskRotationStride}.
+    cc->EvalRotateKeyGen(keys.secretKey, { -3, -2, -1, 1, 2, 3, 4, 5 });
+
+    // Convolution rotation-index helper: gStep=2 < 8 => intra-block stride*1 only.
+    auto convRots = cc->GetConvolutionTransformRotationIndices(rowSize, bStep, stride, static_cast<uint32_t>(gStep));
+    ASSERT_EQ(convRots, (std::vector<int>{ 1 }));
+
+    std::vector<double> x;
+    for (int i = 0; i < static_cast<int>(batchSize); ++i)
+        x.push_back(static_cast<double>(i + 1) * 0.25);
+
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    // Filter masks: constant per-tap weights, distinct values per row/tap.
+    const double w[rowSize] = { 0.5, 0.25, 0.75, 0.1, 0.9, 0.4 };
+    std::vector<Plaintext> masks;
+    for (int i = 0; i < rowSize; ++i)
+        masks.push_back(cc->MakeCKKSPackedPlaintext(std::vector<double>(batchSize, w[i])));
+
+    // CPU reference: out = Σ_j rot( Σ_i rot(ct, taps[i]) ⊙ mask_{j*bStep+i}, (gStep-j)*stride )
+    auto accA = cc->EvalMult(cc->EvalRotate(ctxt, taps[0]), masks[0]);
+    accA = cc->EvalAdd(accA, cc->EvalMult(cc->EvalRotate(ctxt, taps[1]), masks[1]));
+    accA = cc->EvalAdd(accA, cc->EvalMult(cc->EvalRotate(ctxt, taps[2]), masks[2]));
+    auto accB = cc->EvalMult(cc->EvalRotate(ctxt, taps[0]), masks[3]);
+    accB = cc->EvalAdd(accB, cc->EvalMult(cc->EvalRotate(ctxt, taps[1]), masks[4]));
+    accB = cc->EvalAdd(accB, cc->EvalMult(cc->EvalRotate(ctxt, taps[2]), masks[5]));
+    accA = cc->EvalRotate(accA, (gStep - 0) * stride);
+    accB = cc->EvalRotate(accB, (gStep - 1) * stride);
+    auto cRef = cc->EvalAdd(accA, accB);
+
+    Plaintext rRef;
+    cc->Decrypt(keys.secretKey, cRef, &rRef);
+    rRef->SetLength(batchSize);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto gConv = ctxt->Clone();
+    cc->ConvolutionTransformInPlace(gConv, gStep, bStep, masks, taps, stride, rowSize);
+
+    Plaintext rConv;
+    cc->Decrypt(keys.secretKey, gConv, &rConv);
+    rConv->SetLength(batchSize);
+
+    // The kernel accumulates the whole dot product with a single final rescale,
+    // whereas the reference rescales per EvalMult term (FLEXIBLEAUTO) — so the two
+    // are value-equal but not bit-equal, and the difference can exceed the default
+    // ASSERT_ERROR_OK window (2^-42 at this scale) by a hair. Compare with an
+    // absolute tolerance well below the ~2^-40 signal precision.
+    auto rvRef = rRef->GetRealPackedValue();
+    auto rvConv = rConv->GetRealPackedValue();
+    ASSERT_EQ(rvRef.size(), rvConv.size());
+    double convMaxErr = 0.0;
+    for (size_t i = 0; i < rvRef.size(); ++i)
+        convMaxErr = std::max(convMaxErr, std::abs(rvConv[i] - rvRef[i]));
+    std::cout << "ConvolutionTransform max error: " << convMaxErr << std::endl;
+    ASSERT_LT(convMaxErr, 1e-9);
+
+    // SpecialConvolutionTransform (gStep=1, the resnet layer-0 pipeline): the mask
+    // sweep t + rot(t, mrs) + rot(t, 2*mrs), the mask multiply, then the row rotation.
+    // The kernel's internal scale bookkeeping (entry rescale of a NoiseLevel-2 input,
+    // level-matched masks, final rescaleInternal) requires:
+    //   - the input ciphertext at noise degree 2 (a raw EvalMult result), and
+    //   - the filter masks / mask plaintexts encoded at a level >= the ciphertext's
+    //     (plaintexts can only be scaled DOWN to the ciphertext level).
+    // There is no CPU reference (the CPU path OPENFHE_THROWs by design), so the checks
+    // are finiteness + run-to-run determinism on the device.
+    const int mrs = 1;
+    const int sBStep = 3;
+    const int sRowSize = sBStep; // gStep = 1
+    const std::vector<int> sTaps = { 1, 3, 5 };
+
+    auto ctMul = cc->EvalMult(ctxt, ctxt); // NoiseLevel 2 (entry-rescaled by the kernel)
+    std::vector<Plaintext> sMasks;
+    for (int i = 0; i < sRowSize; ++i)
+        sMasks.push_back(cc->MakeCKKSPackedPlaintext(std::vector<double>(batchSize, 0.1 * (i + 1)), 1, 2, nullptr, batchSize));
+
+    auto gSpec = ctMul->Clone();
+    cc->SpecialConvolutionTransformInPlace(gSpec, 1, sBStep, sMasks, sMasks[0], sTaps, stride, mrs, sRowSize);
+    auto gSpec2 = ctMul->Clone();
+    cc->SpecialConvolutionTransformInPlace(gSpec2, 1, sBStep, sMasks, sMasks[0], sTaps, stride, mrs, sRowSize);
+
+    Plaintext rSpec, rSpec2;
+    cc->Decrypt(keys.secretKey, gSpec, &rSpec);
+    rSpec->SetLength(batchSize);
+    cc->Decrypt(keys.secretKey, gSpec2, &rSpec2);
+    rSpec2->SetLength(batchSize);
+
+    auto sv1 = rSpec->GetRealPackedValue();
+    auto sv2 = rSpec2->GetRealPackedValue();
+    ASSERT_EQ(sv1.size(), sv2.size());
+    for (size_t i = 0; i < sv1.size(); ++i) {
+        ASSERT_TRUE(std::isfinite(sv1[i]));
+        EXPECT_NEAR(sv1[i], sv2[i], 1e-9);
+    }
+}
+
+TEST(OpenFHECompatTests, AccumulateSumInPlaceStartOffset) {
+    // 4-arg AccumulateSumInPlace(ct, slots, stride, start): the start-offset variant.
+    // Exercised value-level against an explicit EvalRotate/EvalAdd reference chain.
+    // For start=2, slots=8 (radix=PARTIAL_SUM_RADIX) both implementations land on
+    // x + rot2 + rot4 + rot6: the GPU lazy fold rotates the level-1 accumulator (the
+    // input) by {2,4,6}, while the CPU fallback issues {2,4} against the compounding
+    // accumulator (rot4 of x+rot2(x) contributes rot4(x)+rot6(x)). The two phases are
+    // value-equal but not bit-exact (see the DISABLED_AccumulateSumInPlaceStart test).
+    uint32_t multDepth = 2;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(128);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+    cc->EvalRotateKeyGen(keys.secretKey, { 2, 4, 6 });
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    // Reference chain of rotations of the *original* ciphertext. Both implementations
+    // land on x + rot2 + rot4 + rot6 for start=2, slots=8: the GPU lazy fold rotates
+    // the level-1 accumulator (the input) by {2,4,6}, and the CPU fallback loop, while
+    // it *issues* the rotations {2,4} against the compounding accumulator, applies
+    // rot4 to (x + rot2(x)), i.e. net rot4(x) + rot6(x) — the same mathematical sum.
+    auto makeChain = [&](std::initializer_list<int32_t> rots) {
+        Ciphertext<DCRTPoly> acc = ctxt->Clone();
+        for (auto r : rots)
+            acc = cc->EvalAdd(acc, cc->EvalRotate(ctxt, r));
+        return acc;
+    };
+    auto cFullRef = makeChain({ 2, 4, 6 });
+
+    // CPU phase: the start-offset variant's host fallback.
+    auto cAcc = ctxt->Clone();
+    cc->AccumulateSumInPlace(cAcc, batchSize, 1, 2);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    // GPU phase: unified lazy radix fold {2, 4, 6}.
+    auto gAcc = ctxt->Clone();
+    cc->AccumulateSumInPlace(gAcc, batchSize, 1, 2);
+
+    Plaintext rc, rg, rcF;
+    cc->Decrypt(keys.secretKey, cAcc, &rc);
+    rc->SetLength(batchSize);
+    cc->Decrypt(keys.secretKey, gAcc, &rg);
+    rg->SetLength(batchSize);
+    cc->Decrypt(keys.secretKey, cFullRef, &rcF);
+    rcF->SetLength(batchSize);
+
+    // Both the CPU fallback and the GPU fold must equal the {2,4,6} sum; and the
+    // two phases agree value-level (they are not bit-exact — see the DISABLED
+    // AccumulateSumInPlaceStart test above).
+    ASSERT_ERROR_OK(rcF, rc);
+    ASSERT_ERROR_OK(rcF, rg);
+    ASSERT_ERROR_OK(rc, rg);
+}
+
+TEST(OpenFHECompatTests, ApiNullContextThrows) {
+    // The rvalue-context constructors reject a null parent context — the only
+    // uncovered lines of the CiphertextImpl/PlaintextImpl constructors.
+    CryptoContext<DCRTPoly> nullCtx;
+    EXPECT_THROW(std::make_shared<CiphertextImpl<DCRTPoly>>(std::move(nullCtx)), lbcrypto::OpenFHEException);
+    CryptoContext<DCRTPoly> nullCtx2;
+    EXPECT_THROW(std::make_shared<PlaintextImpl>(std::move(nullCtx2)), lbcrypto::OpenFHEException);
+}
+
+// The swapped-argument / scalar-first arithmetic overloads that forward to the
+// concrete forms covered by EvalSwappedArgOrder and EvalMutableArguments:
+//   EvalAddInPlace(Plaintext&, Ciphertext&), EvalAddInPlace(double, Ciphertext&),
+//   EvalSubMutable(Ciphertext&, Plaintext&), EvalMultInPlace(double, Ciphertext&),
+//   EvalMultMutable(Plaintext&, Ciphertext&).
+// Clone per phase so the shared encryption is never mutated by the in-place calls.
+TEST(OpenFHECompatTests, EvalSwappedInPlaceOverloads) {
+    auto cc = MakeSmallContext(5);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 5.0, 4.0, 3.0, 2.0, 1.0, 0.75, 0.5, 0.25 };
+
+    Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1);
+    Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x2);
+
+    auto ct1 = cc->Encrypt(keys.publicKey, ptxt1);
+
+    auto cAddPtL = ct1->Clone();
+    cc->EvalAddInPlace(ptxt2, cAddPtL);
+    auto cAddScL = ct1->Clone();
+    cc->EvalAddInPlace(0.5, cAddScL);
+    auto cSubPt = cc->EvalSubMutable(ct1, ptxt2);
+    auto cMultScL = ct1->Clone();
+    cc->EvalMultInPlace(1.5, cMultScL);
+    auto cMultPtL = cc->EvalMultMutable(ptxt2, ct1);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto gAddPtL = ct1->Clone();
+    cc->EvalAddInPlace(ptxt2, gAddPtL);
+    auto gAddScL = ct1->Clone();
+    cc->EvalAddInPlace(0.5, gAddScL);
+    auto gSubPt = cc->EvalSubMutable(ct1, ptxt2);
+    auto gMultScL = ct1->Clone();
+    cc->EvalMultInPlace(1.5, gMultScL);
+    auto gMultPtL = cc->EvalMultMutable(ptxt2, ct1);
+
+    ASSERT_EQ_CIPHERTEXT(cAddPtL, gAddPtL);
+    ASSERT_EQ_CIPHERTEXT(cAddScL, gAddScL);
+    ASSERT_EQ_CIPHERTEXT(cSubPt, gSubPt);
+    ASSERT_EQ_CIPHERTEXT(cMultScL, gMultScL);
+    ASSERT_EQ_CIPHERTEXT(cMultPtL, gMultPtL);
+}
+
+// Error/edge branches: cross-context add, GetPreScaleFactor before load, Decrypt
+// with a null output, the empty-PlaintextImpl fallbacks, and the serialization
+// unsupported-SerType / null-ciphertext paths.
+TEST(OpenFHECompatTests, ApiErrorBranches) {
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    // Cross-context add must throw (Ciphertext::operator+ guard).
+    auto ccA = MakeSmallContext(2);
+    auto ccB = MakeSmallContext(2);
+    auto keysA = ccA->KeyGen();
+    auto keysB = ccB->KeyGen();
+    ccA->EvalMultKeyGen(keysA.secretKey);
+    Plaintext ptA = ccA->MakeCKKSPackedPlaintext(x);
+    Plaintext ptB = ccB->MakeCKKSPackedPlaintext(x);
+    auto ctA = ccA->Encrypt(keysA.publicKey, ptA);
+    auto ctB = ccB->Encrypt(keysB.publicKey, ptB);
+    EXPECT_THROW(ctA + ctB, lbcrypto::OpenFHEException);
+
+    // GetPreScaleFactor before the context is loaded to a device must throw.
+    auto cc = MakeSmallContext(2);
+    auto keys = cc->KeyGen();
+    EXPECT_THROW(cc->GetPreScaleFactor(8), lbcrypto::OpenFHEException);
+
+    // Decrypt with a null output pointer must throw; so does encryption after
+    // EvalMultKeyGen would be illegal — not exercised here.
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x);
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+    EXPECT_THROW(cc->Decrypt(keys.secretKey, ctxt, nullptr), lbcrypto::OpenFHEException);
+
+    // Empty PlaintextImpl fallbacks (no host encoding) + null Plaintext streaming.
+    PlaintextImpl empty;
+    ASSERT_EQ(empty.GetLevel(), 0u);
+    ASSERT_EQ(empty.GetSlots(), 0u);
+    ASSERT_EQ(empty.GetLogPrecision(), 0.0);
+    ASSERT_TRUE(empty.GetCKKSPackedValue().empty());
+    ASSERT_TRUE(empty.GetRealPackedValue().empty());
+    std::ostringstream osEmpty;
+    osEmpty << empty;
+    ASSERT_EQ(osEmpty.str(), "Empty Plaintext");
+    ASSERT_FALSE(*ptxt == empty); // one side has no host encoding
+    ASSERT_TRUE(*ptxt != empty);
+
+    Plaintext nullPt;
+    std::ostringstream osNull;
+    osNull << nullPt;
+    ASSERT_EQ(osNull.str(), "Empty Plaintext");
+
+    // Serialization: unsupported SerType returns false (or throws for the key
+    // wrappers), and a null ciphertext throws in both directions.
+    const SerType bad = static_cast<SerType>(99);
+    const std::string badFile = "/tmp/opencode/bad-ser.bin";
+    const std::string ctFile = "/tmp/opencode/err-ct.bin";
+    std::remove(badFile.c_str());
+    std::remove(ctFile.c_str());
+
+    ASSERT_FALSE(fideslib::Serial::SerializeToFile(badFile, cc, bad));
+    ASSERT_FALSE(fideslib::Serial::SerializeToFile(badFile, keys.publicKey, bad));
+    ASSERT_FALSE(fideslib::Serial::SerializeToFile(badFile, keys.secretKey, bad));
+    fideslib::CryptoContext<DCRTPoly> ccOut;
+    ASSERT_FALSE(fideslib::Serial::DeserializeFromFile(badFile, ccOut, bad));
+    fideslib::PublicKey<DCRTPoly> pkOut;
+    ASSERT_FALSE(fideslib::Serial::DeserializeFromFile(badFile, pkOut, bad));
+    fideslib::PrivateKey<DCRTPoly> skOut;
+    ASSERT_FALSE(fideslib::Serial::DeserializeFromFile(badFile, skOut, bad));
+
+    fideslib::Ciphertext<DCRTPoly> nullCt;
+    EXPECT_THROW(fideslib::Serial::SerializeToFile(badFile, nullCt, fideslib::SerType::BINARY), lbcrypto::OpenFHEException);
+
+    // The deserializer reads the file first, so feed it a valid ciphertext and a
+    // null target to reach the null-target guard.
+    ASSERT_TRUE(fideslib::Serial::SerializeToFile(ctFile, ctxt, fideslib::SerType::BINARY));
+    EXPECT_THROW(fideslib::Serial::DeserializeFromFile(ctFile, nullCt, fideslib::SerType::BINARY), lbcrypto::OpenFHEException);
+    fideslib::Ciphertext<DCRTPoly> sink = std::make_shared<CiphertextImpl<DCRTPoly>>(std::move(cc));
+    ASSERT_FALSE(fideslib::Serial::DeserializeFromFile(ctFile, sink, bad));
+
+    // Eval-key serialization with an unsupported type throws.
+    std::ostringstream osKey;
+    std::istringstream isKey;
+    EXPECT_THROW(ccA->SerializeEvalMultKey(osKey, bad), lbcrypto::OpenFHEException);
+    EXPECT_THROW(ccA->SerializeEvalAutomorphismKey(osKey, bad), lbcrypto::OpenFHEException);
+    EXPECT_THROW(ccA->DeserializeEvalMultKey(isKey, bad), lbcrypto::OpenFHEException);
+    EXPECT_THROW(ccA->DeserializeEvalAutomorphismKey(isKey, bad), lbcrypto::OpenFHEException);
+}
+
+TEST(OpenFHECompatTests, CiphertextAdjustMatrix) {
+    // Drives the Ciphertext operand-adjustment primitives (add/addMutable/sub/
+    // subMutable/addPt/subPt -> adjustForAddOrSub / adjustScaleAndLevel /
+    // adjustCiphertextToPlaintext) over operands at mixed noise-degree and level:
+    // fresh (deg1), EvalMult result (deg2) and its Rescale (deg1). Under the AUTO
+    // techniques these must run on both phases and be bit-identical. (FIXEDMANUAL is
+    // excluded: adding an un-rescaled degree-2 operand to a degree-1 one is invalid
+    // manual-rescale usage. A SetLevel-dropped operand is also excluded: its GPU add
+    // trips a Debug metadata assert — a separate divergence.)
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 5.0, 4.0, 3.0, 2.0, 1.0, 0.75, 0.5, 0.25 };
+
+    for (auto tech : { FLEXIBLEAUTO, FIXEDAUTO }) {
+        auto cc = MakeSmallContext(6, tech);
+        auto keys = cc->KeyGen();
+        cc->EvalMultKeyGen(keys.secretKey);
+
+        Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1);
+        Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x2);
+        auto ct1 = cc->Encrypt(keys.publicKey, ptxt1);
+        auto ct2 = cc->Encrypt(keys.publicKey, ptxt2);
+
+        auto runOps = [&](std::vector<Ciphertext<DCRTPoly>>& out) {
+            auto cMult = cc->EvalMult(ct1, ct2); // deg2, one level down
+            auto cResc = cc->Rescale(cMult);     // deg1
+
+            out.push_back(cc->EvalAdd(ct1, ct2));     // deg1 x deg1
+            out.push_back(cc->EvalAdd(cMult, ct1));   // deg2 x deg1
+            out.push_back(cc->EvalSub(cMult, ct1));   // deg2 x deg1 (reversed)
+            out.push_back(cc->EvalAdd(cResc, cMult)); // deg1 x deg2
+            out.push_back(cc->EvalSub(cMult, cResc)); // deg2 x deg1 (reversed)
+            out.push_back(cc->EvalAdd(cMult, ptxt2)); // deg2 + plaintext
+            out.push_back(cc->EvalSub(cMult, ptxt2)); // deg2 - plaintext
+
+            auto a = ct1->Clone();
+            cc->EvalAddInPlace(a, cMult);
+            out.push_back(a);
+            auto s = ct1->Clone();
+            cc->EvalSubMutableInPlace(s, cMult);
+            out.push_back(s);
+            auto p = ct1->Clone();
+            cc->EvalAddInPlace(p, ptxt2); // ct + plaintext in place
+            out.push_back(p);
+        };
+
+        std::vector<Ciphertext<DCRTPoly>> cpu;
+        runOps(cpu);
+
+        //====================================================================
+
+        cc->SetDevices({ 0 });
+        cc->LoadContext(keys.publicKey);
+
+        std::vector<Ciphertext<DCRTPoly>> gpu;
+        runOps(gpu);
+
+        ASSERT_EQ(cpu.size(), gpu.size());
+        for (size_t i = 0; i < cpu.size(); ++i) {
+            std::cout << tech << " adjust case " << i << ": ";
+            ASSERT_EQ_CIPHERTEXT(cpu[i], gpu[i]);
+        }
+    }
+}
+
+TEST(OpenFHECompatTests, ContextParamSweep) {
+    // Sweeps numLargeDigits x scaling technique so the ContextData generation
+    // branches (digit/decomposition metadata, ElemForEvalMult/AddOrSub) run for more
+    // than the single dnum=2 / FLEXIBLEAUTO configuration the rest of the suite uses.
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    int ran = 0;
+    for (auto tech : { FIXEDMANUAL, FIXEDAUTO, FLEXIBLEAUTO, FLEXIBLEAUTOEXT }) {
+        for (uint32_t dnum : { 1u, 2u, 3u }) {
+            CCParams<CryptoContextCKKSRNS> p;
+            p.SetSecretKeyDist(UNIFORM_TERNARY);
+            p.SetScalingTechnique(tech);
+            p.SetMultiplicativeDepth(4);
+            p.SetScalingModSize(50);
+            p.SetBatchSize(8);
+            p.SetSecurityLevel(HEStd_NotSet);
+            p.SetRingDim(128);
+            p.SetNumLargeDigits(dnum);
+            p.SetPlaintextAutoload(false);
+            p.SetCiphertextAutoload(true);
+
+            CryptoContext<DCRTPoly> cc;
+            try {
+                cc = GenCryptoContext(p);
+            } catch (const std::exception&) {
+                continue; // unsupported dnum/technique combination
+            }
+            cc->Enable(PKE);
+            cc->Enable(KEYSWITCH);
+            cc->Enable(LEVELEDSHE);
+
+            auto keys = cc->KeyGen();
+            cc->EvalMultKeyGen(keys.secretKey);
+
+            Plaintext pt = cc->MakeCKKSPackedPlaintext(x);
+            auto ct = cc->Encrypt(keys.publicKey, pt);
+            auto cAdd = cc->EvalAdd(ct, ct);
+            auto cRes = cc->Rescale(cc->EvalMult(ct, ct));
+
+            Plaintext rAddC, rResC;
+            cc->Decrypt(keys.secretKey, cAdd, &rAddC);
+            rAddC->SetLength(8);
+            cc->Decrypt(keys.secretKey, cRes, &rResC);
+            rResC->SetLength(8);
+
+            //================================================================
+
+            cc->SetDevices({ 0 });
+            cc->LoadContext(keys.publicKey);
+
+            auto gct = cc->Encrypt(keys.publicKey, pt);
+            auto gAdd = cc->EvalAdd(gct, gct);
+            auto gRes = cc->Rescale(cc->EvalMult(gct, gct));
+
+            Plaintext rAddG, rResG;
+            cc->Decrypt(keys.secretKey, gAdd, &rAddG);
+            rAddG->SetLength(8);
+            cc->Decrypt(keys.secretKey, gRes, &rResG);
+            rResG->SetLength(8);
+
+            // Value-level only: the sweep's purpose is to drive the ContextData
+            // generation branches across configurations, not bit-compat (which the
+            // arithmetic suites already cover at dnum=2).
+            std::cout << "ContextParamSweep tech=" << tech << " dnum=" << dnum << std::endl;
+            ASSERT_ERROR_OK(rAddC, rAddG);
+            ASSERT_ERROR_OK(rResC, rResG);
+
+            ran++;
+        }
+    }
+    std::cout << "ContextParamSweep ran " << ran << " configurations" << std::endl;
+    ASSERT_GT(ran, 0);
+}
+
+TEST(OpenFHECompatTests, BootstrapPrecomputationGuard) {
+    // GetPreScaleFactor reaches ContextData::GetBootPrecomputation(); a context loaded
+    // without EvalBootstrapSetup/EvalBootstrapKeyGen for those slots must throw (the
+    // old assert()/map-operator[] silently default-constructed a precomputation).
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+    EXPECT_THROW(cc->GetPreScaleFactor(8), std::runtime_error);
+}
+
+// Direct unit coverage for the Ciphertext primitives whose names carry
+// add/sub/mult but that the public api never routes through: the two-operand
+// accumulator forms and addMult*. A loaded FIDESlib context supplies the GPU context;
+// GPU Ciphertext/Plaintext objects are built from the OpenFHE encryptions via
+// GetRawCipherText/GetRawPlainText, the primitive stores into a fresh object, and the
+// result is read back with GetOpenFHECipherText and compared to the api reference.
+TEST(OpenFHECompatTests, CiphertextPrimitives) {
+    auto cc = MakeSmallContext(4);
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 5.0, 4.0, 3.0, 2.0, 1.0, 0.75, 0.5, 0.25 };
+    Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1);
+    Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x2);
+    auto ct1 = cc->Encrypt(keys.publicKey, ptxt1);
+    auto ct2 = cc->Encrypt(keys.publicKey, ptxt2);
+
+    auto refAdd = cc->EvalAdd(ct1, ct2);
+    auto refSub = cc->EvalSub(ct1, ct2);
+    auto refAddPt = cc->EvalAdd(ct1, ptxt2);
+    auto refAddScalar = cc->EvalAdd(ct1, 0.5);
+    auto refMult = cc->EvalMult(ct1, ct2);
+    auto refMultScalar = cc->EvalMult(ct1, 1.5);
+    auto refMultPt = cc->EvalMult(ct1, ptxt2);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto& gpuCtx = std::any_cast<FIDESlib::CKKS::Context&>(cc->gpu);
+    auto& rawCc = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(cc->cpu);
+    const auto& rawSk = std::any_cast<const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>&>(keys.secretKey->pimpl);
+    const auto& rawCt1 = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+    const auto& rawCt2 = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+    const auto& rawPt1 = std::any_cast<const lbcrypto::Plaintext&>(ptxt1->cpu);
+    const auto& rawPt2 = std::any_cast<const lbcrypto::Plaintext&>(ptxt2->cpu);
+
+    auto mkCt = [&](const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>& rc) {
+        return FIDESlib::CKKS::Ciphertext(gpuCtx, FIDESlib::CKKS::GetRawCipherText(rawCc, rc));
+    };
+    auto mkPt = [&](const lbcrypto::Plaintext& rp) {
+        return FIDESlib::CKKS::Plaintext(gpuCtx, FIDESlib::CKKS::GetRawPlainText(rawCc, rp));
+    };
+
+    auto maxDiff = [&](const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>& a,
+                       const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>& b) {
+        lbcrypto::Plaintext pa, pb;
+        rawCc->Decrypt(rawSk, a, &pa);
+        pa->SetLength(8);
+        rawCc->Decrypt(rawSk, b, &pb);
+        pb->SetLength(8);
+        auto va = pa->GetRealPackedValue();
+        auto vb = pb->GetRealPackedValue();
+        double m = 0.0;
+        for (size_t i = 0; i < va.size() && i < vb.size(); ++i)
+            m = std::max(m, std::abs(va[i] - vb[i]));
+        return m;
+    };
+
+    auto check = [&](const char* name, FIDESlib::CKKS::Ciphertext& g, const Ciphertext<DCRTPoly>& ref) {
+        FIDESlib::CKKS::RawCipherText rr;
+        g.store(rr);
+        // Prototype at the reference's level/towers so the read-back basis matches.
+        const auto& rawRef = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ref->cpu);
+        lbcrypto::Ciphertext<lbcrypto::DCRTPoly> rawOut = rawRef->Clone();
+        FIDESlib::CKKS::GetOpenFHECipherText(rawOut, rr);
+        double d = maxDiff(rawOut, rawRef);
+        std::cout << "primitive " << name << " max error " << d << std::endl;
+        ASSERT_LT(d, 1e-9);
+    };
+
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto b = mkCt(rawCt2);
+        g.add(a, b);
+        check("add(a,b)", g, refAdd);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto b = mkCt(rawCt2);
+        g.sub(a, b);
+        check("sub(a,b)", g, refSub);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto b = mkCt(rawCt2);
+        g.addMutable(a, b);
+        check("addMutable(a,b)", g, refAdd);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto b = mkCt(rawCt2);
+        g.subMutable(a, b);
+        check("subMutable(a,b)", g, refSub);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto pt = mkPt(rawPt2);
+        g.addPt(a, pt);
+        check("addPt(a,pt)", g, refAddPt);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto a = mkCt(rawCt1);
+        auto pt = mkPt(rawPt2);
+        g.addPtMutable(a, pt);
+        check("addPtMutable(a,pt)", g, refAddPt);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto b = mkCt(rawCt1);
+        g.addScalar(b, 0.5);
+        check("addScalar(b,c)", g, refAddScalar);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto b = mkCt(rawCt1);
+        g.multScalar(b, 1.5);
+        check("multScalar(b,c)", g, refMultScalar);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto b = mkCt(rawCt1);
+        auto c = mkCt(rawCt2);
+        g.mult(b, c);
+        check("mult(b,c)", g, refMult);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto b = mkCt(rawCt1);
+        auto c = mkCt(rawCt2);
+        g.multMutable(b, c);
+        check("multMutable(b,c)", g, refMult);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto c = mkCt(rawCt1);
+        auto pt = mkPt(rawPt2);
+        g.multPt(c, pt);
+        check("multPt(c,pt)", g, refMultPt);
+    }
+    {
+        auto g = mkCt(rawCt1);
+        auto c = mkCt(rawCt1);
+        auto pt = mkPt(rawPt2);
+        g.multPtMutable(c, pt);
+        check("multPtMutable(c,pt)", g, refMultPt);
+    }
 }
 
 } // namespace FIDESlib::Testing

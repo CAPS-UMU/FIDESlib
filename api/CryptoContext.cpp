@@ -887,22 +887,78 @@ void CryptoContextImpl<DCRTPoly>::EvalAddInPlace(double scalar, Ciphertext<DCRTP
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalAdd(ct1, ct2);
+
+    // Mutable contract: operands may be adjusted in place (rescaled / level-dropped),
+    // matching OpenFHE's EvalAddMutable. Wire to the GPU addMutable and the OpenFHE
+    // mutable op so CPU and GPU mutate the same operands and skip the operand copy
+    // the immutable forms pay when adjustment is needed.
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct1);
+        EnsureMutableCpuCiphertext(ct2);
+        auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+        auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+        auto ct = context->EvalAddMutable(ct1Impl, ct2Impl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct1);
+    this->LoadCiphertext(ct2);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct1);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
+    res_gpu->addMutable(*ct2_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalAdd(ct, pt);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct);
+        auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+        auto& ptImpl = std::any_cast<lbcrypto::Plaintext&>(pt->cpu);
+        auto res = context->EvalAddMutable(ctImpl, ptImpl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct);
+    this->LoadPlaintext(pt);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto pt_gpu = std::static_pointer_cast<FIDESlib::CKKS::Plaintext>(this->GetDevicePlaintext(pt->gpu));
+    res_gpu->addPtMutable(*pt_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalAdd(ct, pt);
+    return EvalAddMutable(ct, pt);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalAddMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    EvalAddInPlace(ct1, ct2);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct1);
+        EnsureMutableCpuCiphertext(ct2);
+        auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+        auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+        context->EvalAddMutableInPlace(ct1Impl, ct2Impl);
+        return;
+    }
+
+    this->LoadCiphertext(ct1);
+    this->LoadCiphertext(ct2);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct1->gpu));
+    auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
+    res_gpu->addMutable(*ct2_gpu);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalAddMany(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts) {
@@ -1223,22 +1279,77 @@ void CryptoContextImpl<DCRTPoly>::EvalSubInPlace(double scalar, Ciphertext<DCRTP
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalSub(ct1, ct2);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct1);
+        EnsureMutableCpuCiphertext(ct2);
+        auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+        auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+        auto ct = context->EvalSubMutable(ct1Impl, ct2Impl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct1);
+    this->LoadCiphertext(ct2);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct1);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
+    res_gpu->subMutable(*ct2_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalSub(ct, pt);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct);
+        auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+        auto& ptImpl = std::any_cast<lbcrypto::Plaintext&>(pt->cpu);
+        auto res = context->EvalSubMutable(ctImpl, ptImpl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct);
+    this->LoadPlaintext(pt);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto pt_gpu = std::static_pointer_cast<FIDESlib::CKKS::Plaintext>(this->GetDevicePlaintext(pt->gpu));
+    res_gpu->subPtMutable(*pt_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSubMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
+    // OpenFHE's EvalSubMutable(pt, ct) negates ct, adds mutably, then re-negates to
+    // restore ct. EvalSub(pt, ct) computes the same value on a fresh negation without
+    // touching ct, so the observable result matches and no operand is left modified.
     return EvalSub(pt, ct);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalSubMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    EvalSubInPlace(ct1, ct2);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct1);
+        EnsureMutableCpuCiphertext(ct2);
+        auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+        auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+        context->EvalSubMutableInPlace(ct1Impl, ct2Impl);
+        return;
+    }
+
+    this->LoadCiphertext(ct1);
+    this->LoadCiphertext(ct2);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct1->gpu));
+    auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
+    res_gpu->subMutable(*ct2_gpu);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMult(const Ciphertext<DCRTPoly>& ct1, const Ciphertext<DCRTPoly>& ct2) {
@@ -1379,17 +1490,54 @@ void CryptoContextImpl<DCRTPoly>::EvalMultInPlace(double scalar, Ciphertext<DCRT
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalMult(ct1, ct2);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct1);
+        EnsureMutableCpuCiphertext(ct2);
+        auto& ct1Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct1->cpu);
+        auto& ct2Impl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct2->cpu);
+        auto ct = context->EvalMultMutable(ct1Impl, ct2Impl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct1);
+    this->LoadCiphertext(ct2);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct1);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
+    res_gpu->multMutable(*ct2_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Ciphertext<DCRTPoly>& ct, Plaintext& pt) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalMult(ct, pt);
+
+    if (this->devices.empty()) {
+        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+        EnsureMutableCpuCiphertext(ct);
+        auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
+        auto& ptImpl = std::any_cast<lbcrypto::Plaintext&>(pt->cpu);
+        auto res = context->EvalMultMutable(ctImpl, ptImpl);
+        Ciphertext<DCRTPoly> ciphertext = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        ciphertext->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(res);
+        return ciphertext;
+    }
+
+    this->LoadCiphertext(ct);
+    this->LoadPlaintext(pt);
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ct);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+    auto pt_gpu = std::static_pointer_cast<FIDESlib::CKKS::Plaintext>(this->GetDevicePlaintext(pt->gpu));
+    res_gpu->multPtMutable(*pt_gpu);
+    return result;
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalMultMutable(Plaintext& pt, Ciphertext<DCRTPoly>& ct) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
-    return EvalMult(ct, pt);
+    return EvalMultMutable(ct, pt);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalMultMutableInPlace(Ciphertext<DCRTPoly>& ct1, Ciphertext<DCRTPoly>& ct2) {
@@ -1411,7 +1559,7 @@ void CryptoContextImpl<DCRTPoly>::EvalMultMutableInPlace(Ciphertext<DCRTPoly>& c
 
     auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct1->gpu));
     auto ct2_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ct2->gpu));
-    res_gpu->mult(*ct2_gpu);
+    res_gpu->multMutable(*ct2_gpu);
 }
 
 Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalSquare(const Ciphertext<DCRTPoly>& ct) {
