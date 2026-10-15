@@ -401,7 +401,7 @@ void Ciphertext::addPt(const Plaintext& b) {
         if (!this->adjustCiphertextToPlaintext(b)) {
             Plaintext b_(cc_);
             if (!b_.adjustPlaintextToCiphertext(b, *this)) {
-                assert(false);
+                throwAdjustFailure("addPt", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             } else {
                 addPt(b_);
             }
@@ -432,7 +432,7 @@ void Ciphertext::addPtMutable(Plaintext& b) {
 
         if (!this->adjustCiphertextToPlaintext(b)) {
             if (!b.adjustPlaintextToCiphertext(b, *this)) {
-                assert(false);
+                throwAdjustFailure("addPtMutable", *this, b.c0.getLevel(), b.NoiseLevel, "plaintext");
             } else {
                 addPt(b);
             }
@@ -751,7 +751,7 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
         if (!adjustForAddOrSub(b)) {
             b_owned.copy(b);
             if (!b_owned.adjustForAddOrSub(*this)) {
-                assert(false);
+                throwAdjustFailure("mult", *this, b.getLevel(), b.NoiseLevel, "ciphertext");
                 return;
             }
             bp = &b_owned;

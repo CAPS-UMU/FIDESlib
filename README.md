@@ -119,7 +119,8 @@ Check examples for projects that use FIDESlib.
 ## Coverage
 
 The repository ships a local coverage pipeline (`scripts/run_coverage.sh`) that measures how much of the
-library is executed while the test suite runs.
+library is executed while the test suite runs. Current figures and what they do/do not include are
+tracked in [COVERAGE.md](COVERAGE.md).
 
 Requirements:
 
@@ -134,6 +135,18 @@ HTML + Cobertura reports under `coverage/`):
 ./scripts/run_coverage.sh
 ```
 
+The suite is large; a single long process may exceed per-job memory/time limits
+(and one crashing test aborts the whole measurement). An alternative sharded
+driver, `scripts/run_coverage_sharded.sh`, launches **each test case in its own
+process**, accumulates gcov counters across all of them, is crash-isolated and
+resumable, and records per-case RSS under `coverage/.stats/`:
+
+```bash
+./scripts/run_coverage_sharded.sh
+# limit or resume with a subset:
+TEST_FILTER='OpenFHEInterfaceTests*:OpenFHEBootstrapTests*' ./scripts/run_coverage_sharded.sh
+```
+
 To fail the run when line coverage is below a target, or to upload the report to Codecov:
 
 ```bash
@@ -143,7 +156,8 @@ CODECOV_TOKEN=<upload token> ./scripts/run_coverage.sh
 
 Additional environment variables (all optional): `FIDESLIB_ARCH` (pin CUDA architectures, e.g. `89-real`
 or `auto`; unset = portable list that runs on any GPU), `OPENFHE_INSTALL_PREFIX` (non-default OpenFHE
-install), `BUILD_DIR` (default `build-coverage`), `REPORT_DIR` (default `coverage`), `JOBS`.
+install), `BUILD_DIR` (default `build-coverage`), `REPORT_DIR` (default `coverage`), `JOBS`,
+`TEST_FILTER` (gtest filter, e.g. `NTTTests/NTTTest.*` or `:AccumulateBroadcast.*`; empty = the whole suite).
 
 Coverage is collected with gcov (`--coverage`, enabled through the `FIDESLIB_ENABLE_COVERAGE` CMake
 option) and reported with gcovr. Only `src/` and `api/` are measured; tests, benchmarks and

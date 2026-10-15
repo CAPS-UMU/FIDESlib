@@ -46,7 +46,7 @@ Limb<T>::Limb(ContextData& context, const int id, Stream& stream, const int prim
     // assert(stream.ev != nullptr);
     int dev;
     cudaGetDevice(&dev);
-    assert(this->v.size == num_elem);
+    assert(this->v.size == (num_elem == -1 ? context.N : num_elem));
     assert(dev == v.device);
 }
 
@@ -68,7 +68,7 @@ Limb<T>::Limb(ContextData& context, T* data, const int offset, const int id, Str
 
     int dev;
     cudaGetDevice(&dev);
-    assert(this->v.size == cc.N);
+    assert(this->v.size == (num_elem == -1 ? context.N : num_elem));
     assert(dev == v.device);
 }
 

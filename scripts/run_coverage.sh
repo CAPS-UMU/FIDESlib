@@ -11,6 +11,7 @@
 #   COVERAGE_MIN_LINE=60 ./scripts/run_coverage.sh                     # fail if line coverage < 60%
 #   CODECOV_TOKEN=xxxx ./scripts/run_coverage.sh                       # also upload to Codecov
 #   BUILD_DIR=build-coverage-openfhe ./scripts/run_coverage.sh         # custom build directory
+#   TEST_FILTER='NTTTests.*:MathTests.*' ./scripts/run_coverage.sh     # run a subset of tests
 #
 # Requirements:
 #   - A working CUDA environment (tests need a GPU).
@@ -21,6 +22,8 @@
 #   gcov instruments the host side of .cpp and .cu files. Device code
 #   (__device__/__global__ bodies) is NOT instrumented and will show as
 #   uncovered; kernel-heavy files will therefore report low percentages.
+#   scripts/kernel_usage.py complements this with a static report of which
+#   __global__ kernels are never referenced (KERNEL_USAGE.md).
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,6 +35,8 @@ REPORT_DIR="${REPORT_DIR:-coverage}"
 GCOVR_CONFIG="scripts/coverage.gcovr.cfg"
 COVERAGE_MIN_LINE="${COVERAGE_MIN_LINE:-0}"
 JOBS="${JOBS:-$(nproc)}"
+# Optional gtest filter; empty = run the whole suite.
+TEST_FILTER="${TEST_FILTER:-}"
 
 # Honor a non-default OpenFHE install if requested.
 OPENFHE_FLAGS=()
@@ -61,7 +66,12 @@ find "${BUILD_DIR}" -name '*.gcda' -delete
 
 echo "==> Running the test suite"
 set +e
-"${BUILD_DIR}/fideslib-test"
+if [[ -n "${TEST_FILTER}" ]]; then
+    echo "    (filter: ${TEST_FILTER})"
+    "${BUILD_DIR}/fideslib-test" --gtest_filter="${TEST_FILTER}"
+else
+    "${BUILD_DIR}/fideslib-test"
+fi
 TESTS_RC=$?
 set -e
 
@@ -74,6 +84,16 @@ gcovr --root "${PROJECT_ROOT}" --object-directory "${BUILD_DIR}" \
     --cobertura "${REPORT_DIR}/coverage.xml" \
     --print-summary
 GCOVR_RC=$?
+
+echo "==> Static kernel-usage report"
+if command -v python3 >/dev/null 2>&1; then
+    python3 scripts/kernel_usage.py --root "${PROJECT_ROOT}" \
+        --coverage-xml "${REPORT_DIR}/coverage.xml" \
+        --output "${KERNEL_REPORT:-KERNEL_USAGE.md}" \
+        || echo "    (kernel-usage report failed; continuing)"
+else
+    echo "    (python3 not found; skipping)"
+fi
 
 echo "==> Checking coverage threshold (${COVERAGE_MIN_LINE}% lines)"
 set +e
