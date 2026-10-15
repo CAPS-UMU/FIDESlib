@@ -138,6 +138,14 @@ class Plaintext {
      */
     void rescale();
     /**
+     * @brief Raise the noise-scale degree of this plaintext by multiplying it by q_l, the
+     *        modulus of the target level's last tower (mirrors Ciphertext::raiseDegreeToLevel
+     *        and the reference's FIXEDAUTO raiseDegree).
+     *
+     * @param targetLevel Level whose last-tower modulus is used.
+     */
+    void raiseDegreeToLevel(int targetLevel);
+    /**
      * @brief Multiply the plaintext by a scalar.
      *
      * @param c        Scalar value to multiply with.
