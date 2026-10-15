@@ -8,6 +8,7 @@
 #include "RNSPoly.cuh"
 #include "forwardDefs.cuh"
 #include "openfhe-interface/RawCiphertext.cuh"
+#include <complex>
 #include <source_location>
 
 namespace FIDESlib::CKKS {
@@ -215,6 +216,19 @@ class Ciphertext {
      */
     void addScalar(const double c);
 
+    /**
+     * @brief Adds a COMPLEX scalar to element 0 (EvalAdd(ct, complex),
+     * ckksrns-leveledshe.cpp L73-106).
+     *
+     * The re/im magnitudes are converted via `ElemForEvalAddOrSub` and composed into the
+     * compressed 1-slot polynomial {re at 0, im at N/2} (sign-handled per component via the
+     * modulus complement), NTT'd and added to c0 (the imaginary part never touches c1). No
+     * metadata updates are performed, matching the reference.
+     *
+     * @param c Complex scalar value to add.
+     */
+    void addScalar(const std::complex<double> c);
+
     bool adjustCiphertextToPlaintext(const Plaintext& plaintext);
     /**
      * @brief Multiplies *this* ciphertext by a plaintext.
@@ -326,6 +340,52 @@ class Ciphertext {
     void multScalar(const Ciphertext& b, const double c, bool rescale = false);
 
     /**
+     * @brief Multiplies both polynomial components by a COMPLEX scalar
+     * (EvalMult(ct, complex), ckksrns-leveledshe.cpp L155-174 / L887-928).
+     *
+     * ForkBitExact transcription: the re factor = GetElementForEvalMult(re, SF(level)) and
+     * the im factor = X^{M/4} * GetElementForEvalMult(im, SF(level)) are composed into the
+     * compressed 1-slot polynomial F = Re + X^{N/2}*Im (two values per limb: {fRe, fIm} at
+     * coefficient positions {0, N/2}), NTT'd (length-2 negacyclic -> {fRe +/- i*fIm}) and
+     * applied in one `multElement(slots=1)` pass (the block-constant read is exactly the
+     * NTT representation of the constant message). For non-FIXEDMANUAL the nsd-2 input is
+     * pre-reduced (EvalMultInPlace L167-172). Metadata: noise level + 1, SF *= SF(level)
+     * (target_level == -1 case); `rescale` follows the real multScalar convention
+     * (FIXEDMANUAL-gated rescale).
+     *
+     * @param c Complex scalar multiplier.
+     * @param rescale Perform rescaling after multiplication if true.
+     */
+    void multScalar(const std::complex<double> c, bool rescale = false);
+
+    /**
+     * @brief COMPLEX-scalar multiply that lands the product on `target_level`
+     * (EvalMult(ct, complex, target_level), ckksrns-leveledshe.cpp L164-174 + L923-927).
+     *
+     * The multiply uses the folded scFactor (ElemForEvalMult(target_level, v, level)),
+     * only the surviving target_level+1 lowest towers are computed (the dropped towers'
+     * products vanish), and the metadata ends at SF = SFRealBig(target_level). Consumed by
+     * the complex weighted sums (evalPartialLinearWSumWithBias<std::complex<double>>).
+     *
+     * @param c Complex scalar multiplier.
+     * @param target_level Target level of the product (must be < current level).
+     */
+    void multScalar(const std::complex<double> c, int target_level);
+
+    /**
+     * @brief Multiplies a ciphertext `b` by a COMPLEX scalar and stores the result in *this*.
+     *
+     * Copies `b` into *this*, then calls `multScalar(c, rescale)`.
+     */
+    void multScalar(const Ciphertext& b, const std::complex<double> c, bool rescale = false);
+
+    /**
+     * @brief Multiplies a ciphertext `b` by a COMPLEX scalar with a target level and stores
+     * the result in *this*. Copies `b` into *this*, then calls `multScalar(c, target_level)`.
+     */
+    void multScalar(const Ciphertext& b, const std::complex<double> c, int target_level);
+
+    /**
      * @brief Squares the ciphertext (i.e., multiplies it by itself).
      *
      * After the multiplication the metadata (noise level/factor) is updated.
@@ -395,6 +455,13 @@ class Ciphertext {
     /** @brief Rescales the ciphertext to the next level, adjusting scaling factor. */
     void rescaleInternal();
     void rescale();
+
+    /**
+     * @brief OpenFHE 4a31f521 raiseDegree (AdjustLevelsAndDepthInPlace FIXEDAUTO degree-mismatch
+     * branch): bring a degree-1 ciphertext to degree-2 WITHOUT a rescale by multiplying it by the
+     * last-tower prime q_l of `targetLevel` (the upcoming rescale divides the factor out exactly).
+     */
+    void raiseDegreeToLevel(int targetLevel);
 
     void addMutable(const Ciphertext& b, Ciphertext& c);
     void addMutable(Ciphertext& b, const Ciphertext& c);
@@ -479,10 +546,44 @@ class Ciphertext {
      * @param weights Vector of weights applied to each ciphertext.
      */
     void evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*>& ctxs, std::vector<double> weights);
-    void evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs, std::vector<double> weights, double bias, int limit = 0, int target_level = -1, int rescale = true);
+
+    /**
+     * @brief Evaluates a linear weighted sum with a constant bias term
+     * (EvalPartialLinearWSumWithBias, ckksrns-advancedshe.cpp L264-341), templated on the
+     * weight/bias scalar type.
+     *
+     * double: the FIDESlib fused path — per-limb factors via ElemForEvalMult (target-level
+     * folded) run through the batched evalLinearWSum kernels; metadata = nsd 2, SFBig(level),
+     * optional FIXEDMANUAL-gated rescale.
+     *
+     * std::complex<double>: the FIDESlib fused path — each term's complex constant factor
+     * (the same BuildConstant2 {re +/- i*im} poly multScalar(complex) uses, ElemForEvalMult
+     * target-level folded, nsd-2 operands pre-reduced) is applied in ONE
+     * eval_linear_w_sum_complex_ pass instead of the per-term multScalar(complex)+add; the
+     * complex constant bias (addScalar(complex)) and the same metadata convention follow.
+     * Mod-p addition is associative, so this is bit-identical to the reference's term-by-term
+     * transcription.
+     *
+     * @param ctxs        Ciphertext operands (NoiseLevel 1, or 2 for the nsd-2 pre-reduce).
+     * @param weights     weights[1]..weights[limit] applied to ctxs[0]..ctxs[limit-1].
+     * @param bias        constant term added when nonzero.
+     * @param limit       number of terms (default: ctxs.size()).
+     * @param target_level landing level of the sum (must not be -1).
+     * @param rescale     apply ModReduceInPlace at the end if true.
+     */
+    template <typename T>
+    void evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs, std::vector<T> weights, T bias, int limit = 0, int target_level = -1, int rescale = true);
 
     static std::vector<Ciphertext>
     evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs, std::vector<std::vector<double>> weights, std::vector<int> target_level, int rescale);
+
+    /// @brief Fused complex batched WSum: the std::complex<double> counterpart of the double
+    /// overload above. Every output j = sum_i weights[j][i]*ctxs[i-1] + weights[j][0] is one
+    /// evalLinearWSumComplexMultiple kernel pass; the complex bias is folded into the packed
+    /// factor buffer (an extra operand pair at i == max_n) and added to element 0 only.
+    static std::vector<Ciphertext>
+    evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+        std::vector<std::vector<std::complex<double>>> weights, std::vector<int> target_level, int rescale);
     /**
      * @brief Adds a scaled version of `ciphertext` (multiplied by `d`) to *this*.
      *
@@ -504,6 +605,17 @@ class Ciphertext {
      * @param c Scalar to add.
      */
     void addScalar(const Ciphertext& b, double c);
+
+    /**
+     * @brief Adds COMPLEX scalar `c` to ciphertext `b` and stores result in *this*.
+     *
+     * Equivalent to copying `b` into *this* and invoking `addScalar(c)` (the complex
+     * overload — the compressed {re@0, im@N/2} constant added to element 0).
+     *
+     * @param b Ciphertext operand.
+     * @param c Complex scalar to add.
+     */
+    void addScalar(const Ciphertext& b, const std::complex<double> c);
 
     /**
      * @brief Adds two ciphertexts and stores the result in *this*.
@@ -562,6 +674,16 @@ class Ciphertext {
      * @param ksk KeySwitchingKey to apply.
      */
     void keySwitch(const KeySwitchingKey& ksk);
+
+    /**
+     * Sparse secret-encapsulation key switch (OpenFHE FHECKKSRNS::KeySwitchSparse). Operates on a
+     * single-limb (level-0) ciphertext and a sparse (GHS) key over Ql*P'. Composed as
+     *   c1Ext = exact Ql -> Ql*P' extension of c1 (centred lift)
+     *   c0 = c0_bottom + exactModDown(c1Ext * b);  c1 = exactModDown(c1Ext * a)
+     * where the mod-down adds the alpha*P' overflow correction. Single-GPU only.
+     * @param ksk the sparse switching key (a/b over Ql*P'), see KeySwitchingKey::InitializeSparse.
+     */
+    void keySwitchSparse(const KeySwitchingKey& ksk);
 
     /**
      * @brief Adjusts internal scaling factors to make addition/subtraction possible.

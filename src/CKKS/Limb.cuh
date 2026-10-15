@@ -70,9 +70,10 @@ template <typename T> class Limb {
 
     void load(const VectorGPU<T>& dat);
 
-    void store(std::vector<T>& dat) const;
+    // Zero the whole limb buffer on its stream.
+    void zeroFill();
 
-    template <typename Q> void load_convert(const std::vector<Q>& dat_raw);
+    void store(std::vector<T>& dat) const;    template <typename Q> void load_convert(const std::vector<Q>& dat_raw);
 
     template <typename Q> void store_convert(std::vector<Q>& dat_raw);
 

@@ -76,13 +76,6 @@ FIDESlib::CKKS::RawCipherText FIDESlib::CKKS::GetRawCipherText(lbcrypto::CryptoC
  * Converts a ciphertext from the RawCiphertext format back to the OpenFHE ciphertext format*/
 void FIDESlib::CKKS::GetOpenFHECipherText(lbcrypto::Ciphertext<DCRTPoly> result, RawCipherText raw, int REV) {
 
-    int size = result->GetElements()[0].GetAllElements().size();
-    if (size < raw.numRes) {
-        raw.numRes = size;
-        raw.sub_0.resize(size);
-        raw.sub_1.resize(size);
-    }
-    assert(result->GetElements()[0].GetAllElements().size() >= raw.numRes);
     // Changed the REV variable to an argument to the function.
     // purpose: profiling Automorph kernel with both bit-reversed and normal order ciphertexts.
     if (!REV) {
@@ -93,6 +86,17 @@ void FIDESlib::CKKS::GetOpenFHECipherText(lbcrypto::Ciphertext<DCRTPoly> result,
     }
     DCRTPoly sub_0 = result->GetElements().at(0);
     DCRTPoly sub_1 = result->GetElements().at(1);
+    if (sub_0.GetAllElements().size() < static_cast<size_t>(raw.numRes)) {
+        // Shell too shallow: rebuild the elements on the full modulus chain so the payload is not
+        // silently truncated (the old code clamped raw.numRes to the shell's tower count and lost
+        // the extra towers of the bootstrapped result). The chain comes from the scheme's element
+        // params (the shell's own element params are already trimmed to its tower count); it is
+        // trimmed back to raw.numRes below, and SetLevel already yields L0 - raw.numRes from the
+        // shell's level/tower count.
+        const auto chain = result->GetCryptoParameters()->GetElementParams();
+        sub_0 = DCRTPoly(chain, result->GetElements().at(0).GetFormat(), /*initializeElementToZero=*/true);
+        sub_1 = DCRTPoly(chain, result->GetElements().at(1).GetFormat(), /*initializeElementToZero=*/true);
+    }
     auto& dcrt_0 = sub_0.GetAllElements();
     auto& dcrt_1 = sub_1.GetAllElements();
     result->SetLevel(result->GetLevel() + result->GetElements().at(0).GetNumOfElements() - raw.numRes);
@@ -130,7 +134,6 @@ void FIDESlib::CKKS::GetOpenFHECipherText(lbcrypto::Ciphertext<DCRTPoly> result,
 
 void FIDESlib::CKKS::GetOpenFHEPlaintext(lbcrypto::Plaintext result, RawPlainText raw, int REV) {
 
-    assert(result->GetElement<DCRTPoly>().GetAllElements().size() >= raw.numRes);
     // Changed the REV variable to an argument to the function.
     // purpose: profiling Automorph kernel with both bit-reversed and normal order ciphertexts.
     if (!REV) {
@@ -138,6 +141,13 @@ void FIDESlib::CKKS::GetOpenFHEPlaintext(lbcrypto::Plaintext result, RawPlainTex
             bit_reverse_vector(i);
     }
     DCRTPoly sub_0 = result->GetElement<DCRTPoly>();
+    if (sub_0.GetAllElements().size() < static_cast<size_t>(raw.numRes)) {
+        // A plaintext element carries only its own (already trimmed) params, so it cannot be grown
+        // to the payload's tower count; fail loudly instead of the old assert/UB.
+        OPENFHE_THROW("GetOpenFHEPlaintext: shell plaintext has fewer towers (" +
+            std::to_string(sub_0.GetAllElements().size()) + ") than the payload (" +
+            std::to_string(raw.numRes) + "); encode the shell at a deeper level");
+    }
     auto& dcrt_0 = sub_0.GetAllElements();
     result->SetLevel(result->GetLevel() + result->GetElement<DCRTPoly>().GetNumOfElements() - raw.numRes);
     dcrt_0.resize(raw.numRes);
@@ -210,7 +220,8 @@ FIDESlib::CKKS::RawPlainText FIDESlib::CKKS::GetRawPlainText(lbcrypto::CryptoCon
     return result;
 }
 
-FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, FIDESlib::BOOT_CONFIG boot_conf) {
+FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, FIDESlib::BOOT_CONFIG boot_conf,
+                                                       bool sparseKS) {
     RawParams result;
     result.N = cc->GetRingDimension();
     result.logN = std::bit_width((uint32_t)result.N) - 1;
@@ -263,22 +274,28 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 
     /// Key Switching precomputations !!!
     result.dnum = cryptoParams->GetNumPartQ();
-    result.K = cryptoParams->GetParamsP()->GetParams().size();
     assert(cryptoParams->GetNumPartQ() == cryptoParams->GetNumberOfQPartitions());
-    cryptoParams->GetNumPerPartQ();
+
+    // Sparse secret encapsulation: when sparseKS is requested and the source context is
+    // SPARSE_ENCAPSULATED, the special basis of this (switchable) context is the auxiliary
+    // basis P' of the sparse key switch, with the sparse PHatInv/PHat/PInv tables, rather
+    // than the ordinary hybrid P. K then counts the P' primes.
+    const bool useSparseP = sparseKS && (cryptoParams->GetSparseKSParamsP() != nullptr) &&
+                            !cryptoParams->GetSparseKSParamsP()->GetParams().empty();
 
     {
-        auto& src = cryptoParams->GetParamsP()->m_params;
+        auto& src = useSparseP ? cryptoParams->GetSparseKSParamsP()->m_params : cryptoParams->GetParamsP()->m_params;
         for (auto& i : src) {
             result.SPECIALmoduli.push_back(i->GetModulus().ConvertToInt<uint64_t>() /* m_ciphertextModulus.m_value*/);
             result.SPECIALroot_of_unity.push_back(i->GetRootOfUnity().ConvertToInt<uint64_t>() /*m_rootOfUnity.m_value*/);
             result.SPECIALcyclotomic_order.push_back(i->GetCyclotomicOrder() /*m_cyclotomicOrder*/);
         }
     }
+    result.K = result.SPECIALmoduli.size();
 
     {
-        auto& src = cryptoParams->m_paramsPartQ;
-        for (auto& i : src) {
+        for (uint32_t part = 0; part < cryptoParams->GetNumPartQ(); ++part) {
+            const auto& i = cryptoParams->GetParamsPartQ(part);
             result.PARTITIONmoduli.emplace_back();
             for (auto& j : i->GetParams()) {
                 result.PARTITIONmoduli.back().push_back(j->GetModulus().ConvertToInt<uint64_t>() /*m_ciphertextModulus.m_value*/);
@@ -287,7 +304,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
     }
 
     {
-        auto& src = cryptoParams->GetPHatInvModp();
+        auto& src = useSparseP ? cryptoParams->GetSparseKSPHatInvModp() : cryptoParams->GetPHatInvModp();
         auto& dest = result.PHatInvModp;
         dest.resize(src.size());
         for (size_t i = 0; i < src.size(); ++i) {
@@ -296,7 +313,7 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
     }
 
     {
-        auto& src = cryptoParams->GetPInvModq();
+        auto& src = useSparseP ? cryptoParams->GetSparseKSPInvModq() : cryptoParams->GetPInvModq();
         auto& dest = result.PInvModq;
         dest.resize(src.size());
         for (size_t i = 0; i < src.size(); ++i) {
@@ -305,27 +322,67 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
     }
 
     {
-        auto& src = cryptoParams->GetPHatModq();
         auto& dest = result.PHatModq;
-        dest.resize(src.size());
-        for (size_t i = 0; i < src.size(); ++i) {
-            dest[i].resize(src[i].size());
-            for (size_t j = 0; j < src[i].size(); ++j) {
-                dest[i][j] = src[i][j].ConvertToInt<uint64_t>(); // m_value;
+        if (useSparseP) {
+            // GetSparseKSPHatModq is [q_i][p'_j] (target Ql major); the GPU ModDown2 kernel
+            // indexes the matrix as [source p'_j][target q_i] (like the hybrid GetPHatModq),
+            // so transpose it here.
+            auto& src = cryptoParams->GetSparseKSPHatModq();
+            const size_t nQ = src.size();
+            const size_t nP = nQ > 0 ? src[0].size() : 0;
+            dest.assign(nP, std::vector<uint64_t>(nQ));
+            for (size_t q = 0; q < nQ; ++q)
+                for (size_t p = 0; p < nP; ++p)
+                    dest[p][q] = src[q][p].ConvertToInt<uint64_t>();
+        } else {
+            auto& src = cryptoParams->GetPHatModq();
+            dest.resize(src.size());
+            for (size_t i = 0; i < src.size(); ++i) {
+                dest[i].resize(src[i].size());
+                for (size_t j = 0; j < src[i].size(); ++j) {
+                    dest[i][j] = src[i][j].ConvertToInt<uint64_t>(); // m_value;
+                }
             }
         }
     }
 
+    // Exact-HPS mod-down overflow correction [a*P']_{q_i} and 1/p'_j for the sparse key switch.
+    if (useSparseP) {
+        auto& src = cryptoParams->GetSparseKSAlphaPModq();
+        auto& dest = result.SparseAlphaPModq;
+        dest.resize(src.size());
+        for (size_t a = 0; a < src.size(); ++a) {
+            dest[a].resize(src[a].size());
+            for (size_t i = 0; i < src[a].size(); ++i)
+                dest[a][i] = src[a][i].ConvertToInt<uint64_t>();
+        }
+        result.SparseKSpInv = cryptoParams->GetSparseKSpInv();
+
+        auto& aql = cryptoParams->GetSparseKSAlphaQlModp();
+        auto& daql = result.SparseAlphaQlModp;
+        daql.resize(aql.size());
+        for (size_t a = 0; a < aql.size(); ++a) {
+            daql[a].resize(aql[a].size());
+            for (size_t j = 0; j < aql[a].size(); ++j)
+                daql[a][j] = aql[a][j].ConvertToInt<uint64_t>();
+        }
+        auto& qlParams = cryptoParams->GetSparseKSParamsQ()->GetParams();
+        result.SparseQlInv.resize(qlParams.size());
+        for (size_t i = 0; i < qlParams.size(); ++i)
+            result.SparseQlInv[i] = 1.0 / qlParams[i]->GetModulus().ConvertToDouble();
+    }
+
     {
         auto& dest = result.PartQlHatInvModq;
-        auto& src = cryptoParams->m_PartQlHatInvModq;
-        dest.resize(src.size());
-        for (size_t k = 0; k < dest.size(); ++k) {
-            dest[k].resize(src[k].size());
-            for (size_t i = 0; i < dest[k].size(); ++i) {
-                dest[k][i].resize(src[k][i].size());
-                for (size_t j = 0; j < src[k][i].size(); ++j) {
-                    dest[k][i][j] = src[k][i][j].ConvertToInt<uint64_t>(); // m_value;
+        dest.resize(cryptoParams->GetNumPartQ());
+        for (uint32_t k = 0; k < cryptoParams->GetNumPartQ(); ++k) {
+            const uint32_t sizePartQk = cryptoParams->GetParamsPartQ(k)->GetParams().size();
+            dest[k].resize(sizePartQk);
+            for (uint32_t s = 0; s < sizePartQk; ++s) {
+                const auto& src = cryptoParams->GetPartQlHatInvModq(k, s);
+                dest[k][s].resize(src.size());
+                for (size_t j = 0; j < src.size(); ++j) {
+                    dest[k][s][j] = src[j].ConvertToInt<uint64_t>(); // m_value;
                 }
             }
         }
@@ -333,18 +390,20 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 
     {
         auto& dest = result.PartQlHatModp;
-        auto& src = cryptoParams->m_PartQlHatModp;
-        dest.resize(result.dnum);
-        dest.resize(src.size());
-
-        for (size_t k = 0; k < dest.size(); ++k) {
-            dest[k].resize(src[k].size());
-            for (size_t i = 0; i < dest[k].size(); ++i) {
-                dest[k][i].resize(src[k][i].size());
-                for (size_t j = 0; j < src[k][i].size(); ++j) {
-                    dest[k][i][j].resize(src[k][i][j].size());
-                    for (size_t l = 0; l < src[k][i][j].size(); ++l) {
-                        dest[k][i][j][l] = src[k][i][j][l].ConvertToInt<uint64_t>(); // m_value;
+        const uint32_t sizeQ = static_cast<uint32_t>(result.L) + 1;
+        const uint32_t numPartQ = cryptoParams->GetNumPartQ();
+        const uint32_t alpha = static_cast<uint32_t>(std::ceil(static_cast<double>(sizeQ) / numPartQ));
+        dest.resize(sizeQ);
+        for (uint32_t lvl = 0; lvl < sizeQ; ++lvl) {
+            const uint32_t beta = static_cast<uint32_t>(std::ceil(static_cast<double>(lvl + 1) / alpha));
+            dest[lvl].resize(beta);
+            for (uint32_t k = 0; k < beta; ++k) {
+                const auto& src = cryptoParams->GetPartQlHatModp(lvl, k);
+                dest[lvl][k].resize(src.size());
+                for (size_t i = 0; i < src.size(); ++i) {
+                    dest[lvl][k][i].resize(src[i].size());
+                    for (size_t j = 0; j < src[i].size(); ++j) {
+                        dest[lvl][k][i][j] = src[i][j].ConvertToInt<uint64_t>(); // m_value;
                     }
                 }
             }
@@ -366,21 +425,22 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
         // pre/(k*N) with k = 1.0 for sparse keys and k = K_UNIFORM for the dense (uniform)
         // key. bootK must mirror that runtime k — keyed off the actual secret-key
         // distribution, never a hardcoded constant.
-        const auto fhe = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE);
         const auto keyDist = cryptoParams->GetSecretKeyDist();
-        const bool isSparseKey = (keyDist == lbcrypto::SPARSE_TERNARY || keyDist == lbcrypto::SPARSE_ENCAPSULATED);
-        const double bootK = isSparseKey ? 1.0 : static_cast<double>(fhe->K_UNIFORM);
+        const double foldedK = lbcrypto::FHECKKSRNS::GetModRaiseOverflowBound(
+            cryptoParams, lbcrypto::FHECKKSRNS::K_UNIFORM);
+        (void)foldedK;  // folded into scaleEnc by OpenFHE; FIDESlib's k cancels it, so k = 1.0
+        const double bootK = 1.0;
 
         if (boot_conf == FIDESlib::ENCAPS) {
-            result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsSparseEncapsulated; // degree 32
+            result.coefficientsCheby = lbcrypto::GetBootTableCoeffSparseEncapsulated(); // degree 32
             // k adjustment for the (sparse-)encapsulated mod-reduction. The CtS/StC matrices are
-            // computed host-side by EvalBootstrapSetup and bake scaleEnc = pre/K_pre(dist) with
+            // computed host-side by EvalBootstrapSetup and fold scaleEnc = pre/K_pre(dist) with
             // K_pre(SPARSE_TERNARY)=K_SPARSE, K_pre(SPARSE_ENCAPSULATED)=K_SPARSE_ENCAPSULATED,
-            // K_pre(UNIFORM_TERNARY)=1. The GPU pipeline then rescales by pre/(k*N); to reach the
-            // encapsulated convention baked * (1/k) = 1/K_SPARSE_ENCAPSULATED the runtime k must be
-            // K_SPARSE_ENCAPSULATED * K_pre(dist) (missing 1/K must be un-baked): uniform keys need
-            // k = 16, sparse-ternary keys k = 16/K_SPARSE, encapsulated keys k = 1 (the OpenFHE
-            // runtime k for those keys, cf. FHECKKSRNS::EvalBootstrap). bootK is keyed off the
+            // K_pre(UNIFORM_TERNARY)=K_UNIFORM. The GPU pipeline rescales by pre/(k*N) and the
+            // (sparse-)encapsulated coefficients interpolate the K_SPARSE_ENCAPSULATED convention,
+            // so the runtime k re-normalizes dist -> encapsulated: K_SPARSE_ENCAPSULATED for a
+            // UNIFORM key, K_SPARSE_ENCAPSULATED/K_SPARSE for a SPARSE_TERNARY key and 1 for a
+            // SPARSE_ENCAPSULATED key (table and folded matrix agree). bootK is keyed off the
             // ACTUAL secret-key distribution — never a hardcoded constant.
             result.bootK = keyDist == lbcrypto::SPARSE_TERNARY ? static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) / lbcrypto::FHECKKSRNS::K_SPARSE :
                 keyDist == lbcrypto::UNIFORM_TERNARY ? static_cast<double>(lbcrypto::FHECKKSRNS::K_SPARSE_ENCAPSULATED) :
@@ -388,14 +448,13 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
             result.sparse_encaps = true;
             result.doubleAngleIts = lbcrypto::FHECKKSRNS::R_SPARSE;
         } else if (boot_conf == FIDESlib::SPARSE) {
-            result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsSparse;
+            result.coefficientsCheby = lbcrypto::GetBootTableCoeffSparse();
             result.bootK = bootK;
             result.doubleAngleIts = lbcrypto::FHECKKSRNS::R_SPARSE;
             result.sparse_encaps = false;
         } else if (boot_conf == FIDESlib::UNIFORM) {
-            // result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsUniform;
-            result.coefficientsCheby = lbcrypto::FHECKKSRNS::g_coefficientsUniform;
-            result.bootK = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->K_UNIFORM; // lbcrypto::FHECKKSRNS::K_UNIFORM;
+            result.coefficientsCheby = lbcrypto::GetBootTableCoeffUniform();
+            result.bootK = bootK;  // 1.0: K is folded into scaleEnc by OpenFHE (see above)
             result.doubleAngleIts = lbcrypto::FHECKKSRNS::R_UNIFORM;
             result.sparse_encaps = false;
         }
@@ -405,6 +464,10 @@ FIDESlib::CKKS::RawParams FIDESlib::CKKS::GetRawParams(lbcrypto::CryptoContext<l
 
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// Host-side arithmetic helpers
+// ---------------------------------------------------------------------------
 
 FIDESlib::CKKS::RawKeySwitchKey FIDESlib::CKKS::GetKeySwitchKey(std::shared_ptr<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>> ek) {
 
@@ -836,8 +899,11 @@ void FIDESlib::CKKS::GenBootstrapKeys(const lbcrypto::KeyPair<lbcrypto::DCRTPoly
 // via evalKeyMap.at(2N-4) and KeySwitchInPlace via .at(2N-2)) and crashes on a foreign key, so
 // FIDESlib must NOT reuse them. The next two even indices down (2N-6, 2N-8) are unused by both
 // OpenFHE and FIDESlib rotation conventions.
-static constexpr uint32_t BTS_KSPARSE_TO_SLOT = 6;   // 2N-6: switch to   the sparse (tug) key
-static constexpr uint32_t BTS_KSPARSE_FROM_SLOT = 8; // 2N-8: switch back to the real key
+// Use OpenFHE's own FHECKKSRNS::EvalBootstrapKeyGen sparse slots: KeySwitchGenSparse at 2N-4 and
+// the switch-back KeySwitchGen at 2N-2. Both use OpenFHE's internal sparse secret, which is the
+// only way the GPU result can be bit-identical to the CPU EvalBootstrap reference.
+static constexpr uint32_t BTS_KSPARSE_TO_SLOT = 4;   // 2N-4: switch to   the sparse (tug) key
+static constexpr uint32_t BTS_KSPARSE_FROM_SLOT = 2; // 2N-2: switch back to the real key
 
 void FIDESlib::CKKS::GenBootstrapKeys(const lbcrypto::PrivateKey<lbcrypto::DCRTPoly>& keys, int slots, bool SSE) {
     lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc = keys->GetCryptoContext();
@@ -853,25 +919,11 @@ void FIDESlib::CKKS::GenBootstrapKeys(const lbcrypto::PrivateKey<lbcrypto::DCRTP
     // Reinsert all keys to add the particular conj key and sse keys
 
     if (SSE) {
-        auto cc_switch = CKKS::createSwitchableContextBasedOnContext(cc, 1, 1, cc->GetRingDimension() / 2);
-
-        // auto keys_switch = cc_switch->KeyGen();
-        auto [swtch, sk_sparse] = CKKS::createContextSwitchingKeys(cc, cc_switch, keys, 32);
-        (*evalKeys)[cc->GetCyclotomicOrder() - BTS_KSPARSE_TO_SLOT] = swtch.first;
-        (*evalKeys)[cc->GetCyclotomicOrder() - BTS_KSPARSE_FROM_SLOT] = swtch.second;
-
-        // The GPU pipeline materializes the two auxiliary slots in AddBootstrapKeys and expects
-        // the FIDESlib switching keys generated above (createContextSwitchingKeys over the
-        // switchable context) there. CryptoContextImpl::InsertEvalAutomorphismKey does NOT
-        // replace indices that are already present in the map (despite its "silently replaces"
-        // doc comment), so force the FIDESlib keys into the actual automorphism map. The slots
-        // are FIDESlib-exclusive (see BTS_KSPARSE_*_SLOT), so nothing pre-exists there and this
-        // write simply makes insertion order-independent.
-        auto& keyMap = lbcrypto::CryptoContextImpl<lbcrypto::DCRTPoly>::GetEvalAutomorphismKeyMap(keys->GetKeyTag());
-        keyMap[cc->GetCyclotomicOrder() - BTS_KSPARSE_TO_SLOT] = swtch.first;
-        keyMap[cc->GetCyclotomicOrder() - BTS_KSPARSE_FROM_SLOT] = swtch.second;
-
-        // We can discard sk_sparse and cc_switch
+        // The sparse switching keys are authored by OpenFHE's own FHECKKSRNS::EvalBootstrapKeyGen
+        // (called by the api before this function) at automorphism slots 2N-4 (KeySwitchGenSparse)
+        // and 2N-2 (KeySwitchGen). AddBootstrapKeys reads exactly those slots. Using OpenFHE's
+        // internal sparse secret is required for bit-exactness against the CPU EvalBootstrap.
+        (void)evalKeys;
     }
 }
 
@@ -907,48 +959,45 @@ void FIDESlib::CKKS::AddBootstrapKeys(const lbcrypto::PublicKey<lbcrypto::DCRTPo
         auto& evalKeys = cc->GetEvalAutomorphismKeyMap(publicKey->GetKeyTag());
 
         FIDESlib::CKKS::RawParams raw_param2 = FIDESlib::CKKS::GetRawParams(cc_switch);
-        // FIDESlib::CKKS::Context GPUcc{fideslibParams.adaptTo(raw_param), devices};
+
+        // Use the MAIN context's sparse basis P' and exact-HPS tables, not the switchable
+        // context's hybrid P: the sparse GHS switching key generated by GenBootstrapKeys lives
+        // over the main Ql*P', so the GPU context must expose exactly that special basis. (The
+        // switchable context deliberately has a single Q limb q0, which is the same first prime
+        // as the main context, so reinterpretContext still matches at level 0.)
+        {
+            FIDESlib::CKKS::RawParams sparseRaw = FIDESlib::CKKS::GetRawParams(cc, FIDESlib::ENCAPS, /*sparseKS=*/true);
+            raw_param2.SPECIALmoduli = sparseRaw.SPECIALmoduli;
+            raw_param2.SPECIALroot_of_unity = sparseRaw.SPECIALroot_of_unity;
+            raw_param2.SPECIALcyclotomic_order = sparseRaw.SPECIALcyclotomic_order;
+            raw_param2.PHatInvModp = sparseRaw.PHatInvModp;
+            raw_param2.PHatModq = sparseRaw.PHatModq;
+            raw_param2.PInvModq = sparseRaw.PInvModq;
+            raw_param2.SparseAlphaPModq = sparseRaw.SparseAlphaPModq;
+            raw_param2.SparseKSpInv = sparseRaw.SparseKSpInv;
+            raw_param2.K = sparseRaw.K;
+        }
+
         FIDESlib::CKKS::Context cc_switch_ = CKKS::GenCryptoContextGPU(GPUcc.param.adaptTo(raw_param2), GPUcc.GPUid);
         FIDESlib::CKKS::ContextData& GPUcc2 = *cc_switch_;
 
-        // std::cout << "Add atob key" << std::endl;
+        // atob: dense -> sparse, over Ql*P', exact HPS mod-up/down (OpenFHE KeySwitchSparse).
         FIDESlib::CKKS::KeySwitchingKey ksk_atob(cc_switch_);
-
         {
             std::shared_ptr<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>> res =
                 std::dynamic_pointer_cast<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>>(evalKeys[2 * GPUcc.N - BTS_KSPARSE_TO_SLOT]);
             assert(res != nullptr);
             FIDESlib::CKKS::RawKeySwitchKey rawKskEval = FIDESlib::CKKS::GetKeySwitchKey(res);
-
-            // Key-tag normalization (sparse-encapsulation switch keys).
-            //
-            // The sparse-switch dance is internal to FIDESlib — from the outside the ciphertext
-            // always stays under the main key — so GetSecretSwitchingKey must find both the
-            // "to" and the "from" directional keys indexed by the main key's tag. The keys
-            // materialized here come from FIDESlib's own GenBootstrapKeys (slots 2N-6/2N-8,
-            // see BTS_KSPARSE_*_SLOT), whose createContextSwitchingKeys products already carry
-            // the main key tag; this normalization re-asserts the invariant at materialization
-            // time, so the lookups hold whatever the automorphism map ended up holding.
-            //
-            // (Historical context: FIDESlib previously reused OpenFHE's own SPARSE_ENCAPSULATED
-            // slots 2N-2/2N-4. FHECKKSRNS::EvalBootstrapKeyGen authors ITS keys there —
-            // KeySwitchGenSparse(privateKey, skNew) whose target is a tag-less internal tug key,
-            // hence a foreign auto-generated tag that never equaled the ciphertext tag — and
-            // CryptoContextImpl::InsertEvalAutomorphismKey does not replace existing indices, so
-            // the GPU consumed OpenFHE's 3-limb q0*P' keys and the switch-back lookup missed.
-            // The CPU bootstrap reads those same two slots and crashes on a foreign key, which is
-            // why FIDESlib moved its auxiliary keys to exclusive indices.)
             rawKskEval.keyid = publicKey->GetKeyTag();
-            ksk_atob.Initialize(rawKskEval);
+            ksk_atob.InitializeSparse(rawKskEval);
         }
-        // std::cout << "Add btoa key" << std::endl;
+
+        // btoa: sparse -> dense, ordinary HYBRID key over the main context's Q*P.
         FIDESlib::CKKS::KeySwitchingKey ksk_btoa(GPUcc_);
         {
             std::shared_ptr<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>> res =
                 std::dynamic_pointer_cast<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>>(evalKeys[2 * GPUcc.N - BTS_KSPARSE_FROM_SLOT]);
             FIDESlib::CKKS::RawKeySwitchKey rawKskEval2 = FIDESlib::CKKS::GetKeySwitchKey(res);
-
-            // See the key-tag normalization comment above.
             rawKskEval2.keyid = publicKey->GetKeyTag();
             ksk_btoa.Initialize(rawKskEval2);
         }
@@ -1036,9 +1085,21 @@ void FIDESlib::CKKS::AddBootstrapPrecomputation(const lbcrypto::PublicKey<lbcryp
 
         result.correctionFactor = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_correctionFactor;
 
+        // The reference evaluators branch on the datatype in exactly one bootstrap-relevant
+        // place: the sparsely packed SlotsToCoeffs fold runs only for REAL. Record the COMPLEX
+        // datatype so the GPU mirrors that (Bootstrap.cu skips the fold when this is set).
+        result.isComplex = (cc->GetCKKSDataType() == lbcrypto::COMPLEX);
+
         if (GPUcc.param.raw->sparse_encaps) {
             result.sparse_encaps = true;
         }
+
+        // StC-first (decode-first) bootstrap: record the OpenFHE setup flag and the
+        // decode level budget needed to replicate the EvalBootstrapStCFirst depletion
+        // (expectedLevel = L0 - (lvlbDec + 2 + (FLEXIBLEAUTOEXT ? 1 : 0))).
+        auto precom = std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
+        result.btsfirstboot = precom->BTSlotsEncoding;
+        result.lvlbDec = static_cast<int>(precom->m_paramsDec.lvlb);
 
         GPUcc.AddBootPrecomputation(slots, std::move(result));
     }
@@ -1051,4 +1112,97 @@ void FIDESlib::CKKS::AddBootstrapPrecomputation(lbcrypto::CryptoContext<lbcrypto
     GenBootstrapKeys(keys, slots, GPUcc_->param.raw->sparse_encaps);
 
     AddBootstrapPrecomputation(keys.publicKey, slots, GPUcc_);
+}
+
+// ---------------------------------------------------------------------------
+// bootstrap-precompute fingerprint helpers (test/diagnostic)
+// ---------------------------------------------------------------------------
+
+namespace {
+uint64_t FpData(const std::vector<std::vector<uint64_t>>& sub) {
+    uint64_t h = 1469598103934665603ULL;
+    for (const auto& limb : sub) {
+        for (uint64_t x : limb) {
+            h ^= x;
+            h *= 1099511628211ULL;
+        }
+    }
+    return h;
+}
+} // namespace
+
+std::vector<FIDESlib::CKKS::BootPrecomputeFingerprint> FIDESlib::CKKS::FingerprintBootPrecomputeCPU(
+    const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc, int slots)
+{
+    std::vector<BootPrecomputeFingerprint> out;
+    const auto precom =
+        std::dynamic_pointer_cast<lbcrypto::FHECKKSRNS>(cc->GetScheme()->m_FHE)->m_bootPrecomMap.find(slots)->second;
+    const bool isLT = (precom->m_paramsEnc.lvlb == 1) && (precom->m_paramsDec.lvlb == 1);
+
+    auto push = [&](const ReadOnlyPlaintext& pt) {
+        RawPlainText raw = GetRawPlainText(const_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(cc), pt);
+        // Replicate the GPU download's stride compression (RNSPoly::loadConstant, compress=true):
+        // limbs longer than 2*slots are sub-sampled every (size/2/slots)-th value. Only then do
+        // the CPU-side fingerprints equal the GPU-stored residues.
+        const uint32_t slots = raw.slots > 0 ? static_cast<uint32_t>(raw.slots) : 1;
+        std::vector<std::vector<uint64_t>> sub = raw.sub_0;
+        for (auto& limb : sub) {
+            const size_t stride = limb.size() / 2 / slots;
+            if (stride > 1) {
+                std::vector<uint64_t> aux(2 * slots);
+                for (uint32_t j = 0; j < 2 * slots; ++j)
+                    aux[j] = limb[static_cast<size_t>(j) * stride];
+                limb = std::move(aux);
+            }
+        }
+        BootPrecomputeFingerprint f;
+        f.level         = static_cast<int>(pt->GetLevel());
+        f.towers        = raw.numRes;
+        f.scalingFactor = raw.Noise;
+        f.fp            = FpData(sub);
+        out.push_back(f);
+    };
+
+    if (isLT) {
+        // Same order as AddBootstrapPlaintexts: m_U0hatTPre first (reversed) then m_U0Pre.
+        for (size_t i = 0; i < precom->m_U0hatTPre.size(); ++i)
+            push(precom->m_U0hatTPre[precom->m_U0hatTPre.size() - 1 - i]);
+        for (size_t i = 0; i < precom->m_U0Pre.size(); ++i)
+            push(precom->m_U0Pre[i]);
+    }
+    else {
+        for (size_t i = 0; i < precom->m_U0hatTPreFFT.size(); ++i)
+            for (size_t j = 0; j < precom->m_U0hatTPreFFT[precom->m_U0hatTPreFFT.size() - 1 - i].size(); ++j)
+                push(precom->m_U0hatTPreFFT[precom->m_U0hatTPreFFT.size() - 1 - i][j]);
+        for (size_t i = 0; i < precom->m_U0PreFFT.size(); ++i)
+            for (size_t j = 0; j < precom->m_U0PreFFT[i].size(); ++j)
+                push(precom->m_U0PreFFT[i][j]);
+    }
+    return out;
+}
+
+std::vector<FIDESlib::CKKS::BootPrecomputeFingerprint> FIDESlib::CKKS::FingerprintBootPrecomputeGPU(
+    FIDESlib::CKKS::Context& GPUcc_, int slots)
+{
+    std::vector<BootPrecomputeFingerprint> out;
+    const auto& pre = GPUcc_->GetBootPrecomputation(slots);
+
+    auto push = [&](const Plaintext& pt) {
+        std::vector<std::vector<uint64_t>> data;
+        const_cast<Plaintext&>(pt).c0.store(data);
+        BootPrecomputeFingerprint f;
+        f.level         = pt.c0.getLevel();
+        f.towers        = static_cast<int>(data.size());
+        f.scalingFactor = pt.NoiseFactor;
+        f.fp            = FpData(data);
+        out.push_back(f);
+    };
+
+    for (const auto& lt : pre.CtS)
+        for (const auto& pt : lt.A)
+            push(pt);
+    for (const auto& lt : pre.StC)
+        for (const auto& pt : lt.A)
+            push(pt);
+    return out;
 }

@@ -34,6 +34,18 @@ class BootstrapPrecomputation {
     int accumulate_bStep = 4;
     uint32_t correctionFactor;
     bool sparse_encaps{ false };
+    bool btsfirstboot{ false };
+    /// CKKSDataType == COMPLEX for this precomputation. The reference's evaluators branch on the
+    /// datatype in exactly one place that touches the bootstrap: the sparsely packed SlotsToCoeffs
+    /// fold is applied only for REAL. COMPLEX sparse/LT precomputations carry this so the GPU skips it.
+    bool isComplex{ false };
+    int lvlbDec{ -1 };
+
+    // Bookkeeping flags for the shared per-slot bootstrap precomputation. They are never set here
+    // (this branch has no functional setup path) and only feed the inert mode guards in Bootstrap.cu.
+    bool isFBT{ false };
+    bool isFEFunc{ false };
+
     std::weak_ptr<ContextData> sparse_context;
 };
 } // namespace FIDESlib::CKKS

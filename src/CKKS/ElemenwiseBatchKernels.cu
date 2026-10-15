@@ -253,7 +253,102 @@ __global__ void eval_batched_linear_w_sum_with_bias_(const __grid_constant__ int
                 result = modadd(result, weight, primeid);
         }
         if (blockIdx.y < target_limbsize[j])
-            ((uint64_t*)a[j][blockIdx.y])[idx] = result;
+            ((uint64_t*)a[j][blockIdx.y])[idx] = modreduce<ALGO_SHOUP>((__uint128_t)result, primeid);
+    }
+}
+
+// Complex (position-varying) linear weighted sum. The complex constant multiply ct*(re+i*im) is
+// a multElement by the half-block constant F[half] = coef0 +/- psi*coef1, where coef0/coef1 are
+// the ElemForEvalMult CRT components of (re, im) and psi = Globals->psi[primeid][1] is the
+// primitive 4th root. Instead of materializing one BuildConstant2 poly (alloc + per-limb H2D +
+// length-2 NTT) per term, the caller packs all (coef0, coef1) pairs into a single uint64 buffer
+// (`w`) with stride MAXP; the kernel reads it by offset and forms F[half] into shared memory
+// once. `w` layout: term i -> w[(2*i)*MAXP + p] = coef0, w[(2*i+1)*MAXP + p] = coef1; when
+// `with_bias`, the bias pair sits at i == n and is added to element 0 (caller passes
+// with_bias=false for c1).
+__global__ void eval_linear_w_sum_complex_(const __grid_constant__ int n, void** a, void*** bs,
+                                           uint64_t* w, const Global::Globals* Globals,
+                                           const __grid_constant__ int primeid_init,
+                                           const __grid_constant__ bool with_bias) {
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
+    constexpr ALGO algo = ALGO_BARRETT;
+    const int logstride = __ffs(blockDim.x * gridDim.x / 2) - 1;
+    const int half = idx >> logstride;
+
+    extern __shared__ uint64_t Fsh[];
+    const int nb = n + (with_bias ? 1 : 0);
+    const uint64_t s = ((uint64_t*)Globals->psi[primeid])[1];
+    for (int i = threadIdx.x; i < nb; i += blockDim.x) {
+        const uint64_t c0 = w[(2 * i) * MAXP + primeid];
+        const uint64_t c1 = w[(2 * i + 1) * MAXP + primeid];
+        const uint64_t sc = modmult<algo>(s, c1, primeid);
+        Fsh[2 * i] = modadd(c0, sc, primeid);
+        Fsh[2 * i + 1] = modsub(c0, sc, primeid);
+    }
+    __syncthreads();
+
+    uint64_t res = 0;
+    for (int i = 0; i < n; ++i) {
+        res = modadd(res, modmult<algo>(((uint64_t*)bs[i][blockIdx.y])[idx], Fsh[2 * i + half], primeid), primeid);
+    }
+    if (with_bias)
+        res = modadd(res, Fsh[2 * n + half], primeid);
+    ((uint64_t*)a[blockIdx.y])[idx] = modreduce<ALGO_SHOUP>((__uint128_t)res, primeid);
+}
+
+// Batched complex WSum: `results` outputs, each a sum over its own terms with packed complex
+// constants (w layout: pair = j*(n+1)+i, i in [0,n), bias at i==n; pair -> w[(2*pair)*MAXP+p]
+// = coef0, w[(2*pair+1)*MAXP+p] = coef1). Outputs may land at different levels
+// (target_limbsize[j]); a term is skipped once blockIdx.y leaves output j's limb range. The
+// combined F[half] values are formed once into shared memory and indexed by offset.
+__global__ void eval_batched_linear_w_sum_complex_with_bias_(const __grid_constant__ int n,
+    const __grid_constant__ int results,
+    void*** a,
+    void*** bs,
+    uint64_t* w,
+    int* target_limbsize,
+    const Global::Globals* Globals,
+    const __grid_constant__ int primeid_init,
+    const __grid_constant__ bool isC1) {
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int primeid = C_.primeid_flattened[primeid_init + blockIdx.y];
+    constexpr ALGO algo = ALGO_BARRETT;
+    const int logstride = __ffs(blockDim.x * gridDim.x / 2) - 1;
+    const int half = idx >> logstride;
+
+    extern __shared__ char buffer[];
+    uint64_t* res = ((uint64_t*)buffer) + threadIdx.x;
+    uint64_t* Fsh = ((uint64_t*)buffer) + results * blockDim.x; // [results][n+1][2]
+
+    const uint64_t s = ((uint64_t*)Globals->psi[primeid])[1];
+    for (int pair = threadIdx.x; pair < results * (n + 1); pair += blockDim.x) {
+        const uint64_t c0 = w[(2 * pair) * MAXP + primeid];
+        const uint64_t c1 = w[(2 * pair + 1) * MAXP + primeid];
+        const uint64_t sc = modmult<algo>(s, c1, primeid);
+        Fsh[2 * pair] = modadd(c0, sc, primeid);
+        Fsh[2 * pair + 1] = modsub(c0, sc, primeid);
+    }
+    for (int j = 0; j < results; ++j)
+        res[j * blockDim.x] = 0;
+    __syncthreads();
+
+    for (int i = 0; i < n; ++i) {
+        uint64_t in = ((uint64_t*)(bs[i])[blockIdx.y])[idx];
+        for (int j = 0; j < results; ++j) {
+            if (blockIdx.y >= target_limbsize[j])
+                continue;
+            uint64_t f = Fsh[2 * (j * (n + 1) + i) + half];
+            res[j * blockDim.x] = modadd(res[j * blockDim.x], modmult<algo>(in, f, primeid), primeid);
+        }
+    }
+    for (int j = 0; j < results; ++j) {
+        if (blockIdx.y >= target_limbsize[j])
+            continue;
+        uint64_t result = res[j * blockDim.x];
+        if (!isC1)
+            result = modadd(result, Fsh[2 * (j * (n + 1) + n) + half], primeid);
+        ((uint64_t*)a[j][blockIdx.y])[idx] = modreduce<ALGO_SHOUP>((__uint128_t)result, primeid);
     }
 }
 

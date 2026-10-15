@@ -2389,6 +2389,7 @@ INSTANTIATE_TEST_SUITE_P(OpenFHEInterfaceTests, OpenFHEInterfaceTest, testing::V
 
 class OpenFHEBootstrapTest : public GeneralParametrizedTest {};
 
+
 /*
 TEST_P(OpenFHEBootstrapTest, ModRaise) {
     for (auto& i : cached_cc) {
@@ -3492,6 +3493,201 @@ TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrap) {
 
         CudaCheckErrorMod;
         // ASSERT_ERROR_OK(result, resultGPU);
+        ASSERT_EQ_CIPHERTEXT(cAdd, cResGPU);
+
+        CudaCheckErrorMod;
+    }
+}
+
+TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapIterative) {
+    CKKS::DeregisterAllContexts();
+
+    // Iterative (numIterations == 2) bootstrap. The parameterized variants are
+    // FLEXIBLEAUTOEXT (_flex) and FIXEDMANUAL (_fix), so together with the
+    // compat tests (FLEXIBLEAUTO / FIXEDAUTO) all four scaling techniques are
+    // covered. Bit-exact to OpenFHE FHECKKSRNS::EvalBootstrap(ct, 2, precision).
+    uint32_t precision = 10;
+
+    // Enable the features that you wish to use
+    cc->Enable(lbcrypto::PKE);
+    cc->Enable(lbcrypto::KEYSWITCH);
+    cc->Enable(lbcrypto::LEVELEDSHE);
+    cc->Enable(lbcrypto::ADVANCEDSHE);
+    cc->Enable(lbcrypto::FHE);
+    std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
+
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    int slots = 1 << 5;
+    std::cout << "Setup Bootstrap" << std::endl;
+    cc->EvalBootstrapSetup({ 2, 2 }, { 0, 0 }, slots);
+
+    std::cout << "Generate keys" << std::endl;
+    cc->EvalBootstrapKeyGen(keys.secretKey, slots);
+
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
+    // Encoding as plaintexts
+    lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, raw_param.L - 1, nullptr, slots);
+    lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
+
+    std::cout << "Input x1: " << ptxt1 << std::endl;
+
+    // Encrypt the encoded vectors
+    auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
+    auto c2 = cc->Encrypt(keys.publicKey, ptxt2);
+
+    auto cAdd = cc->EvalBootstrap(c1, 2, precision);
+
+    lbcrypto::Plaintext result;
+    std::cout << cAdd->GetLevel() << "\n";
+    cc->Decrypt(keys.secretKey, cAdd, &result);
+
+    std::cout << "Result " << result;
+
+    FIDESlib::CKKS::Context& cc_ = GPUcc;
+    cc_ = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+    FIDESlib::CKKS::ContextData& GPUcc = *cc_;
+
+    FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
+
+    ///////////////////////////////////////////////////////////
+
+    FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
+    FIDESlib::CKKS::Ciphertext GPUct_o(cc_, raw1);
+
+    CudaCheckErrorMod;
+
+    for (int batch : FIDESlib::Testing::batch_configs) {
+        fideslibParams.batch = batch;
+        std::cout << "Batch " << batch << std::endl;
+
+        GPUcc.batch = batch;
+        cudaDeviceSynchronize();
+
+        FIDESlib::CKKS::Ciphertext GPUct1(cc_);
+        for (int i = 0; i < 1; ++i) {
+            GPUct1.copy(GPUct_o);
+
+            cudaDeviceSynchronize();
+
+            FIDESlib::CKKS::Bootstrap(GPUct1, slots, false, 2, precision);
+        }
+
+        FIDESlib::CKKS::RawCipherText raw_res1;
+        GPUct1.store(raw_res1);
+        auto cResGPU(c2);
+
+        GetOpenFHECipherText(cResGPU, raw_res1);
+        lbcrypto::Plaintext resultGPU;
+        cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
+
+        std::cout << "Result GPU " << resultGPU;
+
+        CudaCheckErrorMod;
+        ASSERT_EQ_CIPHERTEXT(cAdd, cResGPU);
+
+        CudaCheckErrorMod;
+    }
+}
+
+TEST_P(OpenFHEBootstrapTest, OpenFHEBootstrapStCFirst) {
+    CKKS::DeregisterAllContexts();
+
+    // Decode-first ("StC-first") bootstrap: the setup runs with BTSlotsEncoding
+    // (btsfirstboot), so EvalBootstrap dispatches to FHECKKSRNS::EvalBootstrapStCFirst
+    // on both the CPU reference and the GPU pipeline. The parameterized variants are
+    // FLEXIBLEAUTOEXT (_flex) and FIXEDMANUAL (_fix) × dnum 1-4; the compat tests
+    // cover FLEXIBLEAUTO / FIXEDAUTO and the iterative (numIterations == 2) flavor.
+    // Bit-exact to OpenFHE.
+
+    // Enable the features that you wish to use
+    cc->Enable(lbcrypto::PKE);
+    cc->Enable(lbcrypto::KEYSWITCH);
+    cc->Enable(lbcrypto::LEVELEDSHE);
+    cc->Enable(lbcrypto::ADVANCEDSHE);
+    cc->Enable(lbcrypto::FHE);
+    std::cout << "CKKS scheme is using ring dimension " << cc->GetRingDimension() << std::endl << std::endl;
+
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    int slots = 1 << 5;
+    std::cout << "Setup Bootstrap" << std::endl;
+    cc->EvalBootstrapSetup({ 2, 2 }, { 0, 0 }, slots, 0, true, /*btsfirstboot=*/true);
+
+    std::cout << "Generate keys" << std::endl;
+    cc->EvalBootstrapKeyGen(keys.secretKey, slots);
+
+    std::vector<double> x1 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    std::vector<double> x2 = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    FIDESlib::CKKS::RawParams raw_param = FIDESlib::CKKS::GetRawParams(cc);
+    // Encode at the depletion target of the decode-first pipeline:
+    // L0 - (lvlbDec + 2 + ext) = (raw_param.L + 1) - (2 + 2 + ext).
+    const auto st = std::dynamic_pointer_cast<lbcrypto::CryptoParametersCKKSRNS>(cc->GetCryptoParameters())->GetScalingTechnique();
+    const uint32_t expectedLevel = raw_param.L - 3 - (st == lbcrypto::ScalingTechnique::FLEXIBLEAUTOEXT);
+
+    // Encoding as plaintexts
+    lbcrypto::Plaintext ptxt1 = cc->MakeCKKSPackedPlaintext(x1, 1, expectedLevel, nullptr, slots);
+    lbcrypto::Plaintext ptxt2 = cc->MakeCKKSPackedPlaintext(x1, 1, 0, nullptr, slots);
+
+    std::cout << "Input x1: " << ptxt1 << std::endl;
+
+    // Encrypt the encoded vectors
+    auto c1 = cc->Encrypt(keys.publicKey, ptxt1);
+    auto c2 = cc->Encrypt(keys.publicKey, ptxt2);
+
+    auto cAdd = cc->EvalBootstrap(c1);
+
+    lbcrypto::Plaintext result;
+    std::cout << cAdd->GetLevel() << "\n";
+    cc->Decrypt(keys.secretKey, cAdd, &result);
+
+    std::cout << "Result " << result;
+
+    FIDESlib::CKKS::Context& cc_ = GPUcc;
+    cc_ = CKKS::GenCryptoContextGPU(fideslibParams.adaptTo(raw_param), devices);
+    FIDESlib::CKKS::ContextData& GPUcc = *cc_;
+
+    FIDESlib::CKKS::AddBootstrapPrecomputation(cc, keys, slots, cc_);
+
+    ///////////////////////////////////////////////////////////
+
+    FIDESlib::CKKS::RawCipherText raw1 = FIDESlib::CKKS::GetRawCipherText(cc, c1);
+    FIDESlib::CKKS::Ciphertext GPUct_o(cc_, raw1);
+
+    CudaCheckErrorMod;
+
+    for (int batch : FIDESlib::Testing::batch_configs) {
+        fideslibParams.batch = batch;
+        std::cout << "Batch " << batch << std::endl;
+
+        GPUcc.batch = batch;
+        cudaDeviceSynchronize();
+
+        FIDESlib::CKKS::Ciphertext GPUct1(cc_);
+        for (int i = 0; i < 1; ++i) {
+            GPUct1.copy(GPUct_o);
+
+            cudaDeviceSynchronize();
+
+            // Dispatches to the decode-first pipeline via the recorded BTSlotsEncoding.
+            FIDESlib::CKKS::Bootstrap(GPUct1, slots, false);
+        }
+
+        FIDESlib::CKKS::RawCipherText raw_res1;
+        GPUct1.store(raw_res1);
+        auto cResGPU(c2);
+
+        GetOpenFHECipherText(cResGPU, raw_res1);
+        lbcrypto::Plaintext resultGPU;
+        cc->Decrypt(keys.secretKey, cResGPU, &resultGPU);
+
+        std::cout << "Result GPU " << resultGPU;
+
+        CudaCheckErrorMod;
         ASSERT_EQ_CIPHERTEXT(cAdd, cResGPU);
 
         CudaCheckErrorMod;

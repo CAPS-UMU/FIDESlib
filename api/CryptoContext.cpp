@@ -360,6 +360,57 @@ void CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen(const PrivateKey<DCRTPoly>& s
 
 // ---- Bootstrapping ----
 
+uint32_t CryptoContextImpl<DCRTPoly>::ResolveBootstrapSlots(uint32_t slots) const {
+    if (slots != 0) {
+        return slots;
+    }
+    auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+    return context->GetCyclotomicOrder() / 4;
+}
+
+void CryptoContextImpl<DCRTPoly>::RecordBootstrapMode(uint32_t slot, fideslib::BootstrapMode mode) {
+    FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
+    CheckBootstrapModeConflict(slot, mode);
+    bootstrap_mode[slot] = mode;
+}
+
+void CryptoContextImpl<DCRTPoly>::CheckBootstrapModeConflict(uint32_t slot, fideslib::BootstrapMode mode) const {
+    auto it = bootstrap_mode.find(slot);
+    if (it != bootstrap_mode.end() && it->second != fideslib::BootstrapMode::UNCONFIGURED && it->second != mode) {
+        OPENFHE_THROW("Bootstrap setup conflict for slots=" + std::to_string(slot) + ": already configured for " +
+                      std::string(fideslib::BootstrapModeName(it->second)) + "; cannot reconfigure it for " +
+                      std::string(fideslib::BootstrapModeName(mode)) +
+                      ". The standard and SlotsToCoeffs-first bootstraps share one precomputation "
+                      "entry per slot count.");
+    }
+}
+
+void CryptoContextImpl<DCRTPoly>::CheckBootstrapMode(uint32_t slot,
+                                                     std::initializer_list<fideslib::BootstrapMode> allowed,
+                                                     const char* who) const {
+    auto it = bootstrap_mode.find(slot);
+    if (it == bootstrap_mode.end() || it->second == fideslib::BootstrapMode::UNCONFIGURED) {
+        OPENFHE_THROW(std::string(who) + ": no bootstrapping precomputation for slots=" + std::to_string(slot) +
+                      " (run the matching setup before LoadContext).");
+    }
+    for (auto m : allowed) {
+        if (it->second == m) {
+            return;
+        }
+    }
+    OPENFHE_THROW(std::string(who) + ": slots=" + std::to_string(slot) + " is configured for " +
+                  std::string(fideslib::BootstrapModeName(it->second)) +
+                  ", which is incompatible with this evaluation.");
+}
+
+void CryptoContextImpl<DCRTPoly>::RequireBootstrapPrecomputation(uint32_t slot, const char* who) const {
+    auto it = bootstrap_mode.find(slot);
+    if (it == bootstrap_mode.end() || it->second == fideslib::BootstrapMode::UNCONFIGURED) {
+        OPENFHE_THROW(std::string(who) + ": no bootstrapping precomputation for slots=" + std::to_string(slot) +
+                      " (run the matching setup before LoadContext).");
+    }
+}
+
 void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>& levelBudget, std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute, bool btsfirstboot) {
     FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
 
@@ -367,6 +418,9 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>
     if (this->loaded) {
         OPENFHE_THROW("Context is already loaded");
     }
+    // Guardrail: reject a conflicting mode before the reference setup overwrites the shared entry.
+    CheckBootstrapModeConflict(ResolveBootstrapSlots(slots),
+                               btsfirstboot ? fideslib::BootstrapMode::STC_FIRST : fideslib::BootstrapMode::STANDARD);
     auto& context = std::any_cast<lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
 
     std::vector<double> coeffchebyshev;
@@ -388,11 +442,20 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapSetup(const std::vector<uint32_t>
     int32_t modall = static_cast<int>(lbcrypto::GetMultiplicativeDepthByCoeffVector(coeffchebyshev, false)) + doubleAngleIts;
 
     if (this->devices.empty()) {
-        context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, true);
-        return;
+        // The bootstrap precomputation lives in the (CPU) OpenFHE context and is read back by
+        // AddBootstrapPrecomputation/LoadContext, so BTSlotsEncoding must be forwarded here too
+        // (the GPU-branch call below already passes it). modevallevels keeps the historical
+        // default (std::numeric_limits<uint32_t>::max()) so existing non-BTS setups are untouched.
+        context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, true, btsfirstboot,
+                                    std::numeric_limits<uint32_t>::max());
+    } else {
+        context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, precompute, btsfirstboot, modall);
     }
 
-    context->EvalBootstrapSetup(levelBudget, std::move(dim1), slots, correctionFactor, precompute, btsfirstboot, modall);
+    // Guardrail: one precomputation mode per slot count (the standard and StC-first setups share
+    // the OpenFHE entry; a conflicting earlier setup is rejected by CheckBootstrapModeConflict).
+    RecordBootstrapMode(ResolveBootstrapSlots(slots),
+                        btsfirstboot ? fideslib::BootstrapMode::STC_FIRST : fideslib::BootstrapMode::STANDARD);
 }
 
 void CryptoContextImpl<DCRTPoly>::EvalBootstrapKeyGen(const PrivateKey<DCRTPoly>& secretKey, uint32_t slots) {
@@ -1786,7 +1849,9 @@ Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrap(const Ciphertext
     Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ciphertext);
     auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
 
-    FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled);
+    CheckBootstrapMode(res_gpu->slots, { fideslib::BootstrapMode::STANDARD, fideslib::BootstrapMode::STC_FIRST },
+                       "EvalBootstrap");
+    FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled, numIterations, precision);
 
     return result;
 }
@@ -1811,7 +1876,35 @@ void CryptoContextImpl<DCRTPoly>::EvalBootstrapInPlace(Ciphertext<DCRTPoly>& cip
 
     auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(ciphertext->gpu));
 
-    FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled);
+    CheckBootstrapMode(res_gpu->slots, { fideslib::BootstrapMode::STANDARD, fideslib::BootstrapMode::STC_FIRST },
+                       "EvalBootstrapInPlace");
+    FIDESlib::CKKS::Bootstrap(*res_gpu, res_gpu->slots, prescaled, numIterations, precision);
+}
+
+Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalBootstrapStCFirst(const Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations, uint32_t precision) {
+    FIDESlib::CudaNvtxRange r("API" + std::string{ sc::current().function_name() });
+
+    auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
+    // Fall back to CPU.
+    if (this->devices.empty()) {
+
+        auto& ctImpl = std::any_cast<const lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ciphertext->cpu);
+        auto ct = context->EvalBootstrapStCFirst(ctImpl, numIterations, precision);
+        Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(this->self_reference.lock());
+        result->cpu = std::make_any<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>>(ct);
+        return result;
+    }
+
+    // GPU path.
+    this->LoadCiphertext(const_cast<Ciphertext<DCRTPoly>&>(ciphertext));
+
+    Ciphertext<DCRTPoly> result = std::make_shared<CiphertextImpl<DCRTPoly>>(*ciphertext);
+    auto res_gpu = std::static_pointer_cast<FIDESlib::CKKS::Ciphertext>(this->GetDeviceCiphertext(result->gpu));
+
+    CheckBootstrapMode(res_gpu->slots, { fideslib::BootstrapMode::STC_FIRST }, "EvalBootstrapStCFirst");
+    FIDESlib::CKKS::BootstrapStCFirst(*res_gpu, res_gpu->slots, /*prescaled=*/false, numIterations, precision);
+
+    return result;
 }
 
 constexpr int ACCUMULATE_SUM_RADIX = PARTIAL_SUM_RADIX;

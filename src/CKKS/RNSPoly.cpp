@@ -538,6 +538,33 @@ void RNSPoly::multElement(const RNSPoly& poly1, const RNSPoly& poly2, int slots_
     }
 }
 
+void RNSPoly::multElementAll(const RNSPoly& poly, int slots) {
+#pragma omp parallel for num_threads(cc.GPUid.size())
+    for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+        assert(omp_get_num_threads() == (int)cc.GPUid.size());
+        GPU.at(i).multElement(poly.GPU.at(i), slots);
+        GPU.at(i).multElementSpecial(poly.GPU.at(i), slots);
+    }
+}
+
+void RNSPoly::extendToSparseP() {
+    assert(level == 0);
+    INTT(cc.batch, true);
+    generateSpecialLimbs(false, false);
+#pragma omp parallel for num_threads(cc.GPUid.size())
+    for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+        assert(omp_get_num_threads() == (int)cc.GPUid.size());
+        GPU.at(i).broadcastLimb0ToSpecial();
+    }
+    NTT(cc.batch, true);
+#pragma omp parallel for num_threads(cc.GPUid.size())
+    for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+        assert(omp_get_num_threads() == (int)cc.GPUid.size());
+        GPU.at(i).NTTspecial();
+    }
+    SetModUp(true);
+}
+
 void RNSPoly::mult1AddMult23Add4(const RNSPoly& poly1, const RNSPoly& poly2, const RNSPoly& poly3, const RNSPoly& poly4) {
 
 #pragma omp parallel for num_threads(cc.GPUid.size())
@@ -639,6 +666,22 @@ template <ALGO algo> void RNSPoly::moddown(bool ntt, bool free, int aux_num) {
 }
 
 #define YY(algo) template void RNSPoly::moddown<algo>(bool ntt, bool free, int aux_num);
+
+#include "ntt_types.inc"
+
+#undef YY
+
+template <ALGO algo> void RNSPoly::exactModdown(bool ntt, bool free, int aux_num) {
+    assert(this->isModUp());
+    if (cc.GPUid.size() != 1)
+        throw std::runtime_error("RNSPoly::exactModdown: only single-GPU is implemented.");
+    for (int i = 0; i < (int)GPU.size(); ++i) {
+        GPU.at(i).exactModdown<algo>(cc.getModdownAux(aux_num).GPU.at(i), ntt, free);
+    }
+    this->SetModUp(false);
+}
+
+#define YY(algo) template void RNSPoly::exactModdown<algo>(bool ntt, bool free, int aux_num);
 
 #include "ntt_types.inc"
 
@@ -1019,6 +1062,30 @@ void RNSPoly::evalLinearWSumMultiple(int max_n, const std::vector<const RNSPoly*
             outs[j] = &out[j]->GPU.at(i);
         }
         LimbPartition::evalLinearWSumMultiple(max_n, ins, outs, elem, isC1);
+    }
+}
+
+void RNSPoly::evalLinearWSumComplex(uint32_t n, std::vector<const RNSPoly*>& vec, std::vector<uint64_t>& w, bool with_bias) {
+    for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+        std::vector<const LimbPartition*> ps(n);
+        for (uint32_t j = 0; j < n; ++j)
+            ps[j] = &vec[j]->GPU.at(i);
+        GPU.at(i).evalLinearWSumComplex(n, ps, w, with_bias);
+    }
+}
+
+void RNSPoly::evalLinearWSumComplexMultiple(int max_n, const std::vector<const RNSPoly*>& in, const std::vector<RNSPoly*>& out,
+    std::vector<uint64_t>& w, const bool isC1) {
+    ContextData& cc = out[0]->cc;
+#pragma omp parallel for num_threads(cc.GPUid.size())
+    for (size_t i = 0; i < cc.GPUid.size(); ++i) {
+        std::vector<const LimbPartition*> ins(in.size());
+        std::vector<LimbPartition*> outs(out.size());
+        for (int j = 0; j < (int)in.size(); ++j)
+            ins[j] = &in[j]->GPU.at(i);
+        for (int j = 0; j < (int)out.size(); ++j)
+            outs[j] = &out[j]->GPU.at(i);
+        LimbPartition::evalLinearWSumComplexMultiple(max_n, ins, outs, w, isC1);
     }
 }
 

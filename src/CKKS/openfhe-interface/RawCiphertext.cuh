@@ -2,6 +2,7 @@
 #define __RAW_CIPHER_TEXT__
 
 #include "CKKS/forwardDefs.cuh"
+#include "Definitions.hpp"
 #include <cinttypes>
 #include <vector>
 // #include "CKKS/BootstrapPrecomputation.cuh"
@@ -70,6 +71,18 @@ struct RawParams {
     std::vector<std::vector<uint64_t>> PHatModq;
     std::vector<uint64_t> PInvModq;
 
+    // Sparse secret encapsulation: the exact-HPS mod-down of KeySwitchSparse needs the
+    // overflow-correction table [a*P']_{q_i} for a = 0..K (index 0 is the all-zero row).
+    // Populated only when the source context is SPARSE_ENCAPSULATED; indexed [a][q_i].
+    std::vector<std::vector<uint64_t>> SparseAlphaPModq;
+    // 1/p'_j for the P' primes, used verbatim (not 1.0/prime) so the floating-point
+    // overflow count nu matches OpenFHE's SwitchCRTBasis bit-for-bit.
+    std::vector<double> SparseKSpInv;
+    // Exact Ql -> P' mod-up (the centred lift): the overflow correction [a*Ql]_{p'_j}
+    // (indexed [a][p'_j]) and 1/q_i for q_i in Ql (verbatim, for nu).
+    std::vector<std::vector<uint64_t>> SparseAlphaQlModp;
+    std::vector<double> SparseQlInv;
+
     std::vector<double> ScalingFactorReal;
     std::vector<double> ScalingFactorRealBig;
 
@@ -101,7 +114,28 @@ RawPlainText GetRawPlainText(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc, lb
 void GetOpenFHEPlaintext(lbcrypto::Plaintext result, RawPlainText raw, int REV = 1);
 
 // RawParams GetRawParams(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc);
-RawParams GetRawParams(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, FIDESlib::BOOT_CONFIG boot_conf = UNIFORM);
+RawParams GetRawParams(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, FIDESlib::BOOT_CONFIG boot_conf = UNIFORM,
+                       bool sparseKS = false);
+
+/** Fingerprint of one bootstrap-precompute matrix as the download path sees it. */
+struct BootPrecomputeFingerprint {
+    int level = 0;
+    int towers = 0;
+    double scalingFactor = 0;
+    uint64_t fp = 0;
+};
+
+/**
+ * Fingerprints the bootstrap precompute on the CPU side exactly in the order&structure
+ * AddBootstrapPlaintexts downloads it (CtS matrices first, then StC), so it can be compared
+ * elementwise with FingerprintBootPrecomputeGPU after a GPU setup. Test/diagnostic helper.
+ */
+std::vector<BootPrecomputeFingerprint> FingerprintBootPrecomputeCPU(const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>& cc,
+                                                                   int slots);
+
+/** Fingerprints the downloaded bootstrap precompute on the GPU side (after
+ *  AddBootstrapPrecomputation populated the per-slot BootstrapPrecomputation). */
+std::vector<BootPrecomputeFingerprint> FingerprintBootPrecomputeGPU(FIDESlib::CKKS::Context& GPUcc, int slots);
 
 RawKeySwitchKey GetKeySwitchKey(std::shared_ptr<lbcrypto::EvalKeyRelinImpl<lbcrypto::DCRTPoly>> ksk);
 
@@ -133,7 +167,8 @@ std::vector<int> GetBootstrapIndexes(lbcrypto::CryptoContext<lbcrypto::DCRTPoly>
 void AddBootstrapPrecomputation(const lbcrypto::PublicKey<lbcrypto::DCRTPoly>& publicKey, int slots, FIDESlib::CKKS::Context& GPUcc_);
 
 /** DEPRECATED: split into GenBootstrapKeys and AddBootstrapPrecomputation overload with public key*/
-void AddBootstrapPrecomputation(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, const lbcrypto::KeyPair<lbcrypto::DCRTPoly>& keys, int slots, FIDESlib::CKKS::Context& GPUcc);
+void AddBootstrapPrecomputation(lbcrypto::CryptoContext<lbcrypto::DCRTPoly> cc, const lbcrypto::KeyPair<lbcrypto::DCRTPoly>& keys,
+                                int slots, FIDESlib::CKKS::Context& GPUcc);
 
 /**
  * Used in AddBootstrapPrecomputation

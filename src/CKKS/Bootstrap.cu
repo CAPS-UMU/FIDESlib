@@ -116,7 +116,12 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
     if (isLT) {
         EvalLinearTransform(ctxt, slots, false);
     } else {
+        // EvalCoeffsToSlots rotates modulo min(M/4, 2*slots); a sparse slot count's effective
+        // index space is 2*slots, so normalyzeIndex must see it.
+        if (cc.N / 2 != slots)
+            ctxt.slots = 2 * slots;
         EvalCoeffsToSlots(ctxt, slots, false);
+        ctxt.slots = slots;
     }
     //  std::cout << "ModRed" << std::endl;
 
@@ -149,7 +154,12 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
     if (isLT) {
         EvalLinearTransform(ctxt, slots, true);
     } else {
+        // Same as the encode: the trailing decode's rotation index space is 2*slots for a sparse
+        // slot count.
+        if (cc.N / 2 != slots)
+            ctxt.slots = 2 * slots;
         EvalCoeffsToSlots(ctxt, slots, true);
+        ctxt.slots = slots;
     }
 
     if (cc.N / 2 != slots) {
@@ -173,7 +183,10 @@ void FIDESlib::CKKS::BootstrapCPUraise(Ciphertext& ctxt,
     }
 }
 
-void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool prescaled) {
+// The single-iteration bootstrap pipeline. Bit-compat transcription of the
+// numIterations == 1 body of OpenFHE FHECKKSRNS::EvalBootstrap (mod-raise first).
+namespace FIDESlib::CKKS {
+static void BootstrapSingle(Ciphertext& ctxt, const int slots, const bool prescaled) {
     CudaNvtxRange r(std::string{ sc::current().function_name() });
 
     constexpr bool SPARSE_PLAINTEXT_BOOT = true;
@@ -260,15 +273,8 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
 
         ////////////////////////////////////////////////////////////////
 
-        if (sparse_encaps) {
-            auto& sparse_context = cc.GetBootPrecomputation(slots).sparse_context;
-
-            auto sparse_context_use = sparse_context.lock();
-
-            auto& btoa = CKKS::GetSecretSwitchingKey(sparse_context_use, ctxt.cc_, ctxt.keyID);
-
-            ctxt.keySwitch(btoa);
-        }
+        // The sparse switch-back is performed inside ModRaise (right after the raise), matching
+        // OpenFHE's ModRaiseInPlace order; see ModRaise.
         Accumulate(ctxt, cc.GetBootPrecomputation(slots).accumulate_bStep, slots, cc.N / 2 / slots);
     }
 
@@ -283,7 +289,12 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
     if (isLT) {
         EvalLinearTransform(ctxt, slots, false);
     } else {
+        // EvalCoeffsToSlots rotates modulo min(M/4, 2*slots); a sparse slot count's effective
+        // index space is 2*slots.
+        if (cc.N / 2 != slots)
+            ctxt.slots = 2 * slots;
         EvalCoeffsToSlots(ctxt, slots, false);
+        ctxt.slots = slots;
     }
 
     //  std::cout << "ModRed" << std::endl;
@@ -325,12 +336,19 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
     if (isLT) {
         EvalLinearTransform(ctxt, slots, true);
     } else {
+        // Same as the encode: the trailing decode's rotation index space is 2*slots for a sparse
+        // slot count.
+        if (cc.N / 2 != slots)
+            ctxt.slots = 2 * slots;
         EvalCoeffsToSlots(ctxt, slots, true);
+        ctxt.slots = slots;
     }
 
     if (cc.N / 2 != slots) {
+        ctxt.slots = 2 * slots;
         aux.rotate(ctxt, slots);
         ctxt.add(aux);
+        ctxt.slots = slots;
     }
 
     uint64_t corFactor = (uint64_t)1 << std::llround(correction);
@@ -349,6 +367,321 @@ void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool pre
     }
 
     ctxt.slots = old_slots;
+}
+} // namespace FIDESlib::CKKS
+
+namespace FIDESlib::CKKS {
+
+// Shared numIterations == 2 body of both bootstrap flavors. Bit-compat
+// transcription of the corresponding branches of FHECKKSRNS::EvalBootstrap
+// (mod-raise first) / EvalBootstrapStCFirst (decode first), compositeDegree == 1:
+// bootstrap twice (input and bootstrapping error) and recombine so the residual
+// error is cancelled. Levels are in FIDESlib space (highest active limb index).
+// `single` is the single-iteration pipeline and `noiseAwareModReduce` selects the
+// post-bootstrap tower drop: the mod-raise-first flavor passes
+// ModReduceInternalInPlace(ct, compositeDegree) (one tower), the decode-first one
+// ModReduceInternalInPlace(ct, compositeDegree * (noiseDeg - 1)).
+static void BootstrapIterativeImpl(Ciphertext& ctxt,
+    const int slots,
+    const bool prescaled,
+    const uint32_t precision,
+    void (*single)(Ciphertext&, int, bool),
+    bool noiseAwareModReduce) {
+    ContextData& cc = ctxt.cc;
+    const Context& cc_ = ctxt.cc_;
+    const uint32_t powerOfTwoModulus = 1u << precision;
+    const int32_t initLevel = ctxt.getLevel(); // initSizeQ = initLevel + 1 towers
+
+    const auto modReduceAfterBootstrap = [&](Ciphertext& ct) {
+        if (noiseAwareModReduce) {
+            for (int d = ct.NoiseLevel - 1; d > 0; --d)
+                ct.rescaleInternal();
+        } else {
+            ct.rescaleInternal();
+        }
+    };
+
+    // Step 3: bootstrap the initial ciphertext, then ModReduceInternalInPlace and
+    // scale up by powerOfTwoModulus.
+    Ciphertext ctInitial(cc_);
+    ctInitial.copy(ctxt);
+    single(ctInitial, slots, prescaled);
+    modReduceAfterBootstrap(ctInitial);
+    multIntScalar(ctInitial, powerOfTwoModulus); // MultByIntegerInPlace(ctInitialBootstrap, 2^precision)
+
+    // If we start with more towers than we obtain from bootstrapping, return the
+    // original ciphertext unchanged (OpenFHE: bootstrappingSizeQ <= initSizeQ).
+    if (ctInitial.getLevel() <= initLevel) {
+        return;
+    }
+
+    // Step 2: clone the input, and (FIXEDMANUAL only) first drop noiseDeg - 1
+    // towers; then scale both up by powerOfTwoModulus, leaving the extended top
+    // tower implicitly zero.
+    Ciphertext ctScaledUp(cc_);
+    ctScaledUp.copy(ctxt);
+    if (cc.rescaleTechnique == CKKS::FIXEDMANUAL) {
+        for (int d = ctScaledUp.NoiseLevel - 1; d > 0; --d) {
+            ctScaledUp.rescaleInternal(); // ModReduceInternalInPlace(ctScaledUp, noiseDeg - 1)
+        }
+    }
+    multIntScalar(ctScaledUp, powerOfTwoModulus);
+
+    // Step 5: FIXEDAUTO only — mod the bootstrapped ciphertext down onto the
+    // input's tower count (OpenFHE: DropLastElements + SetLevel).
+    Ciphertext ctScaledDown(cc_);
+    ctScaledDown.copy(ctInitial);
+    if (cc.rescaleTechnique == CKKS::FIXEDAUTO) {
+        ctScaledDown.dropToLevel(initLevel);
+    }
+
+    // Steps 6-7: the bootstrapping error is scaledDown - scaledUp. EvalSub's
+    // AdjustForAddOrSubInPlace aligns level/scale first; FIDESlib's sub() is a
+    // bit-exact transcription of that alignment.
+    Ciphertext ctBootstrappingError(cc_);
+    ctBootstrappingError.copy(ctScaledDown);
+    ctBootstrappingError.sub(ctScaledUp);
+
+    // Step 8: bootstrap the error, then ModReduceInternalInPlace.
+    single(ctBootstrappingError, slots, prescaled);
+    modReduceAfterBootstrap(ctBootstrappingError);
+
+    // Step 9: subtract the bootstrapped error from the initial bootstrap.
+    ctxt.copy(ctInitial);
+    ctxt.sub(ctBootstrappingError);
+
+    // Step 10: scale back down by powerOfTwoModulus (EvalMultInPlace(1/2^precision)).
+    ctxt.multScalarNoPrecheck(1.0 / static_cast<double>(powerOfTwoModulus), false);
+}
+
+// OpenFHE FHECKKSRNS::EvalBootstrapStCFirst, lines 1434-1479: bring the input
+// down to the level where the decode-first SlotsToCoeffs precomputation lives
+// (OpenFHE expectedLevel = L0 - (lvlbDec + 2 + (FLEXIBLEAUTOEXT ? 1 : 0)), which
+// is lvlbDec + 1 + ext in FIDESlib level space), or throw when the input is
+// already deeper than that.
+static void DepleteForStCFirst(Ciphertext& ctxt, const int slots) {
+    ContextData& cc = ctxt.cc;
+    const int expectedLevel = cc.GetBootPrecomputation(slots).lvlbDec + 1 +
+        (cc.rescaleTechnique == CKKS::FLEXIBLEAUTOEXT ? 1 : 0);
+
+    if (ctxt.getLevel() < expectedLevel + ctxt.NoiseLevel - 1) {
+        throw std::runtime_error("Not enough levels to perform Bootstrapping.");
+    }
+
+    // ModReduceInternalInPlace(ct, noiseDeg - 1).
+    if (ctxt.NoiseLevel == 2) {
+        ctxt.rescaleInternal();
+    }
+    const int32_t ctxtLvl = ctxt.getLevel();
+
+    if (cc.rescaleTechnique == CKKS::FIXEDMANUAL || cc.rescaleTechnique == CKKS::FIXEDAUTO) {
+        // LevelReduceInternalInPlace(ct, expectedLevel - ctxtLevel) when needed.
+        if (ctxtLvl > expectedLevel) {
+            ctxt.dropToLevel(expectedLevel, /*skip_adjust=*/true);
+        }
+        return;
+    }
+
+    // FLEXIBLEAUTO / FLEXIBLEAUTOEXT (OpenFHE lines 1457-1479 / 1772-1785). NOTE: this is NOT the
+    // AdjustLevelsAndDepthInPlace pattern — the correction uses the *inverted* ratio scf1/scf2/scf,
+    // so Ciphertext::adjustScaleAndLevel must NOT be used here (EvalBootstrapStCFirstAboveTarget is
+    // the coverage that guards this). OpenFHE (compositeDegree == 1):
+    //   scf2      = GetScalingFactor();
+    //   scf1      = GetScalingFactorRealBig(expectedLevel - compositeDegree);
+    //   scf       = GetScalingFactorReal(ctxtLevel);
+    //   targetScf = GetScalingFactorReal(expectedLevel);
+    // FIDESlib stores these inverted: ScalingFactorReal[k] == GetScalingFactorReal(L - k)
+    // (RawCiphertext.cu), and OpenFHE ctxtLevel == L - ctxtLvl, so
+    //   scf1 -> ScalingFactorRealBig[expectedLevel + compositeDegree], scf -> ScalingFactorReal[ctxtLvl].
+    constexpr uint32_t compositeDegree = 1;
+    if (ctxtLvl > expectedLevel) {
+        double scf2 = ctxt.NoiseFactor;
+        double scf1 = cc.param.ScalingFactorRealBig[expectedLevel + compositeDegree]; // GetScalingFactorRealBig(expectedLevel - 1)
+        double scf = cc.param.ScalingFactorReal[ctxtLvl];                             // GetScalingFactorReal(ctxtLevel)
+        double targetScf = cc.param.ScalingFactorReal[expectedLevel];                 // GetScalingFactorReal(expectedLevel)
+        ctxt.multScalarNoPrecheck(scf1 / scf2 / scf, false);      // EvalMult(ct, scf1/scf2/scf)
+        if (ctxt.getLevel() - (ctxt.NoiseLevel - 1) > expectedLevel) {
+            // LevelReduceInternalInPlace(ct, expectedLevel - ctxtLevel - (noiseDeg - 1)).
+            ctxt.dropToLevel(expectedLevel + ctxt.NoiseLevel - 1, /*skip_adjust=*/true);
+        }
+        for (int d = 1; d < ctxt.NoiseLevel; ++d) {
+            ctxt.rescaleInternal(); // ModReduceInternalInPlace(ct, noiseDeg - 1)
+        }
+        ctxt.NoiseFactor = targetScf; // SetScalingFactor(targetScf)
+    } else {
+        for (int d = 1; d < ctxt.NoiseLevel; ++d) {
+            ctxt.rescaleInternal();
+        }
+    }
+}
+
+// The decode-first single-iteration pipeline: bit-compat transcription of
+// FHECKKSRNS::EvalBootstrapStCFirst (numIterations == 1, lines 1434-1688).
+// Unlike the mod-raise-first flavor, the SlotsToCoeffs decode runs on the
+// *depleted* input before the modulus raise, and there is no trailing decode
+// nor sparse doubling; the pipeline ends in the slots domain.
+static void BootstrapStCSingle(Ciphertext& ctxt, const int slots, const bool prescaled) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() });
+
+    assert(slots >= ctxt.slots);
+    const int old_slots = ctxt.slots;
+
+    Context& cc_ = ctxt.cc_;
+    ContextData& cc = ctxt.cc;
+    Ciphertext aux(cc_);
+    const bool isLT = cc.GetBootPrecomputation(slots).LT.slots == slots;
+
+    // Same prologue as the mod-raise-first flavor (q/p/deg/correction/pre/scalar).
+    uint64_t q = cc.prime[0].p;
+    double qDouble = (double)q; // q.ConvertToDouble();
+    const auto p = cc.param.raw->p; // cryptoParams->GetPlaintextModulus();
+    double powP = pow(2, p);
+    int32_t deg = std::round(std::log2(qDouble / powP));
+    uint32_t correction = cc.GetBootPrecomputation(slots).correctionFactor - deg;
+    double post = std::pow(2, static_cast<double>(deg));
+    double pre = 1. / post;
+    uint64_t scalar = std::llround(post);
+    bool sparse_encaps = cc.GetBootPrecomputation(slots).sparse_encaps;
+
+    // Deplete the input to the decode level, then run the decode (SlotsToCoeffs)
+    // FIRST, before the modulus raise.
+    DepleteForStCFirst(ctxt, slots);
+    if (isLT) {
+        EvalLinearTransform(ctxt, slots, true);
+    } else {
+        // EvalSlotsToCoeffs rotates modulo min(M/4, 2*slots); a sparse slot
+        // count's effective domain is 2*slots, so normalyzeIndex must see it. Restore the semantic
+        // slot count afterwards (the reference keeps the input `slots`).
+        if (cc.N / 2 != slots)
+            ctxt.slots = 2 * slots;
+        EvalCoeffsToSlots(ctxt, slots, true);
+        ctxt.slots = slots;
+    }
+    // OpenFHE EvalBootstrapStCFirst: the sparsely packed case doubles the decoded message. The
+    // reference guards this fold with `GetCKKSDataType() == REAL` (ckksrns-fhe.cpp, the StC-first
+    // SlotsToCoeffs fold), so a COMPLEX precomputation deliberately skips it.
+    if (cc.N / 2 != slots && !cc.GetBootPrecomputation(slots).isComplex) {
+        ctxt.slots = 2 * slots;
+        aux.rotate(ctxt, slots);
+        ctxt.add(aux);
+        ctxt.slots = slots;
+    }
+
+    // The remainder coincides with the mod-raise-first pipeline
+    // (ModRaise -> normalize -> PartialSum -> CtS encode -> sine).
+    ModRaise(ctxt, slots, correction, prescaled, sparse_encaps);
+
+    double k = cc.GetBootK();
+    double constantEvalMult = pre * (1.0 / (k * cc.N));
+    ctxt.multScalar(constantEvalMult, false);
+    if (MODRAISE_WITH_P0) {
+        ctxt.rescaleInternal();
+    }
+    // The sparse switch-back is performed inside ModRaise (right after the raise), matching
+    // OpenFHE's ModRaiseInPlace order; see ModRaise.
+    Accumulate(ctxt, cc.GetBootPrecomputation(slots).accumulate_bStep, slots, cc.N / 2 / slots);
+
+    ctxt.slots = cc.N / 2 == slots ? slots : 2 * slots;
+
+    if (ctxt.NoiseLevel == 2) {
+        ctxt.rescaleInternal();
+    }
+
+    if (isLT) {
+        EvalLinearTransform(ctxt, slots, false);
+    } else {
+        EvalCoeffsToSlots(ctxt, slots, false);
+    }
+
+    // conj + add, then the single-part approximate mod-reduction: EvalBootstrapStCFirst
+    // evaluates the Chebyshev series over one ciphertext for REAL data (the OpenFHE
+    // default), with no ctxtEncI component.
+    aux.conjugate(ctxt);
+    ctxt.add(aux);
+    if (cc.rescaleTechnique == CKKS::FIXEDMANUAL)
+        ctxt.rescaleInternal();
+    else if (ctxt.NoiseLevel == 2)
+        ctxt.rescaleInternal(); // OpenFHE ModReduceInternalInPlace before the Chebyshev series
+    approxModReductionSparse(ctxt, scalar);
+
+    // Decode-first flavor: no trailing SlotsToCoeffs nor sparse doubling; scale
+    // the message back up to its original scale (OpenFHE: MultByInteger(corFactor)).
+    uint64_t corFactor = (uint64_t)1 << std::llround(correction);
+    multIntScalar(ctxt, corFactor);
+
+    ctxt.slots = old_slots;
+}
+
+} // namespace FIDESlib::CKKS
+
+void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt, const int slots, const bool prescaled) {
+    Bootstrap(ctxt, slots, prescaled, /*numIterations=*/1, /*precision=*/0);
+}
+
+void FIDESlib::CKKS::Bootstrap(Ciphertext& ctxt,
+    const int slots,
+    const bool prescaled,
+    const uint32_t numIterations,
+    const uint32_t precision) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() });
+
+    const auto& pre = ctxt.cc.GetBootPrecomputation(slots);
+    if (pre.isFBT || pre.isFEFunc) {
+        throw std::invalid_argument(std::string("CKKS Bootstrap: slots=") + std::to_string(slots) +
+                                    " is configured for a reserved mode, not the standard bootstrap.");
+    }
+
+    // OpenFHE FHECKKSRNS::EvalBootstrap dispatches to the decode-first pipeline
+    // before validating numIterations when the setup used BTSlotsEncoding.
+    if (pre.btsfirstboot) {
+        BootstrapStCFirst(ctxt, slots, prescaled, numIterations, precision);
+        return;
+    }
+
+    // OpenFHE supports exactly 1 or 2 iterations.
+    if (numIterations != 1 && numIterations != 2) {
+        throw std::invalid_argument("CKKS Bootstrapping only supported for 1 or 2 iterations.");
+    }
+    if (numIterations == 1) {
+        BootstrapSingle(ctxt, slots, prescaled);
+        return;
+    }
+    BootstrapIterativeImpl(ctxt, slots, prescaled, precision, &BootstrapSingle, /*noiseAwareModReduce=*/false);
+}
+
+void FIDESlib::CKKS::BootstrapStCFirst(Ciphertext& ctxt, const int slots, const bool prescaled) {
+    BootstrapStCFirst(ctxt, slots, prescaled, /*numIterations=*/1, /*precision=*/0);
+}
+
+void FIDESlib::CKKS::BootstrapStCFirst(Ciphertext& ctxt,
+    const int slots,
+    const bool prescaled,
+    const uint32_t numIterations,
+    const uint32_t precision) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() });
+
+    const auto& pre = ctxt.cc.GetBootPrecomputation(slots);
+    if (pre.isFBT || pre.isFEFunc) {
+        throw std::invalid_argument(
+            "CKKS BootstrapStCFirst: slots=" + std::to_string(slots) +
+            " is configured for a reserved mode, not the standard bootstrap.");
+    }
+    if (!pre.btsfirstboot) {
+        throw std::invalid_argument(
+            "CKKS BootstrapStCFirst: slots=" + std::to_string(slots) +
+            " was not set up with EvalBootstrapSetup(btsfirstboot=true); the SlotsToCoeffs-first pipeline "
+            "needs the decode-first precomputation.");
+    }
+
+    // OpenFHE FHECKKSRNS::EvalBootstrapStCFirst supports exactly 1 or 2 iterations.
+    if (numIterations != 1 && numIterations != 2) {
+        throw std::invalid_argument("CKKS Bootstrapping only supported for 1 or 2 iterations.");
+    }
+    if (numIterations == 1) {
+        BootstrapStCSingle(ctxt, slots, prescaled);
+        return;
+    }
+    BootstrapIterativeImpl(ctxt, slots, prescaled, precision, &BootstrapStCSingle, /*noiseAwareModReduce=*/true);
 }
 
 double FIDESlib::CKKS::GetPreScaleFactor(Context& cc_, int slots) {
@@ -617,7 +950,7 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
         auto& atob = CKKS::GetSecretSwitchingKey(ctxt.cc_, sparse_context_use, ctxt.keyID);
 
         sparse_ctxt.reinterpretContext(ctxt);
-        sparse_ctxt.keySwitch(atob);
+        sparse_ctxt.keySwitchSparse(atob);
         ctxt.reinterpretContext(sparse_ctxt);
         ctxt.NoiseFactor = targetSF;
     }
@@ -740,6 +1073,17 @@ void FIDESlib::CKKS::ModRaise(Ciphertext& ctxt, const int slots, const uint32_t 
             }
         }
         std::cout << std::endl;
+    }
+
+    // Sparse secret encapsulation: switch back to the real key immediately after the modulus
+    // raise (OpenFHE ModRaiseInPlace does KeySwitchInPlace(2N-2) here, before the caller's
+    // pre/(k*N) scalar multiplication and before the rest of the bootstrap). Doing it earlier
+    // (before the caller's multScalar) matches the reference's rounding/scale trajectory.
+    if (sparse_encaps) {
+        auto& sparse_context = cc.GetBootPrecomputation(slots).sparse_context;
+        auto sparse_context_use = sparse_context.lock();
+        auto& btoa = CKKS::GetSecretSwitchingKey(sparse_context_use, ctxt.cc_, ctxt.keyID);
+        ctxt.keySwitch(btoa);
     }
 
     ctxt.slots = cc.N / 2;

@@ -474,6 +474,11 @@ std::vector<uint64_t> ContextData::ElemForEvalMult(int level, const double opera
     }
     double approxFactor = pow(2, logApprox);
 
+    // Match OpenFHE's GetElementForEvalMult exactly: it evaluates
+    //     large = static_cast<DoubleInteger>(operand / approxFactor * scFactor + 0.5)
+    // and the OpenFHE build (baseline x86-64, no -mfma/-march=native) does NOT contract this to an
+    // FMA, so it rounds as a separate multiply then add. Using std::fma here (single rounding)
+    // shifts the integer factor by 1 LSB for some operands.
     DoubleInteger large = static_cast<DoubleInteger>(operand / approxFactor * scFactor + 0.5);
     DoubleInteger large_abs = (large < 0 ? -large : large);
     DoubleInteger bound = (uint64_t)1 << 63;
@@ -600,8 +605,22 @@ std::vector<uint64_t> ContextData::ElemForEvalAddOrSub(const int level, const do
     lbcrypto::DCRTPoly::Integer intScFactor = static_cast<uint64_t>(scFactor + 0.5);
     std::vector<lbcrypto::DCRTPoly::Integer> crtScFactor(sizeQl, intScFactor);
 
+    // OpenFHE 1.6.0 (4a31f521) ScaleConstantToDegree: for FIXEDMANUAL/FIXEDAUTO the (deg-1)
+    // per-degree multiplications of a constant use the modulus of the tower the corresponding
+    // rescale drops (q_l), not the scaling factor Delta — the rescale divides by q_l, so a
+    // constant encoded as c*Delta^d would land at c*Delta/q_l (a ~2^-33 shift of the Chebyshev
+    // T_2 = 2x^2-1 constant). Guarded by i < numTowers like the reference.
+    const bool fixedScaling = (this->rescaleTechnique == FIXEDMANUAL || this->rescaleTechnique == FIXEDAUTO);
+    const uint32_t numTowers = sizeQl;
     for (uint32_t i = 1; i < static_cast<uint32_t>(noise_deg); i++) {
-        crtConstant = lbcrypto::CKKSPackedEncoding::CRTMult(crtConstant, crtScFactor, moduli);
+        if (fixedScaling && i < numTowers) {
+            std::vector<lbcrypto::DCRTPoly::Integer> crtQ(numTowers);
+            for (uint32_t j = 0; j < numTowers; ++j)
+                crtQ[j] = moduli[numTowers - i].Mod(moduli[j]);
+            crtConstant = lbcrypto::CKKSPackedEncoding::CRTMult(crtConstant, crtQ, moduli);
+        } else {
+            crtConstant = lbcrypto::CKKSPackedEncoding::CRTMult(crtConstant, crtScFactor, moduli);
+        }
     }
 
     std::vector<uint128_t> result(sizeQl);
@@ -643,7 +662,8 @@ bool ContextData::HasBootPrecomputation(int slots) {
 
 BootstrapPrecomputation& ContextData::GetBootPrecomputation(int slots) {
     if (!precom.boot.contains(slots))
-        assert("No precomputation." == nullptr);
+        throw std::runtime_error("No bootstrapping precomputation for slots=" + std::to_string(slots) +
+                                 " (run the matching setup before LoadContext)");
     return precom.boot[slots];
 }
 
@@ -657,6 +677,7 @@ KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID) {
 }
 
 KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, int slots, int& actual_index) {
+    const int requested = index;
     if (index != 2 * N - 1) {
         // Handle conjugate key independently
         index = index % (N / 2);
@@ -673,6 +694,10 @@ KeySwitchingKey& ContextData::GetRotationKey(int index, const KeyHash& keyID, in
                     int index_ = (index + i * slots) % (N / 2);
                     if (precom.keys.at(keyID).rot_keys.contains(index_)) {
                         actual_index = index_;
+                        if (std::getenv("ROTKEY_DEBUG") != nullptr)
+                            std::cerr << "[ROTKEY] fallback: requested=" << requested << " norm=" << index
+                                      << " actual=" << actual_index << " slots=" << slots
+                                      << " delta=" << (actual_index - index) << std::endl;
                         return precom.keys.at(keyID).rot_keys.at(index_);
                     }
                 }
@@ -713,8 +738,15 @@ void ContextData::AddEvalKey(KeySwitchingKey&& ksk) {
 }
 
 KeySwitchingKey& ContextData::GetEvalKey(const KeyHash& keyID) {
-    assert(precom.keys.contains(keyID));
-    assert(precom.keys[keyID].eval_key);
+    // Fail loudly (also in Release, where the previous assert() was compiled out): a missing key
+    // tag must not surface as a cryptic std::map::at out_of_range. The usual cause is a
+    // ciphertext that lost/never had its key tag (see Ciphertext::mult's adoption of the
+    // operand tag).
+    if (!precom.keys.contains(keyID) || !precom.keys[keyID].eval_key) {
+        throw std::runtime_error("ContextData::GetEvalKey: no evaluation/relinearization key registered for "
+                                 "key tag '" +
+                                 keyID + "' (the ciphertext key tag and the uploaded eval key must match)");
+    }
     return *precom.keys.at(keyID).eval_key;
 }
 

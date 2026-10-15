@@ -56,6 +56,9 @@ class RNSPoly {
     void modup();
 
     template <ALGO algo = ALGO_SHOUP> void moddown(bool ntt = true, bool free = true, int aux_num = 0);
+
+    // Exact HPS mod-down (sparse secret-encapsulation key switch); single-GPU only.
+    template <ALGO algo = ALGO_SHOUP> void exactModdown(bool ntt = true, bool free = true, int aux_num = 0);
     int automorph_index_precomp(int idx, int num_elems) const;
 
     void rescale(int slots);
@@ -73,6 +76,15 @@ class RNSPoly {
     void generateSpecialLimbs(bool zero_out, bool for_communication);
 
     void multElement(const RNSPoly& poly, int slots);
+
+    // Pointwise multiply over the full Q*P' basis (Q limbs and special limbs), for the sparse
+    // secret-encapsulation key switch which multiplies the extended ciphertext by the key
+    // directly (no RNS digit decomposition).
+    void multElementAll(const RNSPoly& poly, int slots);
+
+    // Exact Ql -> Ql*P' extension of a single-limb (level 0) polynomial: INTT, centred lift of
+    // limb 0 into every special limb, NTT. Marks the result as modUp.
+    void extendToSparseP();
 
     void generateDecompAndDigit(bool iskey);
 
@@ -116,6 +128,7 @@ class RNSPoly {
     void addMult(const RNSPoly& poly, const RNSPoly& poly1, int slots);
     void broadcastLimb0();
     void evalLinearWSum(uint32_t i, std::vector<const RNSPoly*>& vector1, std::vector<uint64_t>& vector2, bool with_bias = false);
+    void evalLinearWSumComplex(uint32_t n, std::vector<const RNSPoly*>& vec, std::vector<uint64_t>& w, bool with_bias);
     void loadConstant(const std::vector<std::vector<uint64_t>>& vector1, const std::vector<uint64_t>& vector2, int slots = -1, bool compress = false);
     void rotateModupDotKSK(RNSPoly& poly, RNSPoly& poly1, const KeySwitchingKey& key);
     void squareModupDotKSK(RNSPoly& c0, RNSPoly& c1, const KeySwitchingKey& key);
@@ -142,6 +155,8 @@ class RNSPoly {
     void binomialMult(RNSPoly& c1, RNSPoly& in, const RNSPoly& d0, const RNSPoly& d1, bool moddown, bool square);
 
     static void evalLinearWSumMultiple(int max_n, const std::vector<const RNSPoly*>& in, const std::vector<RNSPoly*>& out, const std::vector<uint64_t>& elem, bool isC1);
+    static void evalLinearWSumComplexMultiple(int max_n, const std::vector<const RNSPoly*>& in, const std::vector<RNSPoly*>& out,
+        std::vector<uint64_t>& w, bool isC1);
     static void multScalarBatchManyToOne(std::vector<RNSPoly*>& polya,
         const std::vector<std::vector<unsigned long int>>& vector,
         const std::vector<std::vector<unsigned long int>>& vectors,

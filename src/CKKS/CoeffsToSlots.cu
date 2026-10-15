@@ -142,6 +142,14 @@ void FIDESlib::CKKS::EvalCoeffsToSlots(Ciphertext& ctxt, int slots, bool decode)
 
                 int stride = step.bStep > 1 ? step.rotIn[1] - step.rotIn[0] : step.rotOut[1];
                 int offset = step.rotOut[0];
+                if (std::getenv("STS_DEBUG") != nullptr) {
+                    static int stepNo = 0;
+                    std::cerr << "[EVAL" << (decode ? "StC" : "CtS") << "] step=" << stepNo++
+                              << " ctxt.slots=" << ctxt.slots << " nsd=" << ctxt.NoiseLevel << " lvl=" << ctxt.getLevel()
+                              << " | step.slots=" << step.slots << " bStep=" << step.bStep << " gStep=" << step.gStep
+                              << " stride=" << stride << " offset=" << offset
+                              << " pt0.slots=" << (step.A.empty() ? -1 : step.A[0].slots) << "\n";
+                }
                 {
                     LinearTransform(ctxt, step.slots, step.bStep, Aptr, stride, offset);
                 }

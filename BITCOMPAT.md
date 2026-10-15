@@ -63,6 +63,15 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalBootstrapSparseEncapsDense` | value-level PASS | SPARSE_ENCAPSULATED × fully packed: dual sparse-switch key layout validated at value level; bit-exactness deferred to the O6c fix (carve-out) |
 | `EvalBootstrapSparseEncapsLT` | value-level PASS | SPARSE_ENCAPSULATED × LT {1,1}: same dual-context layout; value-level contract only (O6c carve-out) |
 | `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock); the generation itself decodes to ~zero at this configuration |
+| `EvalBootstrapIterative` | PASS | iterative (numIterations=2, precision=10) FLEXIBLEAUTO bootstrap (M1 bootstrap-flavors): second error-correcting bootstrapping pass incl. the level alignment of the first `EvalSub` (GPU `sub` == stock `AdjustForAddOrSubInPlace`) |
+| `EvalBootstrapIterativeFixedAuto` | PASS | iterative (numIterations=2) FIXEDAUTO: covers the FIXEDAUTO-only tower drop (Step 5: `DropLastElements`+`SetLevel`) in the bootstrapping-error path |
+| `OpenFHEBootstrapIterative` | PASS | parameterized GPU-vs-CPU iterative (numIterations=2, precision=10): FLEXIBLEAUTOEXT + FIXEDMANUAL × dnum 1-4 (TTALL64BOOT) — together with the two compat tests, all four scaling techniques are covered |
+| `EvalBootstrapStCFirst` | PASS | decode-first (StC-first, BTSlotsEncoding) FLEXIBLEAUTO bootstrap (M2 bootstrap-flavors): setup flag now forwarded through the api `EvalBootstrapSetup` CPU branch too (previously dropped → both sides silently ran mod-raise-first); input depleted to `L0 - (lvlbDec + 2 + ext)` where the decode-first SlotsToCoeffs runs; sparse case doubles the decoded message (REAL default) |
+| `EvalBootstrapStCFirstDirect` | PASS | explicit `EvalBootstrapStCFirst` api entry point (CPU fallback + GPU) |
+| `EvalBootstrapStCFirstIterative` | PASS | iterative (numIterations=2) decode-first FLEXIBLEAUTO: noise-aware `ModReduceInternalInPlace(ct, noiseDeg-1)` after each bootstrap pass |
+| `EvalBootstrapStCFirstFixedAuto` | PASS | decode-first FIXEDAUTO (FIXEDAUTO-only depletion tower drop) |
+| `EvalBootstrapStCFirstIterativeFixedManual` | PASS | iterative decode-first FIXEDMANUAL: single-iteration output has noiseDeg 1, so the noise-aware post-bootstrap ModReduce is a no-op |
+| `OpenFHEBootstrapStCFirst` | PASS | parameterized decode-first (BTSlotsEncoding): FLEXIBLEAUTOEXT + FIXEDMANUAL × dnum 1-4 (TTALL64BOOT) |
 
 ## Resolved issues
 
@@ -301,8 +310,9 @@ SPARSE_TERNARY keys, and FIXEDAUTO arithmetic all came back bit-exact with no ch
 FIXEDAUTO bootstrap was O6e, fixed in the current tree (`EvalBootstrapFixedAuto` re-enabled).
 Known remaining coverage gaps: dense×LT{1,1} needs ≈2·slots raised-level LT plaintexts resident
 (several GB at N=4096 fully packed) and cannot run on this machine's 4GB GPU — validate on
-larger hardware; iterated bootstrap (`numIterations > 1`) and StC-first setups are api dispatch
-gaps, not testable combinations (see O11).
+larger hardware. Iterated bootstrap (`numIterations > 1`) is covered by `EvalBootstrapIterative`,
+`EvalBootstrapIterativeFixedAuto` and `OpenFHEBootstrapIterative`; StC-first (BTSlotsEncoding)
+setups by `EvalBootstrapStCFirst*` and `OpenFHEBootstrapStCFirst` (bootstrap-flavors, M1/M2).
 
 **Bit-compatible with no changes needed (green):**
 - Bootstrap level budget {1,1} → `isLT`/`EvalLinearTransform` branch (`EvalBootstrapLT`) —
@@ -753,8 +763,8 @@ The 21 upstream commits between the old base and the new tag were audited for bi
   encoding/serialization/threshold reworks (#1278).
 - **Value-changing, outside our regimes**: fixed-mode scaling-factor fix (#1230) — FIXEDAUTO
   mixed-level operands only; also makes `ScalingFactorRealBig = Δ²` in FIXED modes, which turns
-  two previously-wrong FIDESlib debug asserts correct. Functional-bootstrap AUTO-mode support
-  (#1272) — FBT only, standard bootstrap untouched. Sparse-encapsulation keyswitch moved to a
+  two previously-wrong FIDESlib debug asserts correct. An additional bootstrap mode's AUTO-mode
+  support (#1272) — standard bootstrap untouched. Sparse-encapsulation keyswitch moved to a
   dedicated 2×33-bit auxiliary basis with an exact `SwitchCRTBasis` mod-down (#1248) — confined
   to `SPARSE_ENCAPSULATED`; raises the bar for the O6c re-enable (3-limb switching key over
   `GetSparseKSParams*`, exact basis switch instead of centered `SwitchModulus`; see O6c).
