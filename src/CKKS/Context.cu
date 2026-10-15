@@ -4,6 +4,7 @@
 #include "CKKS/BootstrapPrecomputation.cuh"
 #include "CKKS/Ciphertext.cuh"
 #include "CKKS/Context.cuh"
+#include "CKKS/OpenFheCompat.cuh"
 #include <source_location>
 #include <stdexcept>
 #include <string>
@@ -50,6 +51,10 @@ ContextData::ContextData(const Parameters& param_, const std::vector<int>& devs,
   limbGPUid(generateLimbGPUid(meta, L, splitSpecialMeta, K)), digitGPUid(generateDigitGPUid(meta, L, dnum)), GPUrank(GPUid.size())
 // top_limb(devs.size())
 {
+    // Startup probe: refuse to run when the linked OpenFHE was built with FMA (the GPU
+    // pipeline would silently stop reproducing the CPU reference bit-for-bit).
+    CheckOpenFheFpCompat();
+
 #ifndef NCCL
     if (GPUid.size() > 1) {
         std::cerr << "MGPU requested but no NCCL linked, aborting" << std::endl;

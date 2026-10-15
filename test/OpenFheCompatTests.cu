@@ -1,6 +1,7 @@
 #include "ParametrizedTest.cuh"
 
 #include <CKKS/Ciphertext.cuh>
+#include <CKKS/OpenFheCompat.cuh>
 #include <CKKS/Plaintext.cuh>
 #include <CKKS/openfhe-interface/RawCiphertext.cuh>
 
@@ -20,6 +21,14 @@
 using namespace fideslib;
 
 namespace FIDESlib::Testing {
+
+// Guards the bit-exact CPU/GPU contract against an OpenFHE built with FMA-enabled
+// codegen; with FMA on one side the CPU reference and the GPU path only agree to ~1e-15.
+TEST(OpenFHECompatTests, OpenFheNoFma) {
+    EXPECT_FALSE(FIDESlib::CKKS::OpenFheHasFma())
+        << "OpenFHE was built with FMA-enabling flags: " << FIDESlib::CKKS::OpenFheFmaFlags();
+    EXPECT_NO_THROW(FIDESlib::CKKS::CheckOpenFheFpCompat());
+}
 
 TEST(OpenFHECompatTests, EvalFastRotation) {
     uint32_t multDepth = 2;

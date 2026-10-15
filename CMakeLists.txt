@@ -220,6 +220,28 @@ else ()
     message(FATAL_ERROR "PACKAGE OpenFHE NOT FOUND")
 endif ()
 
+# --- OpenFHE floating-point-codegen guard -------------------------------------------------
+# FIDESlib reproduces OpenFHE's Chebyshev / functional-bootstrapping arithmetic bit-for-bit,
+# which requires both sides to use identical (non-FMA) floating-point codegen. OpenFHE built
+# with WITH_NATIVEOPT (-march=native) or an explicit -mfma/-mavx2/-mavx512* silently breaks the
+# bit-exact CPU/GPU agreement. Surface it at configure time here and bake the flags so the
+# runtime startup probe (FIDESlib::CKKS::CheckOpenFheFpCompat) can fail fast.
+set(FIDESLIB_OPENFHE_FMA_FLAGS "")
+string(TOLOWER "${OpenFHE_CXX_FLAGS} ${OpenFHE_C_FLAGS}" _fideslib_openfhe_flags_lc)
+foreach (_fma_flag -march=native -mcpu=native -mfma -mavx2 -mavx512f -mavx512)
+    if (_fideslib_openfhe_flags_lc MATCHES "${_fma_flag}")
+        string(APPEND FIDESLIB_OPENFHE_FMA_FLAGS "${_fma_flag} ")
+    endif ()
+endforeach ()
+string(STRIP "${FIDESLIB_OPENFHE_FMA_FLAGS}" FIDESLIB_OPENFHE_FMA_FLAGS)
+if (FIDESLIB_OPENFHE_FMA_FLAGS)
+    message(WARNING
+            "The installed OpenFHE was built with FMA-enabling flags: ${FIDESLIB_OPENFHE_FMA_FLAGS}"
+            "FIDESlib's bit-exact CPU/GPU tests will fail. Rebuild OpenFHE with -DWITH_NATIVEOPT=OFF "
+            "(the default) and without -mfma/-mavx2/-mavx512f.")
+    add_compile_definitions(FIDESLIB_OPENFHE_FMA_FLAGS="${FIDESLIB_OPENFHE_FMA_FLAGS}")
+endif ()
+
 include_directories(${OpenFHE_INCLUDE})
 include_directories(${OpenFHE_INCLUDE}/third-party/include)
 include_directories(${OpenFHE_INCLUDE}/core)
