@@ -1,7 +1,9 @@
 # CPU/GPU Bit-Compatibility: Issues and Plan
 
-> **Note:** this is a working document tracking the bit-compatibility campaign. It will be
-> removed once everything is ready to merge.
+> **Note:** this document records the bit-compatibility campaign that 2.2.0 completes. All the
+> R-series findings and the O-series items that gate bit-exactness (O1, O2, O6a–O6e, O8) are
+> resolved; it is kept as the design/rationale record for the release. A few non-compatibility
+> follow-ups (O3–O5, O7, O9–O11) remain noted below.
 
 **Goal:** every FIDESlib GPU operation produces ciphertexts that are bit-identical to the
 patched-OpenFHE CPU equivalent, verified by exact ciphertext comparison (`ASSERT_EQ_CIPHERTEXT`),

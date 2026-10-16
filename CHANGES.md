@@ -208,6 +208,11 @@ bootstrap + OpenFHE 1.6.1) are part of this release.
   this release.
 - The batched (`LimbPartitionBatch.cu`) kernel paths are not exercised by the single-GPU
   coverage run (see KERNEL_USAGE.md).
+- A few **non-compatibility** follow-ups remain open and are tracked in
+  [BITCOMPAT.md](BITCOMPAT.md): O3–O5 (api `Rescale` semantics under AUTO, Chebyshev
+  range-transform prelude, degree < 5 dispatch), O7 (api type-erasure direction), O9 (the
+  `MODES` test macro), O10 (the `Accumulate` slots-narrowing layer) and O11 (`EvalBootstrap`
+  GPU parameter forwarding). None of these affect the bit-exact results above.
 
 ### Verification
 
