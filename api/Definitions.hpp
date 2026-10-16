@@ -75,6 +75,17 @@ enum SecretKeyDist {
     SPARSE_ENCAPSULATED = 3,
 };
 
+/// @brief The CKKS slot data type: real or complex, mirroring OpenFHE's `CKKSDataType`.
+///
+/// Selects how `MakeCKKSPackedPlaintext(std::vector<std::complex<double>>)` encodes its
+/// input. With the default `REAL`, OpenFHE's `CKKSPackedEncoding` treats the input as real
+/// and zeroes every imaginary component; with `COMPLEX`, the imaginary parts are carried
+/// through the encoding.
+enum CKKSDataType {
+    REAL = 0,
+    COMPLEX = 1,
+};
+
 /// @brief Enumeration of supported security levels.
 enum SecurityLevel {
     HEStd_128_classic,

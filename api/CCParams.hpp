@@ -42,6 +42,7 @@ template <> class CCParams<CryptoContextCKKSRNS> {
     void SetKeySwitchTechnique(KeySwitchTechnique tech);
     void SetSecretKeyDist(SecretKeyDist dist);
     void SetSecurityLevel(SecurityLevel level);
+    void SetCKKSDataType(CKKSDataType type);
 
     // ---- Device Parameters ----
 
@@ -53,6 +54,7 @@ template <> class CCParams<CryptoContextCKKSRNS> {
     SecretKeyDist GetSecretKeyDist() const;
     uint32_t GetMultiplicativeDepth() const;
     uint32_t GetBatchSize() const;
+    CKKSDataType GetCKKSDataType() const;
 
     // ---- Internal State ----
 

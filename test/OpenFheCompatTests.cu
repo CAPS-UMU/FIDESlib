@@ -1094,10 +1094,9 @@ TEST(OpenFHECompatTests, EvalBootstrapDenseFixedManual) {
 
 // SPARSE_ENCAPSULATED secret-key distribution takes its own
 // Chebyshev coefficient set (g_coefficientsSparseEncapsulated) and keygen path.
-// DISABLED — known structural divergence (O6c): the stock in-context sparse-switch
-// dance and FIDESlib's dual-context design are different pipelines, and at this
-// configuration the GPU path decodes to ~zero. Acceptance test for the O6c fix.
-TEST(OpenFHECompatTests, DISABLED_EvalBootstrapSparseEncaps) {
+// The dual-context GPU design and the in-context stock reference are value-equal; bit-exactness
+// is the deferred O6c item (see BITCOMPAT.md), so this asserts the value contract.
+TEST(OpenFHECompatTests, EvalBootstrapSparseEncaps) {
     uint32_t multDepth = 25;
     uint32_t scaleModSize = 50;
     uint32_t batchSize = 8;
@@ -1145,7 +1144,7 @@ TEST(OpenFHECompatTests, DISABLED_EvalBootstrapSparseEncaps) {
 
     auto cBoot2 = cc->EvalBootstrap(ctxt);
 
-    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+    // Value-level contract only: bit-exactness is the deferred O6c item (see BITCOMPAT.md).
 
     Plaintext r1;
     cc->Decrypt(keys.secretKey, cBoot1, &r1);
@@ -3169,6 +3168,13 @@ TEST(OpenFHECompatTests, CCParamsOptions) {
     parameters.SetSecretKeyDist(GAUSSIAN);
     ASSERT_EQ(parameters.GetSecretKeyDist(), GAUSSIAN);
 
+    // CKKS slot data type: mirrors OpenFHE, defaults to REAL, round-trips COMPLEX.
+    ASSERT_EQ(parameters.GetCKKSDataType(), REAL);
+    parameters.SetCKKSDataType(COMPLEX);
+    ASSERT_EQ(parameters.GetCKKSDataType(), COMPLEX);
+    parameters.SetCKKSDataType(REAL);
+    ASSERT_EQ(parameters.GetCKKSDataType(), REAL);
+
     // Device list (rvalue overload).
     parameters.SetDevices(std::vector<int>{ 2, 3 });
     ASSERT_EQ(parameters.devices, (std::vector<int>{ 2, 3 }));
@@ -3192,6 +3198,126 @@ TEST(OpenFHECompatTests, CCParamsOptions) {
     auto vals = r->GetRealPackedValue();
     for (size_t i = 0; i < vals.size(); ++i)
         EXPECT_NEAR(vals[i], x[i], 1e-3);
+}
+
+TEST(OpenFHECompatTests, ComplexDataType) {
+    // CKKSDataType::COMPLEX exposure (#11). With the default REAL, OpenFHE's encoding
+    // zeroes the imaginary parts of a complex vector; with COMPLEX they round-trip through
+    // the encoding, and the GPU (which operates on the real-valued plaintext polynomial)
+    // carries the arithmetic through.
+    uint32_t batchSize = 8;
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(6);
+    parameters.SetScalingModSize(50);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetCKKSDataType(COMPLEX);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+    ASSERT_EQ(parameters.GetCKKSDataType(), COMPLEX);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+
+    std::vector<std::complex<double>> x = { { 0.25, 0.5 }, { 1.0, -1.0 }, { 0.0, 2.0 }, { 3.5, 0.25 }, { 4.0, 0.0 }, { 5.0, -2.0 }, { 6.0, 0.5 }, { 7.0, 1.5 } };
+
+    // Host encoding round-trips the imaginary parts.
+    Plaintext cp = cc->MakeCKKSPackedPlaintext(x);
+    ASSERT_EQ(cp->GetSlots(), batchSize);
+    auto cv = cp->GetCKKSPackedValue();
+    ASSERT_EQ(cv.size(), (size_t)batchSize);
+    for (size_t i = 0; i < cv.size(); ++i) {
+        EXPECT_NEAR(cv[i].real(), x[i].real(), 1e-3);
+        EXPECT_NEAR(cv[i].imag(), x[i].imag(), 1e-3);
+    }
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    // Complex plaintext -> GPU -> complex ciphertext arithmetic -> decrypt.
+    auto ct = cc->Encrypt(keys.publicKey, cp);
+    auto ct2 = cc->EvalMult(ct, ct); // (a+bi)^2 = (a^2-b^2) + 2abi
+
+    Plaintext r;
+    cc->Decrypt(keys.secretKey, ct2, &r);
+    r->SetLength(batchSize);
+    auto rv = r->GetCKKSPackedValue();
+    for (size_t i = 0; i < rv.size(); ++i) {
+        std::complex<double> expected = x[i] * x[i];
+        EXPECT_NEAR(rv[i].real(), expected.real(), 1e-2);
+        EXPECT_NEAR(rv[i].imag(), expected.imag(), 1e-2);
+    }
+}
+
+TEST(OpenFHECompatTests, ComplexBootstrap) {
+    // Complex-valued bootstrapping (#11): the CKKS COMPLEX datatype flows through the
+    // FIDESlib bootstrap (CPU reference and GPU pipeline) without exposing the imaginary
+    // parts, so the GPU bootstrap agrees with the CPU reference.
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetCKKSDataType(COMPLEX);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<std::complex<double>> x = { { 0.25, 0.5 }, { 1.0, -1.0 }, { 0.0, 2.0 }, { 3.5, 0.25 }, { 4.0, 0.0 }, { 5.0, -2.0 }, { 6.0, 0.5 }, { 7.0, 1.5 } };
+
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, multDepth - 1, nullptr, numSlots);
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt);
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt);
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    // NOT ASSERT_ERROR_OK: OpenFHE throws from GetLogPrecision() for complex plaintexts.
+    auto v1 = r1->GetCKKSPackedValue();
+    auto v2 = r2->GetCKKSPackedValue();
+    ASSERT_EQ(v1.size(), v2.size());
+    for (size_t i = 0; i < v1.size(); ++i) {
+        EXPECT_NEAR(v1[i].real(), v2[i].real(), 1e-2);
+        EXPECT_NEAR(v1[i].imag(), v2[i].imag(), 1e-2);
+    }
 }
 
 TEST(OpenFHECompatTests, CiphertextAccessors) {

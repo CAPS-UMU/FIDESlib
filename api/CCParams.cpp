@@ -86,6 +86,13 @@ void CCParams<CryptoContextCKKSRNS>::SetSecurityLevel(SecurityLevel level) {
     params.SetSecurityLevel(sl_openfhe);
 }
 
+void CCParams<CryptoContextCKKSRNS>::SetCKKSDataType(CKKSDataType type) {
+    auto& params = std::any_cast<lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(cpu);
+    auto cdt_openfhe = static_cast<lbcrypto::CKKSDataType>(type);
+    assert((int)cdt_openfhe == (int)type);
+    params.SetCKKSDataType(cdt_openfhe);
+}
+
 // ---- Getters ----
 
 SecretKeyDist CCParams<CryptoContextCKKSRNS>::GetSecretKeyDist() const {
@@ -102,6 +109,11 @@ uint32_t CCParams<CryptoContextCKKSRNS>::GetMultiplicativeDepth() const {
 uint32_t CCParams<CryptoContextCKKSRNS>::GetBatchSize() const {
     auto& params = std::any_cast<const lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(cpu);
     return params.GetBatchSize();
+}
+
+CKKSDataType CCParams<CryptoContextCKKSRNS>::GetCKKSDataType() const {
+    auto& params = std::any_cast<const lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(cpu);
+    return static_cast<CKKSDataType>(params.GetCKKSDataType());
 }
 
 // ---- Device Parameters ----

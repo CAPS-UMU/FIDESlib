@@ -157,7 +157,7 @@ set(CMAKE_CUDA_HOST_COMPILER "${CMAKE_CXX_COMPILER}")
 
 ################ Project Definition ###################
 
-project(fideslib VERSION 1.0 DESCRIPTION "Homomorphic Encryption Library" LANGUAGES CXX CUDA)
+project(fideslib VERSION 2.2.0 DESCRIPTION "Homomorphic Encryption Library" LANGUAGES CXX CUDA)
 
 ################ Extra Flags ###################
 

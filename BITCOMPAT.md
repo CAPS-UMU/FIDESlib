@@ -62,7 +62,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `DISABLED_AccumulateSumInPlaceStart` | **disabled** | O8 sub-item resolved on the FIDESlib side: the GPU now runs the single unified lazy radix fold `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots, start)` (P2b lazy c1-per-level/c0-once, metadata-neutral per O10, api-side slots restore); only the CPU fallback is still eager doubling because the built OpenFHE reference predates the start-offset `EvalPartialSumInPlace` draft — acceptance test for the reference (`deps/draft-start-accumulate-radix-lazy.patch`), see O8 |
 | `EvalBootstrapSparseEncapsDense` | value-level PASS | SPARSE_ENCAPSULATED × fully packed: dual sparse-switch key layout validated at value level; bit-exactness deferred to the O6c fix (carve-out) |
 | `EvalBootstrapSparseEncapsLT` | value-level PASS | SPARSE_ENCAPSULATED × LT {1,1}: same dual-context layout; value-level contract only (O6c carve-out) |
-| `DISABLED_EvalBootstrapSparseEncaps` | **disabled** | Tier-2 finding O6c: encapsulation designs differ structurally (dual-context GPU vs in-context stock); the generation itself decodes to ~zero at this configuration |
+| `EvalBootstrapSparseEncaps` | value-level PASS | SPARSE_ENCAPSULATED sparse, level budget {3,3}: enabled at value level (the dual-context GPU design and the in-context stock reference agree in value; bit-exactness deferred to the O6c fix) |
 | `EvalBootstrapIterative` | PASS | iterative (numIterations=2, precision=10) FLEXIBLEAUTO bootstrap (M1 bootstrap-flavors): second error-correcting bootstrapping pass incl. the level alignment of the first `EvalSub` (GPU `sub` == stock `AdjustForAddOrSubInPlace`) |
 | `EvalBootstrapIterativeFixedAuto` | PASS | iterative (numIterations=2) FIXEDAUTO: covers the FIXEDAUTO-only tower drop (Step 5: `DropLastElements`+`SetLevel`) in the bootstrapping-error path |
 | `OpenFHEBootstrapIterative` | PASS | parameterized GPU-vs-CPU iterative (numIterations=2, precision=10): FLEXIBLEAUTOEXT + FIXEDMANUAL × dnum 1-4 (TTALL64BOOT) — together with the two compat tests, all four scaling techniques are covered |
@@ -372,10 +372,12 @@ setups by `EvalBootstrapStCFirst*` and `OpenFHEBootstrapStCFirst` (bootstrap-fla
   The divergence originates in host-side control flow (dual-context routing, level bookkeeping,
   hand-set `NoiseFactor`), not in device kernels.
 
-  **Fix deferred.** Stock's in-context design is the reference — its output is correct, and
-  the dual-context shape does not fit OpenFHE's single-context model.
-  `DISABLED_EvalBootstrapSparseEncaps` stays as the acceptance test. What the fix entails, in
-  dependency order:
+  **Value level fixed; bit-exactness deferred.** With the full patched OpenFHE 1.6.1
+  reference, `EvalBootstrapSparseEncaps` (sparse), `EvalBootstrapSparseEncapsDense` and
+  `EvalBootstrapSparseEncapsLT` all decrypt to the same values as the CPU reference
+  (`UNIFORM_TERNARY` is bit-exact). The dual-context shape still does not reproduce stock's
+  level trajectory bit-for-bit; the in-context design remains the reference. What the bit-exact
+  fix entails, in dependency order:
 
   1. **A GPU `keySwitchSparse` primitive.** Stock's `FHECKKSRNS::KeySwitchSparse` is *not* the
      standard hybrid key switch: it operates on tower 0 only, over a two-prime basis (q₀, p)

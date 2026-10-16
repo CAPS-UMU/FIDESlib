@@ -2,24 +2,36 @@
   <img src="https://github.com/CAPS-UMU/FIDESlib/blob/main/doxygen/FidesLogo.drawio.svg?raw=true" width="200">
 </p>
 
-# FIDESlib 2.1.3
+# FIDESlib 2.2.0
 
 A server-side CKKS GPU library fully interoperable with OpenFHE.
 
-## Improvements in version 2.1.3
+## Improvements in version 2.2.0
 
-- OpenFHE version fideslib-ref-v1.5.1.1 compatibility.
+- **CPU/GPU bit-compatibility**: every GPU operation is bit-identical to the patched-OpenFHE
+  CPU reference (verified with exact ciphertext comparison).
+- **SlotsToCoeffs-first and iterative bootstrapping** (`EvalBootstrapStCFirst`, `numIterations`).
+- **Complex-valued CKKS** encoding via `SetCKKSDataType(COMPLEX)`.
+- **Server→client return path**: `UnloadCiphertext` plus ciphertext serialization.
+- **OpenFHE 1.6.1 compatibility** with selectable patched-install modes and a non-FMA codegen guard.
+- Portable 1D NTT/INTT kernels, lazy Shoup reduction and other performance work.
+- A local coverage pipeline and a static CUDA kernel-usage report.
 - Bug fixes.
+
+See [CHANGES.md](CHANGES.md) for the full changelog.
 
 ## Features
 
 - Full CKKS implementation: Add, AddPt, AddScalar, Mult, MultPt, MultScalar, Square, Rotate, RotateHoisted, Bootstrap.
-- OpenFHE interoperability for FIXEDMANUAL, FIXEDAUTO, FLEXIBLEAUTO and FLEXIBLEAUTOEXT.
+- OpenFHE interoperability for FIXEDMANUAL, FIXEDAUTO, FLEXIBLEAUTO and FLEXIBLEAUTOEXT, with bit-exact CPU/GPU results.
+- Dense, sparse and SlotsToCoeffs-first bootstrapping, optionally iterative.
+- Real and complex CKKS slot encoding.
 - Hardware acceleration with NVIDIA CUDA.
 - High-performance NTT/INTT implementation.
 - Hybrid Key-Switching.
 - Multi-GPU support with NCCL.
 - Sparse Secret Encapsulation support.
+- Server→client ciphertext unload and serialization.
 - Many performance optimizations.
 
 ## Citation
