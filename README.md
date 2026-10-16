@@ -35,20 +35,42 @@ superseded pull requests).
 - Server→client ciphertext unload and serialization.
 - Many performance optimizations.
 
+## Supported parameters
+
+FIDESlib implements the CKKS-RNS scheme and interoperates **bit-exactly** with the patched
+OpenFHE 1.6.1 for the following choices:
+
+- **Scaling techniques**: `FIXEDMANUAL`, `FIXEDAUTO`, `FLEXIBLEAUTO`, `FLEXIBLEAUTOEXT`.
+- **Secret-key distributions**: `UNIFORM_TERNARY`, `SPARSE_TERNARY`, `SPARSE_ENCAPSULATED`.
+- **CKKS data types**: `REAL`, `COMPLEX` (`CCParams::SetCKKSDataType`).
+- **Key-switching technique**: `HYBRID`, with configurable digit size and number of large digits.
+- **Bootstrapping**: ModRaise-first (standard), SlotsToCoeffs-first (`EvalBootstrapStCFirst`) and
+  iterative (`numIterations`); dense and sparse packing; level budgets such as `{5,4}`, `{3,3}` or
+  `{1,1}`; FLEXIBLEAUTO, FLEXIBLEAUTOEXT, FIXEDAUTO and FIXEDMANUAL.
+- **Operations** (immutable, in-place and `*Mutable` forms where applicable): Add, Sub, Negate,
+  AddScalar / AddPt, Mult, MultScalar / MultPt, Square, Rotate, RotateHoisted, FastRotation and its
+  extended-basis variant, Chebyshev series, AddMany, Accumulate / Broadcast, Rescale, SetLevel,
+  Bootstrap.
+- **Key / context serialization**: eval-mult and automorphism keys, public/private/context
+  round-trips, and ciphertext unload + (de)serialization for the server→client path.
+- **GPU targets**: CUDA 12/13, `sm_70`–`sm_120`. The default build is portable across the
+  architectures the installed `nvcc` supports; `FIDESLIB_ARCH=auto` builds for the visible GPUs.
+- **Multi-GPU** via NCCL; single-GPU is fully supported and bit-exact.
+
 ## Citation
 
 If you use FIDESlib on your research, please cite our ISPASS paper.
 
 ```bibtex
 @inproceedings{FIDESlib,
-  author    = {Carlos Agulló-Domingo and Óscar Vera-López and Seyda Guzelhan and Lohit Daksha and Aymane El Jerari and Kaustubh Shivdikar and Rashmi Agrawal and David Kaeli and Ajay Joshi and José L. Abellán},
+  author    = {Carlos Agull{\'o}-Domingo and {\'O}scar Vera-L{\'o}pez and Seyda Guzelhan and Lohit Daksha and Aymane El Jerari and Kaustubh Shivdikar and Rashmi Agrawal and David Kaeli and Ajay Joshi and Jos{\'e} L. Abell{\'a}n},
   title     = {{FIDESlib: A Fully-Fledged Open-Source FHE Library for Efficient CKKS on GPUs}},
   booktitle = {2025 IEEE International Symposium on Performance Analysis of Systems and Software (ISPASS)},
   year      = {2025},
   note      = {Poster paper},
   url       = {https://github.com/CAPS-UMU/FIDESlib},
   publisher = {IEEE},
-  address = {Ghent, Belgium},
+  address   = {Ghent, Belgium}
 }
 ```
 
@@ -56,8 +78,9 @@ If you use FIDESlib on your research, please cite our ISPASS paper.
 
 > [!IMPORTANT]
 > Requirements:
->  - NVIDIA CUDA version 12 or 13.
->  - GCC version >=11
+>  - NVIDIA CUDA version 12 or 13 (the default build covers `sm_70`–`sm_120`).
+>  - A **patched OpenFHE 1.6.1** (installed automatically — see below).
+>  - GCC version >= 11.
 >  - OpenMP development library.
 >  - CMake version 3.25.2 or greater.
 >  - (Optional) NVIDIA Collective Communications Library to enable Multi-GPU support.
@@ -65,7 +88,7 @@ If you use FIDESlib on your research, please cite our ISPASS paper.
 ### Requirements installation
 
 For CUDA software stack, follow the official installation guides. For the remaining
-dependencies, install them using the package manager or mehtod of your choice.
+dependencies, install them using the package manager or method of your choice.
 
 On Ubuntu:
 
@@ -84,9 +107,42 @@ In order to be able to compile the project, one must follow these steps:
 - Generate the Makefile with CMake.
 - Build the project.
 
-FIDESlib needs a patched version of OpenFHE in order to be able to access some internals needed for interoperability.
-This patched version can be automatically installed by defining FIDESLIB_INSTALL_OPENFHE=ON CMake variable. By default
-this variable is set OFF. Once the patched version is installed, one can disable this flag when reinstalling FIDESlib.
+```bash
+# First build: installs the patched OpenFHE 1.6.1, then builds FIDESlib.
+cmake -S . -B build -DFIDESLIB_INSTALL_OPENFHE=ON
+cmake --build build -j
+
+# Subsequent builds (the patched OpenFHE is already installed):
+cmake -S . -B build -DFIDESLIB_INSTALL_OPENFHE=OFF
+cmake --build build -j
+```
+
+`FIDESLIB_ARCH` selects the target architectures, e.g. `-DFIDESLIB_ARCH=89-real` for a fast
+Ada-only build, or `-DFIDESLIB_ARCH=auto` to build only for the GPUs visible via `nvidia-smi`.
+
+FIDESlib needs a **patched OpenFHE 1.6.1** in order to access some internals needed for
+bit-exact interoperability. This patched version can be installed automatically by setting
+`FIDESLIB_INSTALL_OPENFHE=ON` (default `OFF`); once installed, the flag can be turned off on
+subsequent FIDESlib builds. The patched install builds OpenFHE's **static** libraries, which
+FIDESlib links against.
+
+Three ways of obtaining the reference are available (via `FIDESLIB_OPENFHE_SOURCE`):
+
+| Mode                       | Source                                                                 | Use when |
+|----------------------------|------------------------------------------------------------------------|----------|
+| `patch` *(default)*        | Official OpenFHE `v1.6.1` + `deps/fideslib-1.6.1-compile.patch`         | Normal builds; the full bit-exact reference. |
+| `patch-minimal`            | Official OpenFHE `v1.6.1` + `deps/fideslib-1.6.1-compile-minimal.patch` | You only need the compile/API surface (drops the bit-exact reference changes). |
+| `port`                     | The fully modified `1.6.1-fideslib` fork branch                         | You want the upstream-ready fork instead of the patch. |
+
+The installer is `deps/build.sh <install-prefix>` and can also be run directly. If you already
+have a patched OpenFHE 1.6.1, point `OPENFHE_INSTALL_PREFIX` at it and set
+`FIDESLIB_INSTALL_OPENFHE=OFF`.
+
+> [!WARNING]
+> FIDESlib reproduces OpenFHE's Chebyshev / functional-bootstrapping arithmetic bit-for-bit,
+> which requires identical (**non-FMA**) floating-point codegen on both sides. CMake warns if
+> the found OpenFHE was built with FMA-enabling flags, and a runtime probe throws unless
+> `FIDESLIB_ALLOW_OPENFHE_FMA=1` is set. Build OpenFHE with `-DWITH_NATIVEOPT=OFF`.
 
 The build process produces the following artifacts:
 
@@ -96,18 +152,21 @@ The build process produces the following artifacts:
 - gpu-test: A dummy executable to search for the CUDA capable devices on the machine.
 - dummy: Another dummy executable.
 
-The following options can be used with CMake to configure the build. The default value for each option is denoted in *
-*boldface** under the **Values** column:
+The following options can be used with CMake to configure the build. The default value for each option is denoted in
+**boldface** under the **Values** column:
 
 | CMake Option                  | Values                                                 | Description                                                                                                            |
-|-------------------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------
-| `FIDESLIB_ARCH`               | **"all-major"**,string                                 | Select the GPU architectures of the selected backend.                                                                  |
+|-------------------------------|--------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `FIDESLIB_ARCH`               | **"<all supported>"**, `auto`, string                  | Target GPU architectures. `auto` builds only for the GPUs visible via `nvidia-smi`; an explicit list (e.g. `89-real`) overrides. |
 | `CMAKE_BUILD_TYPE`            | **"Release"**, "Debug", "MinSizeRel", "RelWithDebInfo" | Select the compilation build type.                                                                                     |
 | `FIDESLIB_INSTALL_PREFIX`     | **"/usr/local"**,string                                | Select prefix path for the installation path of FIDESlib. Relative paths are resolved from the project root directory. |
 | `OPENFHE_INSTALL_PREFIX`      | **"/usr/local"**,string                                | Select prefix path for the installation path of OpenFHE. Relative paths are resolved from the project root directory.  |
-| `FIDESLIB_INSTALL_OPENFHE`    | ON / **OFF**                                           | Enable the installation of the patched version of OpenFHE. Needed the first time.                                      |
+| `FIDESLIB_INSTALL_OPENFHE`    | ON / **OFF**                                           | Enable the automatic installation of the patched OpenFHE 1.6.1. Needed the first time.                          |
+| `FIDESLIB_OPENFHE_SOURCE`     | **"patch"**, "patch-minimal", "port"                  | How the auto-installer obtains OpenFHE (see the table above).                                                          |
 | `FIDESLIB_COMPILE_TESTS`      | **ON** / OFF                                           | Build the tests for verifying the functionality of the project.                                                        |
 | `FIDESLIB_COMPILE_BENCHMARKS` | **ON** / OFF                                           | Build the benchmarks executable.                                                                                       |
+| `FIDESLIB_ENABLE_COVERAGE`    | ON / **OFF**                                           | Build with gcov host-side coverage instrumentation (`scripts/run_coverage.sh`).                                        |
+| `BUILD_STATIC`                | **ON** / OFF                                           | Also build static versions of the FIDESlib library.                                                                    |
 
 ### FIDESlib Installation
 
@@ -122,7 +181,7 @@ to build and run a FIDESlib client application and contains examples of usage of
 FIDESlib.
 
 > [!NOTE]
-> As the default installation prefix for FIDESlib is /usr/local you may need administrator priviledges. Change this
+> As the default installation prefix for FIDESlib is /usr/local you may need administrator privileges. Change this
 > using the previously mentioned configuration options.
 
 ## Usage
