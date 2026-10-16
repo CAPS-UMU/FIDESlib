@@ -1,5 +1,5 @@
 diff --git a/src/core/include/lattice/hal/default/dcrtpoly.h b/src/core/include/lattice/hal/default/dcrtpoly.h
-index 14b43638..6b00744e 100644
+index 14b4363..6b00744 100644
 --- a/src/core/include/lattice/hal/default/dcrtpoly.h
 +++ b/src/core/include/lattice/hal/default/dcrtpoly.h
 @@ -896,7 +896,7 @@ class DCRTPolyImpl final : public DCRTPolyInterface<DCRTPolyImpl<VecType>, VecTy
@@ -12,7 +12,7 @@ index 14b43638..6b00744e 100644
      Format m_format{Format::EVALUATION};
      std::vector<PolyType> m_vectors;
 diff --git a/src/core/include/lattice/hal/default/ildcrtparams.h b/src/core/include/lattice/hal/default/ildcrtparams.h
-index a0755c4d..3b208d10 100644
+index a0755c4..3b208d1 100644
 --- a/src/core/include/lattice/hal/default/ildcrtparams.h
 +++ b/src/core/include/lattice/hal/default/ildcrtparams.h
 @@ -382,7 +382,7 @@ class ILDCRTParams final : public ElemParams<IntType> {
@@ -25,7 +25,7 @@ index a0755c4d..3b208d10 100644
      std::vector<std::shared_ptr<ILNativeParams>> m_params;
  };
 diff --git a/src/core/include/lattice/hal/default/poly.h b/src/core/include/lattice/hal/default/poly.h
-index e1f95ab3..76b01867 100644
+index e1f95ab..76b0186 100644
 --- a/src/core/include/lattice/hal/default/poly.h
 +++ b/src/core/include/lattice/hal/default/poly.h
 @@ -622,8 +622,12 @@ class PolyImpl final : public PolyInterface<PolyImpl<VecType>, VecType, PolyImpl
@@ -42,7 +42,7 @@ index e1f95ab3..76b01867 100644
       * @brief Switches the format of an element over an arbitrary (non-power-of-two) cyclotomic ring with the
       * Bluestein-based transform, using the root of unity, big modulus and big root of unity of the parameters;
 diff --git a/src/pke/include/cryptocontext.h b/src/pke/include/cryptocontext.h
-index 4e523e72..071223b9 100644
+index 4e523e7..071223b 100644
 --- a/src/pke/include/cryptocontext.h
 +++ b/src/pke/include/cryptocontext.h
 @@ -2285,12 +2285,13 @@ class CryptoContextImpl : public Serializable {
@@ -186,10 +186,10 @@ index 4e523e72..071223b9 100644
  
      /**
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
-index 6f435f26..b8dcf0b2 100644
+index 6f435f2..aad6af4 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
-@@ -61,50 +61,59 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
+@@ -61,50 +61,78 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
      //------------------------------------------------------------------------------
  
      Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
@@ -252,11 +252,30 @@ index 6f435f26..b8dcf0b2 100644
 -                                               const std::vector<std::complex<double>>& constants) const override;
 +                                               const std::vector<std::complex<double>>& constants,
 +                                               int32_t target_level = -1) const override;
++
++    /**
++     * Compile-only stand-in for the FIDESlib weighted-sum-with-bias helper. The compile-minimal
++     * OpenFHE patch does not carry the fused reference implementation, so this is a plain
++     * Mult/Add weighted sum (no fused/unreduced-power discipline and no bit-exact guarantee
++     * against the FIDESlib GPU path).
++     *
++     * @param ciphertexts the input ciphertexts
++     * @param constants the real weights; constants[1..limit] multiply ciphertexts[0..limit-1]
++     * @param bias the additive constant
++     * @param limit number of terms, or 0 for all
++     * @param target_level the target level, or -1 to use the current level
++     * @param rescale whether to ModReduce the result once at the end
++     * @return the weighted sum plus bias
++     */
++    static Ciphertext<DCRTPoly> EvalPartialLinearWSumWithBias_(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                               const std::vector<double>& constants, double bias,
++                                                               uint32_t limit = 0, int32_t target_level = -1,
++                                                               bool rescale = true);
  
      //------------------------------------------------------------------------------
      // EVAL POLYNOMIAL
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index 95b9ff58..50cdf1e3 100644
+index 95b9ff5..f3c5c02 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -34,6 +34,7 @@
@@ -293,7 +312,17 @@ index 95b9ff58..50cdf1e3 100644
  
      std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
                                                                                 uint32_t slots) override;
-@@ -1128,11 +1131,10 @@ class FHECKKSRNS : public FHERNS {
+@@ -1057,7 +1060,9 @@ class FHECKKSRNS : public FHERNS {
+     void ModRaiseInPlace(Ciphertext<DCRTPoly>& raised,
+                          const std::shared_ptr<DCRTPoly::Params>& elementParamsRaisedPtr) const;
+ 
++  public:
+     void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
++  private:
+ 
+     /**
+      * The function-independent part of FE functional bootstrapping: SlotsToCoeffs, modulus raise,
+@@ -1128,11 +1133,10 @@ class FHECKKSRNS : public FHERNS {
  
      // upper bounds for the number of overflows in the sparse secret cases; the failure probability depends only on
      // K and on the Hamming weight h of the sparse secret (equation (1) of https://eprint.iacr.org/2022/024)
@@ -308,7 +337,7 @@ index 95b9ff58..50cdf1e3 100644
      // SPARSE_ENCAPSULATED (h = 32): failure probability below 2^{-137} for 2^16 slots
      static constexpr uint32_t K_SPARSE_ENCAPSULATED = 16;
  
-@@ -1526,6 +1528,12 @@ class FHECKKSRNS : public FHERNS {
+@@ -1526,6 +1530,12 @@ class FHECKKSRNS : public FHERNS {
              std::complex<double>(0, 7.211314011213e-11),  std::complex<double>(0, 4.426391086890e-11)};
  };
  
@@ -322,7 +351,7 @@ index 95b9ff58..50cdf1e3 100644
  
  #endif  // SRC_PKE_INCLUDE_SCHEME_CKKSRNS_CKKSRNS_FHE_H_
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
-index 5ff3db62..7b6e0d73 100644
+index 5ff3db6..7b6e0d7 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
 @@ -164,17 +164,20 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
@@ -408,7 +437,7 @@ index 5ff3db62..7b6e0d73 100644
      /////////////////////////////////////
      // SERIALIZATION
 diff --git a/src/pke/include/schemebase/base-advancedshe.h b/src/pke/include/schemebase/base-advancedshe.h
-index 5e32ea7a..a505ef63 100644
+index 5e32ea7..a505ef6 100644
 --- a/src/pke/include/schemebase/base-advancedshe.h
 +++ b/src/pke/include/schemebase/base-advancedshe.h
 @@ -113,10 +113,11 @@ class AdvancedSHEBase {
@@ -474,7 +503,7 @@ index 5e32ea7a..a505ef63 100644
      }
  
 diff --git a/src/pke/include/schemebase/base-cryptoparameters.h b/src/pke/include/schemebase/base-cryptoparameters.h
-index 1a4992ce..0e05afbf 100644
+index 1a4992c..0e05afb 100644
 --- a/src/pke/include/schemebase/base-cryptoparameters.h
 +++ b/src/pke/include/schemebase/base-cryptoparameters.h
 @@ -266,8 +266,10 @@ class CryptoParametersBase : public Serializable {
@@ -489,7 +518,7 @@ index 1a4992ce..0e05afbf 100644
      EncodingParams m_encodingParams;
  };
 diff --git a/src/pke/include/schemebase/base-fhe.h b/src/pke/include/schemebase/base-fhe.h
-index b96bbbfe..cb0cc6e5 100644
+index b96bbbf..cb0cc6e 100644
 --- a/src/pke/include/schemebase/base-fhe.h
 +++ b/src/pke/include/schemebase/base-fhe.h
 @@ -107,7 +107,7 @@ class FHEBase {
@@ -502,7 +531,7 @@ index b96bbbfe..cb0cc6e5 100644
      }
  
 diff --git a/src/pke/include/schemebase/base-leveledshe.h b/src/pke/include/schemebase/base-leveledshe.h
-index a7045b44..8c7b6608 100644
+index a7045b4..8c7b660 100644
 --- a/src/pke/include/schemebase/base-leveledshe.h
 +++ b/src/pke/include/schemebase/base-leveledshe.h
 @@ -579,9 +579,11 @@ class LeveledSHEBase {
@@ -555,7 +584,7 @@ index a7045b44..8c7b6608 100644
      }
  
 diff --git a/src/pke/include/schemebase/base-scheme.h b/src/pke/include/schemebase/base-scheme.h
-index 88d4a0d8..9172c1d1 100644
+index 88d4a0d..9172c1d 100644
 --- a/src/pke/include/schemebase/base-scheme.h
 +++ b/src/pke/include/schemebase/base-scheme.h
 @@ -716,24 +716,27 @@ class SchemeBase {
@@ -647,7 +676,7 @@ index 88d4a0d8..9172c1d1 100644
      std::shared_ptr<FHEBase<Element>> m_SchemeSwitch;
  
 diff --git a/src/pke/lib/cryptocontext.cpp b/src/pke/lib/cryptocontext.cpp
-index b338e5ee..6bb123bb 100644
+index b338e5e..6bb123b 100644
 --- a/src/pke/lib/cryptocontext.cpp
 +++ b/src/pke/lib/cryptocontext.cpp
 @@ -906,8 +906,8 @@ template class CryptoContextImpl<DCRTPoly>;
@@ -662,10 +691,10 @@ index b338e5ee..6bb123bb 100644
      template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyLinear<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const; \
      template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyPS<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const;
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
-index eabf3a24..126e5552 100644
+index eabf3a2..bb4a4e7 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
-@@ -104,86 +104,107 @@ static Ciphertext<DCRTPoly> evalStreamedLinearWSum(const std::vector<CtType>& ci
+@@ -104,86 +104,126 @@ static Ciphertext<DCRTPoly> evalStreamedLinearWSum(const std::vector<CtType>& ci
  
  template <typename VectorDataType>
  Ciphertext<DCRTPoly> internalEvalLinearWSum(const std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
@@ -769,6 +798,25 @@ index eabf3a24..126e5552 100644
 +    } else {
 +        OPENFHE_THROW("target_level parameter not implemented");
 +    }
++}
++
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPartialLinearWSumWithBias_(
++        const std::vector<Ciphertext<DCRTPoly>>& ciphertexts, const std::vector<double>& constants, double bias,
++        uint32_t limit, int32_t target_level, bool rescale) {
++    // Compile-only replacement for the FIDESlib reference helper: a plain Mult/Add weighted
++    // sum. Not bit-exact to the fused GPU transcription.
++    if (0 == limit)
++        limit = ciphertexts.size();
++
++    auto cc = ciphertexts[0]->GetCryptoContext();
++
++    auto out = cc->EvalMult(ciphertexts[0], constants[1], target_level);
++    for (uint32_t i = 1; i < limit; ++i)
++        cc->EvalAddInPlace(out, cc->EvalMult(ciphertexts[i], constants[i + 1], target_level));
++    cc->EvalAddInPlace(out, bias);
++    if (rescale)
++        cc->ModReduceInPlace(out);
++    return out;
  }
  
  Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
@@ -818,7 +866,7 @@ index eabf3a24..126e5552 100644
  
  //------------------------------------------------------------------------------
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index 6d1ff139..b33ca3a5 100644
+index 6d1ff13..b33ca3a 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 @@ -177,7 +177,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
@@ -894,7 +942,7 @@ index 6d1ff139..b33ca3a5 100644
 +
  }  // namespace lbcrypto
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
-index 4ac84b32..bcbb7ab5 100644
+index 4ac84b3..bcbb7ab 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
 @@ -128,35 +128,38 @@ void LeveledSHECKKSRNS::EvalSubInPlace(Ciphertext<DCRTPoly>& ciphertext, double
