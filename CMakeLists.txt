@@ -197,7 +197,7 @@ endif ()
 
 # Default runs will not update nor install OpenFHE. Specify manually to install.
 set(FIDESLIB_OPENFHE_SOURCE "patch" CACHE STRING
-        "How the auto-installer obtains OpenFHE: 'patch' (official v1.6.1 release + deps/fideslib-1.6.1-compile.patch) or 'port' (fully modified 1.6.1-fideslib fork branch)")
+        "How the auto-installer obtains OpenFHE: 'patch' (official v1.6.1 release + deps/fideslib-1.6.1-compile.patch), 'patch-minimal' (v1.6.1 + compile-only deps/fideslib-1.6.1-compile-minimal.patch, without the bit-exact reference changes) or 'port' (fully modified 1.6.1-fideslib fork branch)")
 if (FIDESLIB_INSTALL_OPENFHE)
     execute_process(COMMAND ${CMAKE_COMMAND} -E env FIDESLIB_OPENFHE_SOURCE=${FIDESLIB_OPENFHE_SOURCE}
             ./build.sh ${OPENFHE_INSTALL_PREFIX}
