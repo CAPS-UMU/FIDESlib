@@ -12,6 +12,9 @@ A server-side CKKS GPU library fully interoperable with OpenFHE.
   CPU reference (verified with exact ciphertext comparison).
 - **SlotsToCoeffs-first and iterative bootstrapping** (`EvalBootstrapStCFirst`, `numIterations`).
 - **Complex-valued CKKS** encoding via `SetCKKSDataType(COMPLEX)`.
+- **Sparse plaintext compression**: plaintexts with fewer than the maximum slots are stored
+  compressed on the GPU (only the used slots per limb), cutting VRAM for bootstrap
+  precomputation matrices and large constants.
 - **Server→client return path**: `UnloadCiphertext` plus ciphertext serialization.
 - **OpenFHE 1.6.1 compatibility** with selectable patched-install modes and a non-FMA codegen guard.
 - Portable 1D NTT/INTT kernels, lazy Shoup reduction and other performance work.
@@ -27,6 +30,7 @@ superseded pull requests).
 - OpenFHE interoperability for FIXEDMANUAL, FIXEDAUTO, FLEXIBLEAUTO and FLEXIBLEAUTOEXT, with bit-exact CPU/GPU results.
 - Dense, sparse and SlotsToCoeffs-first bootstrapping, optionally iterative.
 - Real and complex CKKS slot encoding.
+- Sparse plaintext compression for low-slot-count plaintexts (bootstrap precomputation, large constants).
 - Hardware acceleration with NVIDIA CUDA.
 - High-performance NTT/INTT implementation.
 - Hybrid Key-Switching.

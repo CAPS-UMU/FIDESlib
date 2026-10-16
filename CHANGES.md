@@ -70,6 +70,12 @@ pipeline, and portable NTT/INTT kernels.
   the fused complex weighted sum) already backed complex bootstrapping; the missing piece was the
   public datatype switch. Covered by `OpenFHECompatTests.ComplexDataType` (encoding + GPU
   arithmetic) and `OpenFHECompatTests.ComplexBootstrap` (CPU and GPU complex bootstrap agree).
+- **Sparse plaintext compression** — a plaintext created with fewer than the maximum slots
+  (`MakeCKKSPackedPlaintext(..., slots)`) is stored **compressed** on the GPU: `RNSPoly::loadConstant`
+  keeps only the used slots per limb (a stride-decimated `2*slots`-value representation) instead of
+  `N` values, and the arithmetic kernels consume that layout directly through their
+  strided/broadcast operand paths. This cuts VRAM for the bootstrap precomputation matrices
+  (CtS / StC / LT) and for large constant plaintexts.
 - `SetLevel` is now a **pure tower drop** on the GPU (matching OpenFHE, which never touches values).
 - `EvalNegate` is an exact negation with no extra depth; the plaintext/ciphertext CPU fallbacks'
   bad `any_cast` is fixed.
