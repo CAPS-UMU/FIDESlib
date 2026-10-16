@@ -27,6 +27,10 @@
 #                     fork (carlostriste/openfhe-development), which already
 #                     contains the port.
 #
+# For every mode the install is built with static libraries (BUILD_STATIC=ON):
+# FIDESLib links ${OpenFHE_LIBDIR}/libOPENFHE*_static.a, and OpenFHE's default
+# (non-Emscripten) build is shared-only.
+#
 # Overridable variables (environment or CMake):
 #   FIDESLIB_OPENFHE_SOURCE       patch | patch-minimal | port  (default: patch)
 #   FIDESLIB_OPENFHE_RELEASE_TAG  patch mode release tag        (default: v1.6.1)
@@ -98,6 +102,9 @@ esac
 mkdir -p build
 cd build
 echo "Installing into ${INSTALL_PREFIX}"
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" ..
+# FIDESLib links the static OpenFHE archives (${OpenFHE_LIBDIR}/libOPENFHE*_static.a),
+# so force BUILD_STATIC=ON: OpenFHE's non-Emscripten default is shared-only, which builds
+# and installs but leaves FIDESLib unable to link.
+cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" ..
 make -j"${JOBS}"
 make install -j"${JOBS}"
