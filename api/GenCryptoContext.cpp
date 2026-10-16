@@ -1,5 +1,7 @@
 #include "GenCryptoContext.hpp"
 
+#include "CKKS/OpenFheCompat.cuh"
+
 #include <openfhe.h>
 
 #include <shared_mutex>
@@ -7,6 +9,10 @@
 
 namespace fideslib {
 CryptoContext<DCRTPoly> GenCryptoContext(CCParams<CryptoContextCKKSRNS>& params) {
+    // Startup probe: fail fast if the linked OpenFHE was built with FMA-enabled codegen,
+    // which breaks FIDESlib's bit-exact CPU/GPU agreement.
+    FIDESlib::CKKS::CheckOpenFheFpCompat();
+
     auto& impl_params = std::any_cast<lbcrypto::CCParams<lbcrypto::CryptoContextCKKSRNS>&>(params.cpu);
     auto cc = lbcrypto::GenCryptoContext(impl_params);
 

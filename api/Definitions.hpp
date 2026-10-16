@@ -86,6 +86,34 @@ enum SecurityLevel {
     HEStd_NotSet,
 };
 
+/// @brief The bootstrapping mode a slot's precomputation was set up for.
+///
+/// OpenFHE keeps a single bootstrapping precomputation entry per slot count
+/// (`m_bootPrecomMap[slots]`), shared by the standard (ModRaise-first) bootstrap and the
+/// SlotsToCoeffs-first bootstrap. A slot can therefore be configured for exactly one of these
+/// modes at a time, and evaluating the other mode against it would silently misroute (e.g. a
+/// decode-first setup read back as the standard bootstrap). This enum lets the api guard against
+/// that.
+enum class BootstrapMode {
+    UNCONFIGURED = 0, ///< no setup ran for this slot
+    STANDARD,         ///< EvalBootstrapSetup (ModRaise-first, btsfirstboot=false)
+    STC_FIRST,        ///< EvalBootstrapSetup(btsfirstboot=true) / EvalBootstrapStCFirst
+    FBT,              ///< reserved (not configured in this branch)
+    FEFBT,            ///< reserved (not configured in this branch)
+};
+
+/// @brief Human-readable name of a bootstrapping mode (for diagnostics).
+inline const char* BootstrapModeName(BootstrapMode mode) {
+    switch (mode) {
+    case BootstrapMode::STANDARD: return "the standard bootstrap (EvalBootstrapSetup)";
+    case BootstrapMode::STC_FIRST: return "the SlotsToCoeffs-first bootstrap (EvalBootstrapStCFirst)";
+    case BootstrapMode::FBT: return "a reserved bootstrap mode";
+    case BootstrapMode::FEFBT: return "a reserved bootstrap mode";
+    case BootstrapMode::UNCONFIGURED:
+    default: return "no bootstrapping setup";
+    }
+}
+
 } // namespace fideslib
 
 #endif

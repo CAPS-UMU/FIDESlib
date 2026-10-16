@@ -1,6 +1,7 @@
 #include "ParametrizedTest.cuh"
 
 #include <CKKS/Ciphertext.cuh>
+#include <CKKS/OpenFheCompat.cuh>
 #include <CKKS/Plaintext.cuh>
 #include <CKKS/openfhe-interface/RawCiphertext.cuh>
 
@@ -20,6 +21,14 @@
 using namespace fideslib;
 
 namespace FIDESlib::Testing {
+
+// Guards the bit-exact CPU/GPU contract against an OpenFHE built with FMA-enabled
+// codegen; with FMA on one side the CPU reference and the GPU path only agree to ~1e-15.
+TEST(OpenFHECompatTests, OpenFheNoFma) {
+    EXPECT_FALSE(FIDESlib::CKKS::OpenFheHasFma())
+        << "OpenFHE was built with FMA-enabling flags: " << FIDESlib::CKKS::OpenFheFmaFlags();
+    EXPECT_NO_THROW(FIDESlib::CKKS::CheckOpenFheFpCompat());
+}
 
 TEST(OpenFHECompatTests, EvalFastRotation) {
     uint32_t multDepth = 2;
@@ -234,6 +243,524 @@ TEST(OpenFHECompatTests, EvalBootstrap) {
     auto cBoot2 = cc->EvalBootstrap(ctxt);
 
     // EXPECT_EQ(cBoot1->GetElements(), cBoot2->GetElements());
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Iterative (2-iteration) bootstrap under FLEXIBLEAUTO with a non-trivial
+// precision: the first EvalSub aligns operands at different levels, which is
+// the state transition the iterative flavor is about.
+TEST(OpenFHECompatTests, EvalBootstrapIterative) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, multDepth - 1, nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Iterative bootstrap under FIXEDAUTO: exercises the FIXEDAUTO-only tower drop
+// of the bootstrapped ciphertext onto the input's tower count (Step 5).
+TEST(OpenFHECompatTests, EvalBootstrapIterativeFixedAuto) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FIXEDAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, multDepth - 1, nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Decode-first (StC-first) bootstrap under FLEXIBLEAUTO: `EvalBootstrapSetup` runs
+// with BTSlotsEncoding so both the CPU reference and the GPU pipeline dispatch to
+// the decode-first flavor. The input is encoded at the depletion target level
+// (L0 - (lvlbDec + 2 + ext)), where SlotsToCoeffs runs first.
+TEST(OpenFHECompatTests, EvalBootstrapStCFirst) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, /*btsfirstboot=*/true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    // Encode at the StC-first depletion target: L0 - (lvlbDec + 2 + ext).
+    Plaintext ptxt =
+        cc->MakeCKKSPackedPlaintext(x, 1, (multDepth + 1) - (levelBudget[1] + 2), nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Decode-first bootstrap with the input encoded *above* the StC-first depletion target, so the
+// FLEXIBLEAUTO deplete correction actually runs (EvalBootstrapStCFirst L1459-1474) — the
+// plain EvalBootstrapStCFirst encodes exactly AT the target and never hits that branch. This
+// locks the correction-mult + LevelReduce + ModReduce + SetScalingFactor transcription on the
+// GPU against the vendored OpenFHE bit-for-bit.
+TEST(OpenFHECompatTests, EvalBootstrapStCFirstAboveTarget) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, /*btsfirstboot=*/true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    // One level above the StC-first depletion target: the deplete must drop a tower with the
+    // scf1/scf2/scf correction mult (OpenFHE L1461-1473).
+    const uint32_t targetLevel = (multDepth + 1) - (levelBudget[1] + 2);
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, targetLevel - 1, nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrapStCFirst(ctxt, 1, 0);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrapStCFirst(ctxt, 1, 0);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Decode-first bootstrap, explicit EvalBootstrapStCFirst entry point.
+TEST(OpenFHECompatTests, EvalBootstrapStCFirstDirect) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt =
+        cc->MakeCKKSPackedPlaintext(x, 1, (multDepth + 1) - (levelBudget[1] + 2), nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrapStCFirst(ctxt, 1, 0);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrapStCFirst(ctxt, 1, 0);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Iterative (2 iterations) decode-first bootstrap: exercises the noise-aware
+// ModReduceInternalInPlace(ct, noiseDeg - 1) after each bootstrap pass.
+TEST(OpenFHECompatTests, EvalBootstrapStCFirstIterative) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt =
+        cc->MakeCKKSPackedPlaintext(x, 1, (multDepth + 1) - (levelBudget[1] + 2), nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Decode-first bootstrap under FIXEDAUTO (FIXEDAUTO-only depletion tower drop).
+TEST(OpenFHECompatTests, EvalBootstrapStCFirstFixedAuto) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FIXEDAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt =
+        cc->MakeCKKSPackedPlaintext(x, 1, (multDepth + 1) - (levelBudget[1] + 2), nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+
+    Plaintext r2;
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
+
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// Iterative decode-first bootstrap under FIXEDMANUAL: the single-iteration
+// pipeline leaves noiseDeg 1, so the noise-aware post-bootstrap ModReduce is a
+// no-op (validated vs the OpenFHE reference).
+TEST(OpenFHECompatTests, EvalBootstrapStCFirstIterativeFixedManual) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(UNIFORM_TERNARY);
+    parameters.SetScalingTechnique(FIXEDMANUAL);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0, true, true);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+
+    Plaintext ptxt =
+        cc->MakeCKKSPackedPlaintext(x, 1, (multDepth + 1) - (levelBudget[1] + 2), nullptr, numSlots);
+
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    //====================================================================
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+
+    auto cBoot2 = cc->EvalBootstrap(ctxt, 2, 10);
+
     ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
 
     Plaintext r1;

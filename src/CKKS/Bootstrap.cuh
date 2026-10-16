@@ -16,6 +16,17 @@ void BootstrapCPUraise(Ciphertext& ctxt,
     const bool prescaled);
 
 void Bootstrap(Ciphertext& ctxt, const int slots, const bool prescaled = false);
+void Bootstrap(Ciphertext& ctxt,
+    const int slots,
+    const bool prescaled,
+    const uint32_t numIterations,
+    const uint32_t precision);
+void BootstrapStCFirst(Ciphertext& ctxt, const int slots, const bool prescaled = false);
+void BootstrapStCFirst(Ciphertext& ctxt,
+    const int slots,
+    const bool prescaled,
+    const uint32_t numIterations,
+    const uint32_t precision);
 double GetPreScaleFactor(Context& cc, int slots);
 void ModRaise(Ciphertext& ctxt, const int slots, const uint32_t correction, const bool prescaled = false, bool sparse_encaps = false);
 } // namespace FIDESlib::CKKS

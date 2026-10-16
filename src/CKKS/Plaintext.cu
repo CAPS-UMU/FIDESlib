@@ -127,6 +127,26 @@ void Plaintext::moddown() {
     c0.moddown(true, true);
 }
 
+void Plaintext::raiseDegreeToLevel(int targetLevel) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    // q_l = the last tower modulus of the target level (mirrors the reference's
+    // targetPoly.GetElementAtIndex(numElems - 1).GetModulus()).
+    const uint32_t numTowers  = static_cast<uint32_t>(c0.getLevel()) + 1;
+    const uint32_t tNumTowers = static_cast<uint32_t>(targetLevel) + 1;
+    const uint64_t q          = (tNumTowers - 1 < cc.prime.size())
+                                    ? cc.prime[tNumTowers - 1].p
+                                    : cc.specialPrime[tNumTowers - 1 - cc.prime.size()].p;
+    std::vector<uint64_t> crtQ(numTowers);
+    for (uint32_t i = 0; i < numTowers; ++i) {
+        const uint64_t m = (i < cc.prime.size()) ? cc.prime[i].p : cc.specialPrime[i - cc.prime.size()].p;
+        crtQ[i]          = q % m;
+    }
+    c0.multScalar(crtQ);
+    NoiseLevel += 1;
+    NoiseFactor *= cc.param.ScalingFactorReal.at(c0.getLevel());
+}
+
 bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, const double scaling_factor) {
     assert(scaleDegree == 2 ? cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] == cc.param.ScalingFactorRealBig[level] : true);
     //	assert(scaleDegree < 3 ? scaling_factor == (scaleDegree == 1 ? cc.param.ScalingFactorReal[level] : (cc.param.ScalingFactorRealBig[level])) : true);
@@ -137,6 +157,42 @@ bool Plaintext::adjustScaleAndLevel(const int scaleDegree, const int level, cons
     uint32_t c2depth = scaleDegree;
     auto sizeQl1 = c1lvl + 1;
     // auto sizeQl2 = c2lvl + 1;
+
+    // OpenFHE 4a31f521 (AdjustLevelsAndDepthInPlace, first FIXED branch): under FIXEDMANUAL/FIXEDAUTO
+    // operands of equal noise-scale degree already carry the same power of Delta, so aligning them is
+    // only a tower drop (mirrors Ciphertext::adjustScaleAndLevel and the reference).
+    if ((cc.rescaleTechnique == FIXEDMANUAL || cc.rescaleTechnique == FIXEDAUTO) && c1depth == c2depth) {
+        if (c1lvl > c2lvl)
+            this->dropToLevel(static_cast<int>(c2lvl), true);
+        else if (c1lvl < c2lvl)
+            return false;
+        return true;
+    }
+
+    // OpenFHE 4a31f521 (AdjustLevelsAndDepthInPlace, FIXEDAUTO degree-mismatch branch; equal degrees
+    // were handled above). A degree-2 operand is rescaled when the other has degree 1 and more towers
+    // dropped; otherwise the degree-1 operand is multiplied by the target's last-tower prime q_l,
+    // which the eventual rescale divides out exactly (Delta would leave a ~2^-33 residual). Mirrors
+    // Ciphertext::adjustScaleAndLevel; the plaintext is the degree-1 operand in the addPt/multPt paths.
+    if (cc.rescaleTechnique == FIXEDAUTO) {
+        if (c1lvl == c2lvl) {
+            if (c1depth < c2depth) {
+                this->raiseDegreeToLevel(static_cast<int>(c2lvl));
+                return true;
+            }
+            return false;
+        }
+        if (c1lvl > c2lvl) {
+            if (this->NoiseLevel == 2)
+                this->rescale();
+            else
+                this->raiseDegreeToLevel(static_cast<int>(c2lvl));
+            if (c0.getLevel() > static_cast<int32_t>(c2lvl))
+                this->dropToLevel(static_cast<int>(c2lvl), true);
+            return true;
+        }
+        return false;
+    }
 
     if (c1lvl > c2lvl) {
         if (c1depth == 2) {

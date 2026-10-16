@@ -28,11 +28,19 @@ ModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict
 
 template <ALGO algo = ALGO_SHOUP>
 __global__ void
+ExactModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict__ b, const __grid_constant__ int primeid_init, const Global::Globals* Globals);
+
+template <ALGO algo = ALGO_SHOUP>
+__global__ void
 ModDown3(void** __restrict__ a, const __grid_constant__ int n, void** __restrict__ b, const __grid_constant__ int primeid_init, const Global::Globals* Globals);
 
 template <ALGO algo = ALGO_SHOUP>
 __global__ void
 DecompAndModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** __restrict__ b, const int __grid_constant__ d, const Global::Globals* Globals);
+
+template <ALGO algo = ALGO_SHOUP>
+__global__ void
+ExactModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** __restrict__ b, const int __grid_constant__ d, const Global::Globals* Globals);
 
 template <ALGO algo = ALGO_SHOUP>
 __global__ void

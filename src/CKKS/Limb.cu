@@ -119,6 +119,10 @@ template <typename T> template <typename Q> void Limb<T>::load(const std::vector
     cudaMemcpyAsync(v.data, dat.data(), dat.size() * sizeof(T), cudaMemcpyHostToDevice, stream.ptr());
 }
 
+template <typename T> void Limb<T>::zeroFill() {
+    cudaMemsetAsync(v.data, 0, v.size * sizeof(T), stream.ptr());
+}
+
 template void Limb<uint32_t>::load<uint32_t>(const std::vector<uint32_t>& dat_);
 
 template void Limb<uint32_t>::load<uint64_t>(const std::vector<uint64_t>& dat_);

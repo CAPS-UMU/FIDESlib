@@ -6,6 +6,9 @@
 #include "CKKS/Context.cuh"
 #include "CKKS/KeySwitchingKey.cuh"
 #include "CKKS/Plaintext.cuh"
+#include "LimbUtils.cuh"
+#include <complex>
+#include <type_traits>
 #include <omp.h>
 #include <stdexcept>
 #include <string>
@@ -30,6 +33,35 @@ namespace {
         std::to_string(c.getLevel()) + ", NoiseLevel " + std::to_string(c.NoiseLevel) + "; operand level " + std::to_string(operandLevel) + ", NoiseLevel " +
         std::to_string(operandNoiseLevel) + "). The operand needs at least as many RNS limbs as the ciphertext and a " +
         "NoiseLevel not above the ciphertext's; encode plaintexts at the ciphertext's level.");
+}
+
+// Build (per-limb) the compressed 1-slot constant poly F = c0*X^0 + c1*X^{N/2} — two values
+// per limb ({coef0 at coefficient 0, coef1 at coefficient N/2}) — and NTT it with the
+// length-2 negacyclic transform so the buffer holds {coef0 +/- i*coef1}, the NTT-domain
+// representation of the 1-slot constant message grouped by this codebase's half-block NTT
+// layout. `coef0`/`coef1` are per-limb (level+1 entries, PRIMEID-indexed like the
+// ElemForEvalMult outputs). Consumed by multScalar(complex)/addScalar(complex) through
+// multElement/add(slots=1).
+static RNSPoly BuildConstant2(ContextData& cc, int level, const std::vector<uint64_t>& coef0,
+                              const std::vector<uint64_t>& coef1) {
+    RNSPoly F(cc);
+    F.grow(level, /*single_malloc=*/false, /*constant=*/true, /*num_elems=*/2);
+    std::vector<uint64_t> coefs(2, 0);
+    for (auto& g : F.GPU) {
+        cudaSetDevice(g.device);
+        int limb_size = g.getLimbSize(F.getLevel());
+        for (int i = 0; i < limb_size; ++i) {
+            coefs[0] = coef0[PRIMEID(g.limb[i])];
+            coefs[1] = coef1[PRIMEID(g.limb[i])];
+            SWITCH(g.limb[i], load(coefs));
+            g.s.wait(STREAM(g.limb[i]));
+        }
+        for (int i = 0; i < limb_size; i += cc.batch) {
+            STREAM(g.limb[i]).wait(g.s);
+        }
+    }
+    F.NTT(cc.batch, true);
+    return F;
 }
 } // namespace
 
@@ -697,6 +729,12 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
     assert(keyID == b.keyID);
+    // A default-constructed scratch ciphertext carries an empty key tag. Both operands of a
+    // relinearizable product must use the same key, so adopt the operand's tag when `this` has
+    // none. This keeps the tag-metadata invariant from silently depending on every construction
+    // site remembering to set it (the empty tag used to surface as GetEvalKey("") -> map::at).
+    if (keyID.empty())
+        keyID = b.keyID;
     if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
 
         if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
@@ -704,13 +742,30 @@ void Ciphertext::mult(const Ciphertext& b, bool rescale, const bool moddown) {
             assert(NoiseLevel == b.NoiseLevel);
         }
 
-        if (!adjustForMult(b)) {
-            Ciphertext b_(cc_);
-            b_.copy(b);
-            if (b_.adjustForMult(*this))
-                mult(b_, rescale, moddown);
-            else
+        // Mirror AdjustForMultInPlace -> AdjustLevelsAndDepthToOneInPlace (OpenFHE 4a31f521): align
+        // levels/depths on BOTH operands, then mod-reduce BOTH when the first operand is degree 2.
+        // The second operand is delegated through the one-sided adjust, so a copy is materialised
+        // only when it actually has to change.
+        Ciphertext b_owned(cc_);
+        const Ciphertext* bp = &b;
+        if (!adjustForAddOrSub(b)) {
+            b_owned.copy(b);
+            if (!b_owned.adjustForAddOrSub(*this)) {
                 throwAdjustFailure("mult", *this, b.getLevel(), b.NoiseLevel, "ciphertext");
+                return;
+            }
+            bp = &b_owned;
+        }
+        if (NoiseLevel == 2) {
+            rescaleInternal();
+            if (bp == &b) {
+                b_owned.copy(b);
+                bp = &b_owned;
+            }
+            b_owned.rescaleInternal();
+        }
+        if (bp != &b) {
+            mult(*bp, rescale, moddown);
             return;
         }
     }
@@ -757,6 +812,9 @@ void Ciphertext::multMutable(Ciphertext& b, bool rescale, const bool moddown) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
     assert(keyID == b.keyID);
+    // See Ciphertext::mult: adopt the operand's key tag when this scratch ciphertext has none.
+    if (keyID.empty())
+        keyID = b.keyID;
     if (cc.rescaleTechnique == FIXEDAUTO || cc.rescaleTechnique == FLEXIBLEAUTO || cc.rescaleTechnique == FLEXIBLEAUTOEXT) {
 
         if (c0.isModUp() || c1.isModUp() || b.c0.isModUp()) {
@@ -764,12 +822,17 @@ void Ciphertext::multMutable(Ciphertext& b, bool rescale, const bool moddown) {
             assert(NoiseLevel == b.NoiseLevel);
         }
 
-        if (!adjustForMult(b)) {
-            if (b.adjustForMult(*this))
-                mult(b, rescale, moddown);
-            else
+        // Mirror AdjustForMultInPlace -> AdjustLevelsAndDepthToOneInPlace (see Ciphertext::mult):
+        // align both operands, then mod-reduce BOTH when the first is degree 2. `b` is mutable here.
+        if (!adjustForAddOrSub(b)) {
+            if (!b.adjustForAddOrSub(*this)) {
                 throwAdjustFailure("mult", *this, b.getLevel(), b.NoiseLevel, "ciphertext");
-            return;
+                return;
+            }
+        }
+        if (NoiseLevel == 2) {
+            rescaleInternal();
+            b.rescaleInternal();
         }
     } else if (cc.rescaleTechnique == FIXEDMANUAL && getLevel() > b.getLevel()) {
         dropToLevel(b.getLevel(), true);
@@ -1242,6 +1305,80 @@ void Ciphertext::multScalar(const Ciphertext& b, const double c, bool rescale) {
     this->multScalar(c, rescale);
 }
 
+void Ciphertext::multScalar(const std::complex<double> c, bool rescale) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::MULTSCALAR]++;
+
+    // EvalMultInPlace(ct, complex) (ckksrns-leveledshe.cpp L164-174): the non-FIXEDMANUAL
+    // nsd-2 pre-reduce (L167-172), then EvalMultCoreInPlace (L887-928) which for
+    // target_level == -1 uses scFactor = SF(level). ForkBitExact implementation: the re/im
+    // GetElementForEvalMult factors are composed into the compressed 1-slot constant poly
+    // F = Re + X^{N/2}*Im (two values per limb at {0, N/2}), NTT'd (length-2 negacyclic ->
+    // {fRe +/- i*fIm} — the NTT representation of the constant message) and applied in one
+    // multElement(slots=1) elementwise pass (the block-constant read is exactly the
+    // half-block layout of the constant). nsd += 1; SF *= scFactor.
+    if (cc.rescaleTechnique != FIXEDMANUAL && NoiseLevel == 2) {
+        rescaleInternal(); // ModReduceInternalInPlace(1)
+    }
+    const double scFactor = cc.param.ScalingFactorReal[getLevel()]; // target_level == -1
+    auto factorsRe = cc.ElemForEvalMult(getLevel(), c.real());
+    auto factorsIm = cc.ElemForEvalMult(getLevel(), c.imag());
+    RNSPoly F = BuildConstant2(cc, getLevel(), factorsRe, factorsIm);
+    c0.multElement(F, 1);
+    c1.multElement(F, 1);
+
+    NoiseLevel += 1;
+    NoiseFactor *= scFactor;
+    if (rescale && cc.rescaleTechnique == FIXEDMANUAL) {
+        rescaleInternal();
+    }
+}
+
+void Ciphertext::multScalar(const std::complex<double> c, int target_level) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::MULTSCALAR]++;
+
+    // EvalMultInPlace(ct, complex, target_level) (ckksrns-leveledshe.cpp L164-174): the
+    // non-FIXEDMANUAL nsd-2 pre-reduce (L167-172) comes first.
+    if (cc.rescaleTechnique != FIXEDMANUAL && NoiseLevel == 2) {
+        rescaleInternal(); // ModReduceInternalInPlace(1)
+    }
+    const int level = getLevel();
+    if (target_level == -1 || target_level == level) {
+        multScalar(c); // target_level == -1 path (scFactor = SF(level))
+        return;
+    }
+    assert(target_level < level);
+
+    // EvalMultCoreInPlace(complex, tl) (L887-928): the folded scFactor — the GPU's own
+    // ElemForEvalMult(target_level, v, level) performs the reference's
+    // SFRealBig(target_level)/SF(level) fold (Context.cu L390-407). Only the surviving
+    // target_level+1 lowest towers are computed: the reference multiplies every current
+    // tower by its factor and then LevelReduceInternal (L923-927) drops the top
+    // (level - target_level) towers, whose products vanish. SF ends at SFRealBig(target).
+    auto factorsRe = cc.ElemForEvalMult(target_level, c.real(), level);
+    auto factorsIm = cc.ElemForEvalMult(target_level, c.imag(), level);
+    RNSPoly F = BuildConstant2(cc, target_level, factorsRe, factorsIm);
+    dropToLevel(target_level, /*skip_adjust=*/true);
+    c0.multElement(F, 1);
+    c1.multElement(F, 1);
+
+    NoiseLevel += 1;
+    NoiseFactor = cc.param.ScalingFactorRealBig[target_level];
+}
+
+void Ciphertext::multScalar(const Ciphertext& b, const std::complex<double> c, bool rescale) {
+    this->copy(b);
+    this->multScalar(c, rescale);
+}
+
+void Ciphertext::multScalar(const Ciphertext& b, const std::complex<double> c, int target_level) {
+    this->copy(b);
+    this->multScalar(c, target_level);
+}
+
 void Ciphertext::evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*>& ctxs, std::vector<double> weights) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
@@ -1304,7 +1441,8 @@ void Ciphertext::evalLinearWSumMutable(uint32_t n, const std::vector<Ciphertext*
     }
 }
 
-void Ciphertext::evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs, std::vector<double> weights, double bias, int limit, int target_level, int rescale) {
+template <typename T>
+void Ciphertext::evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs, std::vector<T> weights, T bias, int limit, int target_level, int rescale) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
     op_count[OPS::WSUM]++;
@@ -1313,7 +1451,11 @@ void Ciphertext::evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& c
         limit = ctxs.size();
     op_count[OPS::WSUMINPUTS] += limit;
 
-    if constexpr (1) {
+    if constexpr (std::is_same_v<T, double>) {
+        // double: the fused path — per-limb uniform factors (ElemForEvalMult with the
+        // target-level fold over the input's own level) through the batched evalLinearWSum
+        // kernels (the reference's per-term EvalMult(ct, scalar, target_level), reordered
+        // as a single pass; bit-exact), the bias as a last factor term.
         assert(target_level != -1);
         this->growToLevel(target_level);
         this->dropToLevel(target_level, true);
@@ -1381,6 +1523,86 @@ void Ciphertext::evalPartialLinearWSumWithBias(const std::vector<Ciphertext*>& c
 
         if (rescale)
             this->rescale();
+    }
+    else {
+        // complex: FUSED — pack each nonzero term's complex constant as its two ElemForEvalMult
+        // CRT components {coef0, coef1} into ONE uint64 buffer (plus the bias pair) and run ONE
+        // evalLinearWSumComplex kernel per element; the kernel forms the half-block NTT factor
+        // F[half] = coef0 +/- psi*coef1. This avoids materializing one BuildConstant2 poly +
+        // length-2 NTT (and its per-limb H2D) per term. Mod-p addition is associative, so the
+        // result is bit-identical to the reference's term-by-term EvalMult(ct, complex,
+        // target_level) + EvalAdd accumulation (ckksrns-advancedshe.cpp L264-341).
+        assert(target_level != -1);
+        assert(!ctxs.empty());
+        assert(limit >= 1 && static_cast<size_t>(limit) <= ctxs.size() + 1);
+        for (int i = 0; i < limit; ++i) {
+            assert(ctxs[i]->NoiseLevel == 1);
+            assert(ctxs[0]->keyID == ctxs[i]->keyID);
+        }
+        auto isNonZero = [](std::complex<double> v) { return lbcrypto::IsNotEqualZero(v); };
+
+        this->growToLevel(target_level);
+        this->dropToLevel(target_level, true);
+
+        int nterms = 0;
+        for (int i = 1; i <= limit; ++i)
+            if (isNonZero(weights[i]))
+                ++nterms;
+
+        std::vector<Ciphertext> preReduced; // nsd-2 operands pre-reduced like multScalar(complex, target)
+        preReduced.reserve(limit);
+        std::vector<const RNSPoly*> c0s, c1s;
+        c0s.reserve(nterms);
+        c1s.reserve(nterms);
+        std::vector<uint64_t> w(2 * std::max(nterms, 1) * MAXP, 0);
+        int idx = 0;
+        for (int i = 1; i <= limit; ++i) {
+            if (!isNonZero(weights[i]))
+                continue;
+            // multScalar(complex, target_level) pre-reduces an nsd-2 operand (non-FIXEDMANUAL)
+            // before reading its level / multiplying; mirror that on a copy so the fused pass
+            // uses the same folded factor and the same (reduced) limbs.
+            const Ciphertext* src = ctxs[i - 1];
+            int level_in = src->getLevel();
+            if (cc.rescaleTechnique != FIXEDMANUAL && src->NoiseLevel == 2) {
+                preReduced.emplace_back(cc_);
+                preReduced.back().copy(*src);
+                preReduced.back().rescaleInternal();
+                src = &preReduced.back();
+                level_in = src->getLevel();
+            }
+            const auto factorsRe = cc.ElemForEvalMult(target_level, weights[i].real(), level_in);
+            const auto factorsIm = cc.ElemForEvalMult(target_level, weights[i].imag(), level_in);
+            for (size_t p = 0; p < factorsRe.size(); ++p)
+                w[(2 * idx) * MAXP + p] = factorsRe[p];
+            for (size_t p = 0; p < factorsIm.size(); ++p)
+                w[(2 * idx + 1) * MAXP + p] = factorsIm[p];
+            c0s.push_back(&src->c0);
+            c1s.push_back(&src->c1);
+            ++idx;
+        }
+
+        // The kernel writes every coefficient (res initialised to 0), so the zero-term case yields
+        // explicit zeros like the reference. The complex bias is added via addScalar (below).
+        this->c0.evalLinearWSumComplex(static_cast<uint32_t>(nterms), c0s, w, /*with_bias=*/false);
+        this->c1.evalLinearWSumComplex(static_cast<uint32_t>(nterms), c1s, w, /*with_bias=*/false);
+
+        // The fused kernel does not copy an operand, so the accumulator's tag/slots metadata must
+        // be set explicitly (the term-by-term path inherited it from the ctxs[0] copy). Needed
+        // before rescale and any downstream conjugate (keyed by keyID).
+        this->slots = ctxs[0]->slots;
+        this->keyID = ctxs[0]->keyID;
+        for (int i = 0; i < limit; ++i) {
+            assert(this->keyID == ctxs[i]->keyID);
+            this->slots = std::max(this->slots, ctxs[i]->slots);
+        }
+        this->NoiseLevel = 2;
+        this->NoiseFactor = cc.param.ScalingFactorRealBig.at(getLevel());
+        if (isNonZero(bias))
+            this->addScalar(bias);
+
+        if (rescale)
+            this->rescale(); // ModReduceInPlace: real rescale only for FIXEDMANUAL
     }
 }
 
@@ -1530,6 +1752,179 @@ Ciphertext::evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>
     return ctxs_result;
 }
 
+// ---- Fused complex batched WSum (multiple outputs) ----
+// Same RECORD/REMAINING grouping as the real overload, but every complex constant term / bias is
+// built as a BuildConstant2 factor and all outputs are evaluated in ONE batched kernel pass
+// (evalLinearWSumComplexMultiple) instead of the serial per-node WithBias loop.
+struct ObjectiveComplex {
+    int n, target_level;
+    std::vector<std::complex<double>> weights;
+    Ciphertext* ctxt;
+};
+
+void evalMultiplePartialLinearWSumComplexWithBiasInternal(const std::vector<Ciphertext*>& ctxs,
+                                                          const std::vector<ObjectiveComplex>& out_ctxt) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    Context cc_ = ctxs[0]->cc_;
+    CKKS::SetCurrentContext(cc_);
+
+    int max_n = 0;
+    for (auto j = 0u; j < out_ctxt.size(); ++j) {
+        assert(out_ctxt[j].target_level != -1);
+        max_n = std::max(max_n, out_ctxt[j].n);
+    }
+    for (auto i = 0u; i < ctxs.size(); ++i) {
+        for (auto j = 0u; j < out_ctxt.size(); ++j) {
+            assert(ctxs[i]->NoiseLevel == 1);
+            assert(ctxs[0]->keyID == ctxs[i]->keyID);
+        }
+    }
+    for (auto& o : out_ctxt)
+        o.ctxt->growToLevel(o.target_level);
+
+    auto isNonZero = [](std::complex<double> v) { return lbcrypto::IsNotEqualZero(v); };
+
+    // nsd-2 operands: pre-reduce ONCE per distinct input, exactly like multScalar(complex,
+    // target_level) does (non-FIXEDMANUAL), so every output's folded factor and limbs match.
+    std::vector<Ciphertext> preReduced;
+    preReduced.reserve(max_n);
+    std::vector<const Ciphertext*> src(max_n, nullptr);
+    for (int i = 0; i < max_n; ++i) {
+        src[i] = ctxs[i];
+        if (cc_->rescaleTechnique != FIXEDMANUAL && ctxs[i]->NoiseLevel == 2) {
+            preReduced.emplace_back(cc_);
+            preReduced.back().copy(*ctxs[i]);
+            preReduced.back().rescaleInternal();
+            src[i] = &preReduced.back();
+        }
+    }
+
+    // Single packed buffer (pair = j*(max_n+1)+i): term i -> {coef0, coef1}, bias at i == max_n.
+    const size_t pairs = out_ctxt.size() * (max_n + 1);
+    std::vector<uint64_t> w(2 * pairs * MAXP, 0);
+    for (size_t j = 0; j < out_ctxt.size(); ++j) {
+        const auto& o = out_ctxt[j];
+        for (int i = 0; i < o.n && i < max_n; ++i) {
+            if (!isNonZero(o.weights[i + 1]))
+                continue;
+            const auto factorsRe = cc_->ElemForEvalMult(o.target_level, o.weights[i + 1].real(), src[i]->getLevel());
+            const auto factorsIm = cc_->ElemForEvalMult(o.target_level, o.weights[i + 1].imag(), src[i]->getLevel());
+            const size_t pair = j * (max_n + 1) + i;
+            for (size_t p = 0; p < factorsRe.size(); ++p)
+                w[(2 * pair) * MAXP + p] = factorsRe[p];
+            for (size_t p = 0; p < factorsIm.size(); ++p)
+                w[(2 * pair + 1) * MAXP + p] = factorsIm[p];
+        }
+
+        // Fuse the complex bias into the same packed buffer as the real (double) overload does,
+        // so the batched kernel adds it (element 0 only, c1 skipped) without a second pass. The
+        // fused kernels fully reduce their output residue (see the canonicalizing `% C_.primes`
+        // in ElemenwiseBatchKernels.cu), so the FIXEDMANUAL/FIXEDAUTO `q_l` top-tower
+        // bookkeeping in ElemForEvalAddOrSub survives the per-tower F[half] reconstruction.
+        if (isNonZero(o.weights[0])) {
+            const std::complex<double> bias = o.weights[0];
+            const auto reVals = cc_->ElemForEvalAddOrSub(o.target_level, std::abs(bias.real()), 2);
+            const auto imVals = cc_->ElemForEvalAddOrSub(o.target_level, std::abs(bias.imag()), 2);
+            const bool posreal = bias.real() > 0.0;
+            const bool posimag = bias.imag() > 0.0;
+            const size_t pair = j * (max_n + 1) + max_n;
+            for (size_t p = 0; p < reVals.size(); ++p)
+                w[(2 * pair) * MAXP + p] = posreal ? reVals[p] : cc_->prime[p].p - reVals[p];
+            for (size_t p = 0; p < imVals.size(); ++p)
+                w[(2 * pair + 1) * MAXP + p] = posimag ? imVals[p] : cc_->prime[p].p - imVals[p];
+        }
+    }
+
+    std::vector<const RNSPoly*> c0s(ctxs.size()), c1s(ctxs.size());
+    for (size_t i = 0; i < ctxs.size(); ++i) {
+        const Ciphertext* s = (i < (size_t)max_n) ? src[i] : ctxs[i];
+        c0s[i] = &s->c0;
+        c1s[i] = &s->c1;
+    }
+    std::vector<RNSPoly*> c0s_out(out_ctxt.size()), c1s_out(out_ctxt.size());
+    for (size_t i = 0; i < out_ctxt.size(); ++i) {
+        c0s_out[i] = &out_ctxt[i].ctxt->c0;
+        c1s_out[i] = &out_ctxt[i].ctxt->c1;
+    }
+
+    RNSPoly::evalLinearWSumComplexMultiple(max_n, c0s, c0s_out, w, /*isC1=*/false);
+    RNSPoly::evalLinearWSumComplexMultiple(max_n, c1s, c1s_out, w, /*isC1=*/true);
+
+
+    for (auto j = 0u; j < out_ctxt.size(); ++j) {
+        Ciphertext& c = *out_ctxt[j].ctxt;
+        c.slots = ctxs[0]->slots;
+        c.keyID = ctxs[0]->keyID;
+        for (uint32_t i = 0; i < ctxs.size(); ++i) {
+            assert(c.keyID == ctxs[i]->keyID);
+            c.slots = std::max(c.slots, ctxs[i]->slots);
+        }
+        c.NoiseLevel = 2;
+        c.NoiseFactor = cc_->param.ScalingFactorRealBig.at(c.getLevel());
+    }
+}
+
+std::vector<Ciphertext>
+Ciphertext::evalMultiplePartialLinearWSumWithBias(const std::vector<Ciphertext*>& ctxs,
+                                                  std::vector<std::vector<std::complex<double>>> weights,
+                                                  std::vector<int> target_level, int rescale) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    Context cc_ = ctxs[0]->cc_;
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::WSUM]++;
+
+    int n_out = static_cast<int>(weights.size());
+    assert(weights.size() == target_level.size());
+    std::vector<Ciphertext> ctxs_result;
+    for (int i = 0; i < n_out; ++i) {
+        ctxs_result.emplace_back(cc_);
+        ctxs_result.back().growToLevel(target_level[i]);
+    }
+
+    auto isNonZero = [](std::complex<double> v) { return lbcrypto::IsNotEqualZero(v); };
+    std::vector<ObjectiveComplex> out_ctxt(n_out);
+    for (int i = 0; i < n_out; ++i) {
+        auto weights_trimmed = weights[i];
+        while (!weights_trimmed.empty() && !isNonZero(weights_trimmed.back()))
+            weights_trimmed.pop_back();
+        if (weights_trimmed.empty())
+            weights_trimmed.push_back({ 0.0, 0.0 });
+
+        op_count[OPS::WSUMINPUTS] += weights_trimmed.size();
+        out_ctxt[i] = { .n = (int)weights_trimmed.size() - 1,
+            .target_level = target_level[i],
+            .weights = weights_trimmed,
+            .ctxt = &ctxs_result[i] };
+    }
+
+    std::sort(out_ctxt.begin(), out_ctxt.end(),
+        [](const ObjectiveComplex& lhs, const ObjectiveComplex& rhs) { return lhs.n < rhs.n || (lhs.n == rhs.n && lhs.ctxt < rhs.ctxt); });
+
+    constexpr int MAX_OUTPUTS = 8;
+
+    int groups = (n_out + MAX_OUTPUTS - 1) / MAX_OUTPUTS;
+    while (n_out > 0) {
+        std::vector<ObjectiveComplex> out_ctxt_group;
+        int group_size = (n_out + groups - 1) / groups;
+        groups -= 1;
+        n_out -= group_size;
+
+        for (int i = 0; i < group_size; ++i) {
+            out_ctxt_group.emplace_back(out_ctxt.back());
+            out_ctxt.pop_back();
+        }
+
+        evalMultiplePartialLinearWSumComplexWithBiasInternal(ctxs, out_ctxt_group);
+    }
+
+    if (rescale) {
+        for (auto& i : ctxs_result)
+            i.rescale();
+    }
+
+    return ctxs_result;
+}
+
 void Ciphertext::addMultScalar(const Ciphertext& b, double d) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
@@ -1554,6 +1949,38 @@ void Ciphertext::addMultScalar(const Ciphertext& b, double d) {
 }
 
 void Ciphertext::addScalar(const Ciphertext& b, double c) {
+    this->copy(b);
+    this->addScalar(c);
+}
+
+void Ciphertext::addScalar(const std::complex<double> c) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    op_count[OPS::ADDSCALAR]++;
+
+    if (c.real() == 0.0 && c.imag() == 0.0) {
+        return;
+    }
+    // EvalAddInPlace(ct, complex) (ckksrns-leveledshe.cpp L81-106): the per-limb constant
+    // poly {re at 0, im at N/2} at the ciphertext's scale (ElemForEvalAddOrSub of the
+    // component magnitudes), the sign handled per component via the modulus complement
+    // (posreal/posimag), NTT'd and added to element 0 only — the constant never touches c1.
+    // No metadata updates (the reference doesn't change nsd/SF for a plain-add).
+    const int level = getLevel();
+    auto reVals = cc.ElemForEvalAddOrSub(level, std::abs(c.real()), NoiseLevel);
+    auto imVals = cc.ElemForEvalAddOrSub(level, std::abs(c.imag()), NoiseLevel);
+    const bool posreal = c.real() > 0.0;
+    const bool posimag = c.imag() > 0.0;
+    std::vector<uint64_t> reCoeffs(reVals.size()), imCoeffs(imVals.size());
+    for (size_t i = 0; i < reCoeffs.size(); ++i) {
+        reCoeffs[i] = posreal ? reVals[i] : cc.prime[i].p - reVals[i];
+        imCoeffs[i] = posimag ? imVals[i] : cc.prime[i].p - imVals[i];
+    }
+    RNSPoly F = BuildConstant2(cc, level, reCoeffs, imCoeffs);
+    c0.add(F, 1); // cv[0] += elemsComplex (eval domain)
+}
+
+void Ciphertext::addScalar(const Ciphertext& b, const std::complex<double> c) {
     this->copy(b);
     this->addScalar(c);
 }
@@ -1716,6 +2143,38 @@ void Ciphertext::keySwitch(const KeySwitchingKey& ksk) {
     c0.add(aux0, cc.N / 2);
 }
 
+void Ciphertext::keySwitchSparse(const KeySwitchingKey& ksk) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    assert(ksk.keyID == this->keyID);
+    assert(getLevel() == 0);
+    assert(cc.GPUid.size() == 1 && "keySwitchSparse: only single-GPU is implemented.");
+
+    // Exact Ql -> Ql*P' extension of c1 (centred lift of the single bottom limb).
+    RNSPoly& ext = cc.getKeySwitchAux();
+    ext.setLevel(0);
+    ext.SetModUp(false);
+    ext.copy(c1, false, cc.N);
+    ext.extendToSparseP();
+
+    // c1 * b, exact mod-down to Ql, accumulate into c0.
+    RNSPoly prod(cc, 0);
+    prod.copy(ext, false, cc.N);
+    prod.SetModUp(true);
+    prod.multElementAll(ksk.b, cc.N / 2);
+    // The Q limb stays in EVALUATION form (the fused NTT_MODDOWN tail is designed for the
+    // evaluation-domain product); exactModdown INTTs the special limbs itself.
+    prod.exactModdown(true, false, 0);
+    c0.add(prod, cc.N / 2);
+
+    // c1 * a, exact mod-down to Ql, becomes the new c1.
+    prod.copy(ext, false, cc.N);
+    prod.SetModUp(true);
+    prod.multElementAll(ksk.a, cc.N / 2);
+    prod.exactModdown(true, false, 0);
+    c1.copy(prod, false, cc.N);
+}
+
 void Ciphertext::sub(const Ciphertext& ciphertext, const Ciphertext& ciphertext1) {
     CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
     CKKS::SetCurrentContext(cc_);
@@ -1732,6 +2191,27 @@ void Ciphertext::subMutable(const Ciphertext& ciphertext, Ciphertext& ciphertext
     this->subMutable(ciphertext1);
 }
 
+void Ciphertext::raiseDegreeToLevel(int targetLevel) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc_);
+    // q_l = the last tower modulus of the target level (mirrors the reference's
+    // target->GetElements()[0].GetElementAtIndex(numElems - 1).GetModulus()).
+    const uint32_t numTowers  = static_cast<uint32_t>(getLevel()) + 1;
+    const uint32_t tNumTowers = static_cast<uint32_t>(targetLevel) + 1;
+    const uint64_t q          = (tNumTowers - 1 < cc.prime.size())
+                                    ? cc.prime[tNumTowers - 1].p
+                                    : cc.specialPrime[tNumTowers - 1 - cc.prime.size()].p;
+    std::vector<uint64_t> crtQ(numTowers);
+    for (uint32_t i = 0; i < numTowers; ++i) {
+        const uint64_t m = (i < cc.prime.size()) ? cc.prime[i].p : cc.specialPrime[i - cc.prime.size()].p;
+        crtQ[i]          = q % m;
+    }
+    c0.multScalar(crtQ);
+    c1.multScalar(crtQ);
+    NoiseLevel += 1;
+    NoiseFactor *= cc.param.ScalingFactorReal.at(getLevel());
+}
+
 bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, const double scaling_factor) {
     assert(scaleDegree == 2 ? std::abs(cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] - cc.param.ScalingFactorRealBig[level]) /
                     (cc.param.ScalingFactorReal[level - 1] * cc.param.ModReduceFactor[level] + cc.param.ScalingFactorRealBig[level]) <
@@ -1745,6 +2225,48 @@ bool Ciphertext::adjustScaleAndLevel(const int scaleDegree, const int level, con
     uint32_t c2depth = scaleDegree;
     auto sizeQl1 = c1lvl + 1;
     // auto sizeQl2 = c2lvl + 1;
+
+    // OpenFHE 4a31f521 (AdjustLevelsAndDepthInPlace, first FIXED branch): under FIXEDMANUAL/FIXEDAUTO
+    // operands of equal noise-scale degree already carry the same power of Delta, so aligning them is
+    // only a tower drop — the FLEXIBLE maneuver below (multiply by Delta, rescale) would leave a
+    // Delta/q_l residual on the value (~2^-33) and spend a scalar mult + rescale for nothing.
+    if ((cc.rescaleTechnique == FIXEDMANUAL || cc.rescaleTechnique == FIXEDAUTO) && c1depth == c2depth) {
+        if (c1lvl > c2lvl)
+            this->dropToLevel(static_cast<int>(c2lvl), true);
+        else if (c1lvl < c2lvl)
+            // The reference reduces the deeper operand; `this` is the shallower one, so signal the
+            // caller to reduce the other (add/mult then copy+adjust it). Equal level -> genuine
+            // no-op, reported as success so no temporary copy is made.
+            return false;
+        return true;
+    }
+
+    // OpenFHE 4a31f521 (AdjustLevelsAndDepthInPlace, FIXEDAUTO degree-mismatch branch; equal degrees
+    // were handled above). A degree-2 operand is rescaled when the other has degree 1 and more towers
+    // dropped; otherwise the degree-1 operand is multiplied by the target's last-tower prime q_l,
+    // which the eventual rescale divides out exactly. FIDESlib's level convention is the reference's
+    // flipped (higher level == more towers), so `this` is the more-tower operand when c1lvl > c2lvl.
+    if (cc.rescaleTechnique == FIXEDAUTO) {
+        if (c1lvl == c2lvl) {
+            if (c1depth < c2depth) {
+                this->raiseDegreeToLevel(static_cast<int>(c2lvl));
+                return true;
+            }
+            // The reference raises the *other* (shallower-degree) operand; signal the caller to
+            // adjust it (add/mult then copy+adjust the second operand).
+            return false;
+        }
+        if (c1lvl > c2lvl) {
+            if (this->NoiseLevel == 2)
+                this->rescaleInternal();
+            else
+                this->raiseDegreeToLevel(static_cast<int>(c2lvl));
+            if (getLevel() > static_cast<int32_t>(c2lvl))
+                this->dropToLevel(static_cast<int>(c2lvl), true);
+            return true;
+        }
+        return false;
+    }
 
     if (c1lvl > c2lvl) {
         if (c1depth == 2) {
@@ -2111,5 +2633,15 @@ void Ciphertext::printOpRecord() {
     }
     std::cout << "|--------------------------------------|" << std::endl;
 }
+
+// Explicit instantiations of the templated weighted sum — the only two scalar types the
+// EvalPartialLinearWSumWithBias weights take (double: the real Chebyshev/evalLinearWSum
+// path; std::complex<double>: the complex weighted sums).
+template void Ciphertext::evalPartialLinearWSumWithBias<double>(const std::vector<Ciphertext*>& ctxs,
+                                                                std::vector<double> weights, double bias, int limit,
+                                                                int target_level, int rescale);
+template void Ciphertext::evalPartialLinearWSumWithBias<std::complex<double>>(
+    const std::vector<Ciphertext*>& ctxs, std::vector<std::complex<double>> weights, std::complex<double> bias,
+    int limit, int target_level, int rescale);
 
 } // namespace FIDESlib::CKKS

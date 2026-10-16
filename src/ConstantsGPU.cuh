@@ -29,6 +29,9 @@ struct Scheme::Global {};
 
 struct Constants {
     int N, L, K, logN;
+    // Runtime gate: select ExactModDown2 (exact HPS P'->Q with the alpha*P' correction) instead
+    // of the approximate ModDown2. Set for the sparse secret-encapsulation switchable context.
+    int exact_moddown;
     uint64_t type;
     uint64_t primes[MAXP];
     uint64_t prime_better_barret_mu[MAXP];
@@ -125,6 +128,10 @@ struct Global {
     uint64_t ModDown_pre_scale_shoup[MAXP];
     uint64_t ModDown_matrix[MAXP][MAXP];
     uint64_t ModDown_matrix_shoup[MAXP][MAXP];
+    uint64_t ExactModDown_alphaP[MAXP][MAXP];
+    double ExactModDown_pInv[MAXP];
+    uint64_t ExactModUp_alphaQ[MAXP][MAXP];
+    double ExactModUp_qInv[MAXP];
 
     uint64_t DecompAndModUp_pre_scale[MAXD][MAXP][MAXP];
     uint64_t DecompAndModUp_pre_scale_shoup[MAXD][MAXP][MAXP];
@@ -154,6 +161,16 @@ struct Global {
         uint64_t ModDown_pre_scale_shoup[MAXP];
         uint64_t ModDown_matrix[MAXP * MAXP];
         uint64_t ModDown_matrix_shoup[MAXP * MAXP];
+        // Exact-HPS sparse mod-down overflow correction [a*P']_{q_i}, a in [0, K]. Only used by
+        // the sparse secret-encapsulation key switch (KeySwitchSparse).
+        uint64_t ExactModDown_alphaP[MAXP * MAXP];
+        // 1/p'_j stored as the reference does (1.0 / ConvertToDouble()), so the fractional
+        // overflow count is bit-identical to OpenFHE's SwitchCRTBasis.
+        double ExactModDown_pInv[MAXP];
+        // Exact Ql -> P' mod-up (centred lift): [a*Ql]_{p'_j} (a*MAXP + special primeid) and
+        // 1/q_i for q_i in Ql (indexed by the Q primeid).
+        uint64_t ExactModUp_alphaQ[MAXP * MAXP];
+        double ExactModUp_qInv[MAXP];
 
         uint64_t DecompAndModUp_pre_scale[MAXD * MAXP * MAXP];
         uint64_t DecompAndModUp_pre_scale_shoup[MAXD * MAXP * MAXP];

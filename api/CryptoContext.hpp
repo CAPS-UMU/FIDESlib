@@ -5,6 +5,8 @@
 #include <complex>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
+#include <map>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -185,6 +187,7 @@ template <> class CryptoContextImpl<DCRTPoly> {
 
     Ciphertext<DCRTPoly> EvalBootstrap(const Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations = 1, uint32_t precision = 0, bool prescaled = false);
     void EvalBootstrapInPlace(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations = 1, uint32_t precision = 0, bool prescaled = false);
+    Ciphertext<DCRTPoly> EvalBootstrapStCFirst(const Ciphertext<DCRTPoly>& ciphertext, uint32_t numIterations = 1, uint32_t precision = 0);
 
     Ciphertext<DCRTPoly> AccumulateSum(const Ciphertext<DCRTPoly>& ct, int slots, int stride = 1);
     void AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride = 1);
@@ -225,7 +228,29 @@ template <> class CryptoContextImpl<DCRTPoly> {
     std::vector<uint32_t> slots_bootstrap;
     /// @brief Secret key distribution.
     SecretKeyDist keyDist = UNIFORM_TERNARY;
+    /// @brief Bootstrapping mode each slot was set up for (standard / SlotsToCoeffs-first). All
+    /// modes share one OpenFHE precomputation entry per slot count, so this is used to reject
+    /// conflicting setups and mismatched evaluations.
+    std::map<uint32_t, fideslib::BootstrapMode> bootstrap_mode;
 
+  private:
+    // ---- Bootstrapping guardrails (shared OpenFHE precomputation entries) ----
+
+    /// @brief Register @p mode as the bootstrapping mode of @p slot, throwing if the slot is
+    /// already configured for a different mode.
+    void RecordBootstrapMode(uint32_t slot, fideslib::BootstrapMode mode);
+    /// @brief Throw if @p slot is already configured for a bootstrapping mode different from
+    /// @p mode. Called before a setup mutates OpenFHE's shared precomputation entry.
+    void CheckBootstrapModeConflict(uint32_t slot, fideslib::BootstrapMode mode) const;
+    /// @brief Throw unless @p slot is configured for one of @p allowed. `who` names the caller.
+    void CheckBootstrapMode(uint32_t slot, std::initializer_list<fideslib::BootstrapMode> allowed,
+                            const char* who) const;
+    /// @brief Throw unless @p slot has any bootstrapping precomputation.
+    void RequireBootstrapPrecomputation(uint32_t slot, const char* who) const;
+    /// @brief Resolve the slot count a setup call will register (0 => full packing M/4).
+    uint32_t ResolveBootstrapSlots(uint32_t slots) const;
+
+  public:
     // ---- Copy helpers ----
 
     uint32_t CopyDeviceCiphertext(const CiphertextImpl<DCRTPoly>& ct);

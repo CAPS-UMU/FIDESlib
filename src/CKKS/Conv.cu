@@ -130,6 +130,160 @@ ModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict
 
 #undef YY
 
+// Exact HPS CRT basis switch from the special basis P' back to the bottom Q basis, i.e. the
+// mod-down of the sparse secret-encapsulation key switch (OpenFHE FHECKKSRNS::KeySwitchSparse,
+// DCRTPoly::SwitchCRTBasis). Identical to ModDown2 except that it tracks the balanced overflow
+// count nu = 0.5 + sum_j x_j/p'_j, alpha = floor(nu), and subtracts [alpha*P']_{q_i} before the
+// reduction. `a` receives sum_j (x_j * [P'/p'_j]_{q_i}) - [alpha*P']_{q_i}; the trailing
+// (x_q - a) * P'^{-1} is applied by the caller's NTT_MODDOWN fusion, exactly as for ModDown2.
+template <ALGO algo>
+__global__ void
+ExactModDown2(void** __restrict__ a, const __grid_constant__ int n, void** __restrict__ b, const __grid_constant__ int primeid_init, const Global::Globals* Globals) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int tid = threadIdx.x;
+    extern __shared__ char shared_mem[];
+
+    uint64_t* buff = &((uint64_t*)shared_mem)[0];
+
+    // Stage the P' limbs pre-scaled by [P'/p'_j]^{-1}_{p'_j} (same as ModDown2, including the
+    // Shoup precompute for algo == 3).
+    for (int i = threadIdx.y; i < C_.K; i += blockDim.y) {
+        int primeid = i + C_.L;
+        if constexpr (algo != 3) {
+            if (ISU64(primeid)) {
+                buff[tid + blockDim.x * i] = modmult<algo>(((uint64_t*)(b[i]))[idx], G_->ModDown_pre_scale[primeid], primeid);
+            } else {
+                buff[tid + blockDim.x * i] =
+                    modmult<algo>((uint64_t)((uint32_t*)b[i])[idx], G_->ModDown_pre_scale[primeid], primeid);
+            }
+        } else {
+            if (ISU64(primeid)) {
+                buff[tid + blockDim.x * i] = modmult<algo>(((uint64_t*)(b[i]))[idx], G_->ModDown_pre_scale[primeid], primeid,
+                                                           G_->ModDown_pre_scale_shoup[primeid]);
+            } else {
+                buff[tid + blockDim.x * i] = modmult<algo>((uint64_t)((uint32_t*)b[i])[idx], G_->ModDown_pre_scale[primeid],
+                                                           primeid, G_->ModDown_pre_scale_shoup[primeid]);
+            }
+        }
+    }
+    __syncthreads();
+
+    // Balanced overflow count: nu = 0.5 + sum_j x_j / p'_j, alpha = floor(nu). The 1/p'_j
+    // constants are stored verbatim (not recomputed by division) to match the reference.
+    double nu = 0.5;
+    for (int i = 0; i < C_.K; ++i) {
+        const int primeid = i + C_.L;
+        nu += (double)buff[tid + blockDim.x * i] * G_->ExactModDown_pInv[primeid];
+    }
+    int alpha = (int)nu;
+    if (alpha < 0)
+        alpha = 0;
+    if (alpha > C_.K)
+        alpha = C_.K;
+
+    for (int j = threadIdx.y; j < n; j += blockDim.y) {
+        int primeid = C_.primeid_flattened[primeid_init + j];
+        __uint128_t res = 0;
+        for (int i = 0; i < C_.K; ++i)
+            res = res + (__uint128_t)buff[i * blockDim.x + tid] * G_->ModDown_matrix[MODDOWN_MATRIX(i, primeid)];
+
+        uint64_t cur = modreduce<ALGO_SHOUP>(res, primeid);
+        cur = modsub(cur, G_->ExactModDown_alphaP[alpha * MAXP + primeid], primeid);
+        if (!ISU64(primeid)) {
+            ((uint32_t*)a[j])[idx] = (uint32_t)cur;
+        } else {
+            ((uint64_t*)a[j])[idx] = cur;
+        }
+    }
+}
+
+#define YY(algo)                                  \
+    template __global__ void ExactModDown2<algo>( \
+        void** __restrict__ a, const __grid_constant__ int n, void** __restrict__ b, const __grid_constant__ int primeid_init, const Global::Globals* Globals);
+
+#include "ntt_types.inc"
+
+#undef YY
+
+// Exact HPS CRT basis switch from the bottom Ql basis to the special basis P', i.e. the mod-up of
+// the sparse secret-encapsulation key switch (OpenFHE ExtendSparseKSToP). Identical to
+// DecompAndModUpConv except that it tracks nu = 0.5 + sum_i x_i/q_i, alpha = floor(nu), and
+// subtracts [alpha*Ql]_{p'_j}: the centred lift. Single-limb Ql gives the centred SwitchModulus.
+template <ALGO algo>
+__global__ void
+ExactModUpConv(void** __restrict__ a, const int __grid_constant__ n, void** __restrict__ b, const int __grid_constant__ d, const Global::Globals* Globals) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int tid = threadIdx.x;
+    extern __shared__ char shared_mem[];
+    uint64_t* buff = ((uint64_t*)shared_mem);
+
+    const int n_d_n = C_.num_primeid_digit_from[d][n - 1];
+    for (int i_ = threadIdx.y; i_ < n_d_n; i_ += blockDim.y) {
+        const int primeid = C_.primeid_digit_from[d][i_];
+        const int pos = i_;
+        if constexpr (algo != 3) {
+            if (ISU64(primeid)) {
+                uint64_t val = __ldg(&(reinterpret_cast<uint64_t*>(a[pos]))[idx]);
+                buff[tid + blockDim.x * i_] =
+                    modmult<algo>(val, G_->DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)], primeid);
+            } else {
+                buff[tid + blockDim.x * i_] = modmult<algo>((uint64_t)((uint32_t*)a[pos])[idx],
+                                                            G_->DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)], primeid);
+            }
+        } else {
+            if (ISU64(primeid)) {
+                uint64_t val = __ldg(&(reinterpret_cast<uint64_t*>(a[pos]))[idx]);
+                buff[tid + blockDim.x * i_] = modmult<algo>(val, G_->DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)],
+                                                            primeid, G_->DecompAndModUp_pre_scale_shoup[MODUPIDX_SCALE(d, n_d_n - 1, primeid)]);
+            } else {
+                buff[tid + blockDim.x * i_] = modmult<algo>((uint64_t)((uint32_t*)a[pos])[idx],
+                                                            G_->DecompAndModUp_pre_scale[MODUPIDX_SCALE(d, n_d_n - 1, primeid)], primeid,
+                                                            G_->DecompAndModUp_pre_scale_shoup[MODUPIDX_SCALE(d, n_d_n - 1, primeid)]);
+            }
+        }
+    }
+    __syncthreads();
+
+    // Balanced overflow count over the source digit limbs (1/q_i stored verbatim).
+    double nu = 0.5;
+    for (int i_ = 0; i_ < n_d_n; ++i_) {
+        const int primeid = C_.primeid_digit_from[d][i_];
+        nu += (double)buff[tid + blockDim.x * i_] * G_->ExactModUp_qInv[primeid];
+    }
+    int alpha = (int)nu;
+    if (alpha < 0)
+        alpha = 0;
+    if (alpha > n_d_n)
+        alpha = n_d_n;
+
+    for (int j_ = threadIdx.y; j_ < C_.num_primeid_digit_to[d][n - 1]; j_ += blockDim.y) {
+        const int primeid_j = C_.primeid_digit_to[d][j_];
+        if (primeid_j < n || primeid_j >= C_.L) {
+            __uint128_t res = 0;
+            for (int i_ = 0; i_ < n_d_n; ++i_) {
+                const int primeid = C_.primeid_digit_from[d][i_];
+                res = res + (__uint128_t)buff[i_ * blockDim.x + tid] *
+                                G_->DecompAndModUp_matrix[MODUPIDX_MATRIX(n - 1, d, primeid, primeid_j)];
+            }
+            uint64_t cur = modreduce<ALGO_SHOUP>(res, primeid_j);
+            cur          = modsub(cur, G_->ExactModUp_alphaQ[alpha * MAXP + primeid_j], primeid_j);
+            if (!ISU64(primeid_j)) {
+                ((uint32_t*)b[j_])[idx] = (uint32_t)cur;
+            } else {
+                ((uint64_t*)b[j_])[idx] = cur;
+            }
+        }
+    }
+}
+
+#define YY(algo)                                 \
+    template __global__ void ExactModUpConv<algo>( \
+        void** __restrict__ a, const int __grid_constant__ n, void** __restrict__ b, const int __grid_constant__ d, const Global::Globals* Globals);
+
+#include "ntt_types.inc"
+
+#undef YY
+
 template <ALGO algo>
 __global__ void
 ModDown3(void** __restrict__ a, const __grid_constant__ int n, void** __restrict__ b, const __grid_constant__ int primeid_init, const Global::Globals* Globals) {

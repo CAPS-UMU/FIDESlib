@@ -1187,8 +1187,12 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                     throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
                 int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
 
-                DecompAndModUpConv<ALGO_SHOUP>
-                    <<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+                if (cc.precom.constants[id].exact_moddown)
+                    ExactModUpConv<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(
+                        DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
+                else
+                    DecompAndModUpConv<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream1.ptr()>>>(
+                        DECOMPlimbptr[d_].data, *level + 1, DIGITlimbptr[d_].data, digitid[d_], getGlobals());
             } else {
                 dim3 blockSize{ 64, 2 };
                 dim3 gridSize{ (uint32_t)cc.N / blockSize.x / 2 };
@@ -1536,9 +1540,14 @@ std::cout << c1.bufferLIMB << " " << c1.bufferGATHER << " " << c1.bufferDECOMPan
                     if (SPECIALlimb.size() < moddown_K)
                         throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
                     int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
-                    if (limb_size > 0)
-                        ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-                            auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+                    if (limb_size > 0) {
+                        if (cc.precom.constants[id].exact_moddown)
+                            ExactModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
+                                auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+                        else
+                            ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
+                                auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+                    }
                 } else {
                     if (i_ == 1)
                         stream.wait(c1.s);
@@ -2654,9 +2663,14 @@ void LimbPartition::moddownMGPU(LimbPartition& auxLimbs, bool ntt, bool free_spe
             if (SPECIALlimb.size() < moddown_K)
                 throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
             int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
-            if (limb_size > 0)
-                ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
-                    auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+            if (limb_size > 0) {
+                if (cc.precom.constants[id].exact_moddown)
+                    ExactModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
+                        auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+                else
+                    ModDown2<ALGO_SHOUP><<<gridSize, blockSize, shared_bytes, stream.ptr()>>>(
+                        auxLimbs.limbptr.data, limb_size, auxLimbs.SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+            }
         } else {
             dim3 blockSize{ 64, 2 };
 

@@ -102,6 +102,21 @@ __global__ void eval_batched_linear_w_sum_with_bias_(const __grid_constant__
 
     const __grid_constant__ bool isC1);
 
+__global__ void eval_linear_w_sum_complex_(const __grid_constant__ int n, void** a, void*** bs,
+                                           uint64_t* w, const Global::Globals* Globals,
+                                           const __grid_constant__ int primeid_init,
+                                           const __grid_constant__ bool with_bias);
+
+__global__ void eval_batched_linear_w_sum_complex_with_bias_(const __grid_constant__ int n,
+    const __grid_constant__ int results,
+    void*** a,
+    void*** bs,
+    uint64_t* w,
+    int* target_limbsize,
+    const Global::Globals* Globals,
+    const __grid_constant__ int primeid_init,
+    const __grid_constant__ bool isC1);
+
 __global__ void fusedDotKSK_2_(void** out1, void** sout1, void** out2, void** sout2, void*** digits, int num_d, int id, int num_special, int init);
 __global__ void hoistedRotateDotKSK_2_(void*** din1,
     void** c0,

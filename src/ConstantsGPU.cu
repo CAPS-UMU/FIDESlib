@@ -171,6 +171,12 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
         hC_.logN = (int)std::bit_width((uint32_t)N) - 1;
         hC_.L = q.size();
         hC_.K = p.size();
+        // Exact P'->Q / Ql->P' base switches for the sparse secret-encapsulation switchable
+        // context. DISABLED: the fused modup_ksk_moddown_mgpu decomposition product is not
+        // equivalent to OpenFHE's plain GHS product under exact switching (enabling it breaks
+        // even value-level); the non-fused plain-product composition is the structural match.
+        // See docs/PD3-sparse-keyswitch.md §9.
+        hC_.exact_moddown = 0;
 
         hC_.type = 0;
         for (auto& i : meta)
@@ -519,6 +525,45 @@ std::pair<std::vector<Constants>, std::unique_ptr<Global>> SetupConstants(const 
                                        */
                     cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix), hG_.ModDown_matrix, bytes, cudaMemcpyHostToDevice);
                     cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ModDown_matrix_shoup), hG_.ModDown_matrix_shoup, bytes, cudaMemcpyHostToDevice);
+                    CudaCheckErrorMod;
+                }
+            }
+
+            // Exact-HPS sparse mod-down overflow correction [a*P']_{q_i} (a = 0..K). Present
+            // only when GetRawParams ran with sparseKS on a SPARSE_ENCAPSULATED source context.
+            {
+                std::memset(hG_.ExactModDown_alphaP, 0, sizeof(hG_.ExactModDown_alphaP));
+                std::memset(hG_.ExactModDown_pInv, 0, sizeof(hG_.ExactModDown_pInv));
+                auto& src = param.raw->SparseAlphaPModq;
+                for (size_t a = 0; a < src.size() && a < MAXP; ++a)
+                    for (size_t i = 0; i < src[a].size() && i < MAXP; ++i)
+                        hG_.ExactModDown_alphaP[a][i] = src[a][i];
+                // 1/p'_j is indexed by the special primeid (hC_.L + j) in the kernel.
+                for (size_t j = 0; j < param.raw->SparseKSpInv.size() && (hC_.L + j) < MAXP; ++j)
+                    hG_.ExactModDown_pInv[hC_.L + j] = param.raw->SparseKSpInv[j];
+
+                std::memset(hG_.ExactModUp_alphaQ, 0, sizeof(hG_.ExactModUp_alphaQ));
+                std::memset(hG_.ExactModUp_qInv, 0, sizeof(hG_.ExactModUp_qInv));
+                for (size_t a = 0; a < param.raw->SparseAlphaQlModp.size() && a < MAXP; ++a)
+                    for (size_t j = 0; j < param.raw->SparseAlphaQlModp[a].size() && (hC_.L + j) < MAXP; ++j)
+                        hG_.ExactModUp_alphaQ[a][hC_.L + j] = param.raw->SparseAlphaQlModp[a][j];
+                for (size_t i = 0; i < param.raw->SparseQlInv.size() && i < MAXP; ++i)
+                    hG_.ExactModUp_qInv[i] = param.raw->SparseQlInv[i];
+
+                constexpr int bytesA = sizeof(Global::ExactModDown_alphaP);
+                constexpr int bytesI = sizeof(Global::ExactModDown_pInv);
+                constexpr int bytesAQ = sizeof(Global::ExactModUp_alphaQ);
+                constexpr int bytesQI = sizeof(Global::ExactModUp_qInv);
+                for (uint32_t i = 0; i < GPUid.size(); ++i) {
+                    cudaSetDevice(GPUid[i]);
+                    cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ExactModDown_alphaP),
+                               hG_.ExactModDown_alphaP, bytesA, cudaMemcpyHostToDevice);
+                    cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ExactModDown_pInv),
+                               hG_.ExactModDown_pInv, bytesI, cudaMemcpyHostToDevice);
+                    cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ExactModUp_alphaQ),
+                               hG_.ExactModUp_alphaQ, bytesAQ, cudaMemcpyHostToDevice);
+                    cudaMemcpy(((char*)hG_.globals[i]) + offsetof(Global::Globals, ExactModUp_qInv),
+                               hG_.ExactModUp_qInv, bytesQI, cudaMemcpyHostToDevice);
                     CudaCheckErrorMod;
                 }
             }

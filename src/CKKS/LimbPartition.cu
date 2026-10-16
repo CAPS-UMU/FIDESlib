@@ -636,6 +636,47 @@ void LimbPartition::multElement(const LimbPartition& p, int slots) {
     p.getS().wait(s);
 }
 
+void LimbPartition::multElementSpecial(const LimbPartition& p, int slots) {
+    cudaSetDevice(device);
+    const int ssize = (int)SPECIALlimb.size();
+    if (ssize == 0)
+        return;
+    assert(ssize <= (int)p.SPECIALlimb.size());
+
+    s.wait(p.getS());
+    for (int i = 0; i < ssize; i += cc.batch) {
+        STREAM(SPECIALlimb[i]).wait(s);
+        uint32_t num_limbs = std::min((uint32_t)(ssize - i), (uint32_t)cc.batch);
+        Mult_<<<dim3{ (uint32_t)GetGridDimX(), num_limbs }, GetBlockDimX(), 0, STREAM(SPECIALlimb[i]).ptr()>>>(
+            SPECIALlimbptr.data + i, SPECIALlimbptr.data + i, p.SPECIALlimbptr.data + i, SPECIAL(id, i), 2 * slots);
+    }
+    for (int i = 0; i < ssize; i += cc.batch) {
+        s.wait(STREAM(SPECIALlimb[i]));
+    }
+    p.getS().wait(s);
+}
+
+void LimbPartition::broadcastLimb0ToSpecial() {
+    cudaSetDevice(device);
+    const int ssize = (int)SPECIALlimb.size();
+    if (ssize == 0)
+        return;
+    broadcastLimb0_mgpu_<<<dim3{ (uint32_t)GetGridDimX(), (uint32_t)ssize }, GetBlockDimX(), 0, s.ptr()>>>(
+        SPECIALlimbptr.data, SPECIAL(id, 0), limbptr.data);
+}
+
+void LimbPartition::NTTspecial() {
+    cudaSetDevice(device);
+    if (SPECIALlimb.empty())
+        return;
+    for (size_t i = 0; i < SPECIALlimb.size(); i += cc.batch)
+        STREAM(SPECIALlimb[i]).wait(s);
+    ApplyNTT<ALGO_SHOUP, NTT_NONE>(cc.batch, NTT_fusion_fields{}, SPECIALlimb, SPECIALlimbptr, SPECIALauxptr, cc,
+                                   SPECIAL(id, 0), SPECIALlimb.size());
+    for (size_t i = 0; i < SPECIALlimb.size(); i += cc.batch)
+        s.wait(STREAM(SPECIALlimb[i]));
+}
+
 void LimbPartition::multElement(const LimbPartition& partition1, const LimbPartition& partition2, int slots_p2) {
     cudaSetDevice(device);
     int limbsize = getLimbSize(*level);
@@ -862,7 +903,12 @@ void LimbPartition::modup(LimbPartition& aux_partition) {
             if (size != conv_from)
                 throw std::runtime_error("modup: digit limb count != n_d_n (digit decomposition must be a contiguous ascending partition of the prime order)");
             int shared_bytes = sizeof(uint64_t) * conv_from * blockSize.x;
-            DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s_d.ptr()>>>(DECOMPlimbptr[d].data, *level + 1, DIGITlimbptr[d].data, digitid[d], getGlobals());
+            if (cc.precom.constants[id].exact_moddown)
+                ExactModUpConv<algo><<<gridSize, blockSize, shared_bytes, s_d.ptr()>>>(
+                    DECOMPlimbptr[d].data, *level + 1, DIGITlimbptr[d].data, digitid[d], getGlobals());
+            else
+                DecompAndModUpConv<algo><<<gridSize, blockSize, shared_bytes, s_d.ptr()>>>(
+                    DECOMPlimbptr[d].data, *level + 1, DIGITlimbptr[d].data, digitid[d], getGlobals());
         }
         if constexpr (PRINT) {
             cudaDeviceSynchronize();
@@ -2082,7 +2128,12 @@ template <ALGO algo> void LimbPartition::moddown(LimbPartition& auxLimbs, bool n
                 throw std::runtime_error("moddown: SPECIALlimb.size() < K (kernel stages C_.K special lanes, the buffer cannot index them)");
             int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
 
-            ModDown2<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(auxLimbs.limbptr.data, limbsize, SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+            if (cc.precom.constants[id].exact_moddown)
+                ExactModDown2<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(
+                    auxLimbs.limbptr.data, limbsize, SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+            else
+                ModDown2<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(
+                    auxLimbs.limbptr.data, limbsize, SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
         }
 
         if constexpr (PRINT) {
@@ -2117,6 +2168,68 @@ template <ALGO algo> void LimbPartition::moddown(LimbPartition& auxLimbs, bool n
 }
 
 #define YY(algo) template void LimbPartition::moddown<algo>(LimbPartition & auxLimbs, bool ntt, bool free_special_limbs);
+#include "ntt_types.inc"
+
+#undef YY
+
+// Same shape as moddown, but the P'->Q switch is the exact HPS one (ExactModDown2): it adds the
+// balanced overflow correction [alpha*P']_{q_i}. Used by the sparse secret-encapsulation key
+// switch only; the ordinary moddown stays approximate and bit-exact to OpenFHE's HYBRID path.
+template <ALGO algo> void LimbPartition::exactModdown(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs) {
+    assert(SPECIALlimb.size() == SPECIALmeta.size());
+    const int limbsize = *level + 1;
+    cudaSetDevice(device);
+    constexpr bool PRINT = false;
+
+    s.wait(auxLimbs.getS());
+    {
+        if constexpr (PRINT) {
+            std::cout << "pre INTT Special GPU ";
+            for (auto& i : SPECIALlimb) {
+                SWITCH(i, printThisLimb(2));
+            }
+        }
+
+        if (ntt) {
+            for (size_t i = 0; i < SPECIALlimb.size(); i += cc.batch) {
+                STREAM(SPECIALlimb[i]).wait(s);
+            }
+            ApplyINTT<algo, INTT_NONE>(cc.batch, INTT_fusion_fields{}, SPECIALlimb, SPECIALlimbptr, SPECIALauxptr, cc, SPECIAL(id, 0), SPECIALlimb.size());
+            for (size_t i = 0; i < SPECIALlimb.size(); i += cc.batch) {
+                s.wait(STREAM(SPECIALlimb[i]));
+            }
+        }
+
+        s.wait(auxLimbs.getS());
+        {
+            dim3 blockSize{ 64, 2 };
+            dim3 gridSize{ (uint32_t)cc.N / blockSize.x };
+            const size_t moddown_K = (size_t)cc.precom.constants[id].K;
+            if (SPECIALlimb.size() < moddown_K)
+                throw std::runtime_error("exactModdown: SPECIALlimb.size() < K (kernel stages K special lanes)");
+            int shared_bytes = sizeof(uint64_t) * moddown_K * blockSize.x;
+            ExactModDown2<algo><<<gridSize, blockSize, shared_bytes, s.ptr()>>>(
+                auxLimbs.limbptr.data, limbsize, SPECIALlimbptr.data, PARTITION(id, 0), getGlobals());
+        }
+
+        for (int i = 0; i < limbsize; i += cc.batch) {
+            STREAM(limb.at(i)).wait(s);
+        }
+        if (limbsize > 0)
+            NTT<algo, NTT_MODDOWN>(cc.batch, false, NTT_fusion_fields{ .op2 = &auxLimbs });
+
+        for (int i = 0; i < limbsize; i += cc.batch) {
+            s.wait(STREAM(limb.at(i)));
+        }
+    }
+    auxLimbs.getS().wait(s);
+
+    if (free_special_limbs) {
+        freeSpecialLimbs();
+    }
+}
+
+#define YY(algo) template void LimbPartition::exactModdown<algo>(LimbPartition & auxLimbs, bool ntt, bool free_special_limbs);
 #include "ntt_types.inc"
 
 #undef YY
@@ -2563,6 +2676,99 @@ void LimbPartition::evalLinearWSumMultiple(int max_n,
     for (auto& i : out) {
         i->getS().wait(c.s);
     }
+}
+
+void LimbPartition::evalLinearWSumComplex(uint32_t n,
+    std::vector<const LimbPartition*> ps,
+    std::vector<uint64_t>& w,
+    bool with_bias) {
+    const int limbsize = getLimbSize(*level);
+    cudaSetDevice(device);
+    for (uint32_t i = 0; i < n; ++i) {
+        s.wait(ps[i]->getS());
+    }
+
+    std::vector<void**> psptr(n, nullptr);
+    for (uint32_t i = 0; i < n; ++i) {
+        psptr[i] = ps[i]->limbptr.data;
+        assert(ps[i]->limb.size() >= (size_t)limbsize);
+    }
+    void*** d_psptr;
+    cudaMallocAsync(&d_psptr, psptr.size() * sizeof(void**), s.ptr());
+    cudaMemcpyAsync(d_psptr, psptr.data(), psptr.size() * sizeof(void**), cudaMemcpyDefault, s.ptr());
+    uint64_t* d_w;
+    cudaMallocAsync(&d_w, w.size() * sizeof(uint64_t), s.ptr());
+    cudaMemcpyAsync(d_w, w.data(), w.size() * sizeof(uint64_t), cudaMemcpyDefault, s.ptr());
+
+    if (!limb.empty() && limbsize > 0) {
+        const int nb = static_cast<int>(n) + (with_bias ? 1 : 0);
+        const int shmem = 2 * nb * (int)sizeof(uint64_t);
+        eval_linear_w_sum_complex_<<<dim3{ (uint32_t)GetGridDimX(), (uint32_t)limbsize }, GetBlockDimX(), shmem, s.ptr()>>>(
+            n, limbptr.data, d_psptr, d_w, getGlobals(), PARTITION(id, 0), with_bias);
+    }
+    cudaFreeAsync(d_psptr, s.ptr());
+    cudaFreeAsync(d_w, s.ptr());
+    for (uint32_t i = 0; i < n; ++i) {
+        ps[i]->getS().wait(s);
+    }
+}
+
+void LimbPartition::evalLinearWSumComplexMultiple(int max_n,
+    const std::vector<const LimbPartition*>& in,
+    const std::vector<LimbPartition*>& out,
+    std::vector<uint64_t>& w,
+    bool isC1) {
+    auto& c = *out[0];
+    int limbsize = 0;
+    for (auto& i : out)
+        limbsize = std::max(limbsize, (int)i->getLimbSize(*i->level));
+
+    cudaSetDevice(c.device);
+    for (int i = 0; i < max_n; ++i)
+        c.s.wait(in[i]->getS());
+    for (auto& i : out)
+        c.s.wait(i->getS());
+
+    std::vector<void**> inptr(max_n, nullptr);
+    for (int32_t i = 0; i < max_n; ++i) {
+        inptr[i] = in[i]->limbptr.data;
+        assert(in[i]->limb.size() >= (size_t)limbsize);
+    }
+    std::vector<void**> outptr(out.size(), nullptr);
+    std::vector<int> target_limbsize(out.size(), 0);
+    for (uint32_t i = 0; i < out.size(); ++i) {
+        outptr[i] = out[i]->limbptr.data;
+        target_limbsize[i] = (int)out[i]->getLimbSize(*out[i]->level);
+    }
+
+    void*** d_inptr;
+    cudaMallocAsync(&d_inptr, inptr.size() * sizeof(void**), c.s.ptr());
+    void*** d_outptr;
+    cudaMallocAsync(&d_outptr, outptr.size() * sizeof(void**), c.s.ptr());
+    int* d_target_limbsize;
+    cudaMallocAsync(&d_target_limbsize, target_limbsize.size() * sizeof(int), c.s.ptr());
+    uint64_t* d_w;
+    cudaMallocAsync(&d_w, w.size() * sizeof(uint64_t), c.s.ptr());
+    cudaMemcpyAsync(d_inptr, inptr.data(), inptr.size() * sizeof(void**), cudaMemcpyDefault, c.s.ptr());
+    cudaMemcpyAsync(d_outptr, outptr.data(), outptr.size() * sizeof(void**), cudaMemcpyDefault, c.s.ptr());
+    cudaMemcpyAsync(d_target_limbsize, target_limbsize.data(), target_limbsize.size() * sizeof(int), cudaMemcpyDefault, c.s.ptr());
+    cudaMemcpyAsync(d_w, w.data(), w.size() * sizeof(uint64_t), cudaMemcpyDefault, c.s.ptr());
+
+    if (limbsize > 0) {
+        const int shmem = (int)(c.GetBlockDimX() * sizeof(uint64_t) * out.size() +
+                                out.size() * (max_n + 1) * 2 * sizeof(uint64_t));
+        eval_batched_linear_w_sum_complex_with_bias_<<<dim3{ (uint32_t)c.GetGridDimX(), (uint32_t)limbsize }, c.GetBlockDimX(),
+            shmem, c.s.ptr()>>>(
+            max_n, (int)out.size(), d_outptr, d_inptr, d_w, d_target_limbsize, c.getGlobals(), PARTITION(c.id, 0), isC1);
+    }
+    cudaFreeAsync(d_inptr, c.s.ptr());
+    cudaFreeAsync(d_outptr, c.s.ptr());
+    cudaFreeAsync(d_target_limbsize, c.s.ptr());
+    cudaFreeAsync(d_w, c.s.ptr());
+    for (int i = 0; i < max_n; ++i)
+        in[i]->getS().wait(c.s);
+    for (auto& i : out)
+        i->getS().wait(c.s);
 }
 
 /**

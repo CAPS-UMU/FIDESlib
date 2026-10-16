@@ -102,6 +102,21 @@ DECOMPlimbptr(std::move(lp.DECOMPlimbptr))
     static void
     evalLinearWSumMultiple(int max_n, const std::vector<const LimbPartition*>& in, const std::vector<LimbPartition*>& out, const std::vector<unsigned long int>& elem, bool isC1);
 
+    /// @brief Fused complex linear weighted sum: *this = sum_i ps[i] * w[i], where w packs each
+    /// term's complex constant as its two ElemForEvalMult CRT components {coef0, coef1}
+    /// (w[(2i)*MAXP+p], w[(2i+1)*MAXP+p]); the kernel forms the half-block NTT factor
+    /// F[half] = coef0 +/- psi*coef1. `with_bias` adds the pair at i==n to element 0.
+    void evalLinearWSumComplex(uint32_t n, std::vector<const LimbPartition*> ps,
+                               std::vector<uint64_t>& w, bool with_bias);
+
+    /// @brief Batched fused complex WSum: out[j] = sum_i in[i] * w[j*(max_n+1)+i] (+ the bias
+    /// pair at i==max_n on element 0 only). `w` is a single packed uint64 buffer.
+    static void evalLinearWSumComplexMultiple(int max_n,
+        const std::vector<const LimbPartition*>& in,
+        const std::vector<LimbPartition*>& out,
+        std::vector<uint64_t>& w,
+        bool isC1);
+
     enum GENERATION_MODE { AUTOMATIC, SINGLE_BUFFER, DUAL_BUFFER };
 
     void generate(std::vector<LimbRecord>& records,
@@ -127,11 +142,27 @@ DECOMPlimbptr(std::move(lp.DECOMPlimbptr))
 
     void multElement(const LimbPartition& p, int slots);
 
+    // Pointwise multiply of the special (P') limbs (the Q limbs are handled by multElement).
+    void multElementSpecial(const LimbPartition& p, int slots);
+
+    // Centred lift of Q limb 0 into every special (P') limb (exact Ql -> P' extension for a
+    // single-limb bottom basis; mirrors OpenFHE ExtendSparseKSToP's SwitchModulus branch).
+    void broadcastLimb0ToSpecial();
+
+    // Forward NTT of the special (P') limbs in place. LimbPartition::NTT only transforms the
+    // special limbs at level L+1 (the MODRAISE_WITH_P0 convention); the sparse key switch lifts
+    // them at level 0 and must convert them to evaluation form explicitly.
+    void NTTspecial();
+
     void multPt(const LimbPartition& p, int slots);
 
     void modup(LimbPartition& aux_partition);
 
     template <ALGO algo = ALGO_SHOUP> void moddown(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs);
+
+    // Exact HPS mod-down from P' to the bottom Q basis (sparse secret-encapsulation key switch).
+    // Same staging/tail as moddown, but tracks alpha and subtracts [alpha*P']_{q_i}.
+    template <ALGO algo = ALGO_SHOUP> void exactModdown(LimbPartition& auxLimbs, bool ntt, bool free_special_limbs);
 
     void rescale(int slots);
 

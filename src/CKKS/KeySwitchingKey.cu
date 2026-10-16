@@ -34,6 +34,21 @@ void KeySwitchingKey::Initialize(RawKeySwitchKey& rkk) {
     cudaDeviceSynchronize();
 }
 
+void KeySwitchingKey::InitializeSparse(RawKeySwitchKey& rkk) {
+    CudaNvtxRange r(std::string{ sc::current().function_name() }.substr());
+    CKKS::SetCurrentContext(cc);
+    keyID = rkk.keyid;
+
+    // rkk.r_key[0] = a, rkk.r_key[1] = b, each over Ql*P' (limbs of the DCRTPoly in order
+    // q0, p'_0, ...). RNSPoly::load routes the limbs by matching moduli against the context's
+    // Q and special bases, so this places q0 in the Q limb and the p'_j in the special limbs.
+    assert(!rkk.r_key.empty() && !rkk.r_key[0].empty());
+    a.load(rkk.r_key[0][0], rkk.r_key_moduli[0][0]);
+    b.load(rkk.r_key[1][0], rkk.r_key_moduli[1][0]);
+
+    cudaDeviceSynchronize();
+}
+
 KeySwitchingKey::KeySwitchingKey(Context& cc)
 : my_range(loc, LIFETIME), keyID(""), cc((assert(cc != nullptr), CudaNvtxStart(std::string{ sc::current().function_name() }.substr()), cc)),
   a(*cc, -1, false, true), b(*cc, -1, false, true) {
