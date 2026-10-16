@@ -2905,18 +2905,18 @@ TEST(OpenFHECompatTests, AccumulateSumInPlace) {
     ASSERT_ERROR_OK(r1, r2);
 }
 
-// AccumulateSumInPlace start-offset variant — DISABLED until the OpenFHE reference draft lands.
+// AccumulateSumInPlace start-offset variant.
 //
-// The GPU path now runs the SAME unified lazy radix fold as the plain variants: a single
+// The GPU path runs the unified lazy radix fold: a single
 // radix-parametrized `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots, start)` (P2b lazy
 // c1-per-level / c0-once discipline, metadata-neutral per O10, rotation set {start*radix^k*i}:
 // {2, 4, 6} for start=2, slots=8, radix 4) with the api-level `inputSlots` save/restore — see
-// the O8 sub-item. The CPU fallback, however, is still the eager doubling loop from `start`
-// (rotations {2, 4}) until the reference lands the start-offset `EvalPartialSumInPlace`
-// (deps/draft-start-accumulate-radix-lazy.patch): eager CPU vs lazy GPU are NOT bit-exact, so
-// this stays DISABLED_ (like DISABLED_EvalBootstrapFixedAuto) and must be re-enabled only after
-// the reference draft replaces the CPU fallback with the same lazy radix fold.
-TEST(OpenFHECompatTests, DISABLED_AccumulateSumInPlaceStart) {
+// the O8 sub-item. The CPU fallback now calls the start-offset `EvalPartialSumInPlace(ct, stride,
+// slots, radix, start)` from the patched OpenFHE reference (formerly
+// deps/draft-start-accumulate-radix-lazy.patch, now folded into
+// deps/fideslib-1.6.1-compile.patch), which runs the same lazy radix fold — so CPU and GPU are
+// bit-exact.
+TEST(OpenFHECompatTests, AccumulateSumInPlaceStart) {
     uint32_t multDepth = 2;
     uint32_t scaleModSize = 50;
     uint32_t batchSize = 8;
@@ -3808,7 +3808,8 @@ TEST(OpenFHECompatTests, AccumulateSumInPlaceStartOffset) {
     // x + rot2 + rot4 + rot6: the GPU lazy fold rotates the level-1 accumulator (the
     // input) by {2,4,6}, while the CPU fallback issues {2,4} against the compounding
     // accumulator (rot4 of x+rot2(x) contributes rot4(x)+rot6(x)). The two phases are
-    // value-equal but not bit-exact (see the DISABLED_AccumulateSumInPlaceStart test).
+    // value-equal; the api CPU path now runs the same lazy fold as the GPU, so the
+    // AccumulateSumInPlaceStart test pins it bit-exactly.
     uint32_t multDepth = 2;
     uint32_t scaleModSize = 50;
     uint32_t batchSize = 8;

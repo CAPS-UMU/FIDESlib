@@ -59,7 +59,7 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `EvalFastRotationExt` | PASS | extended-basis (no mod-down) rotations, single- and multi-index: GPU `rotate(.., moddown=false)` / `rotate_hoisted(.., ext=true)` produce the same 5-tower QL·P (extended) result as `EvalFastRotationExt` — fixed via the store/download extended-basis round-trip (R15) |
 | `UnloadCiphertext` | PASS | GPU→host export: `UnloadCiphertext` materializes the host copy (R15 basis-grow included) and evicts the GPU ciphertext; the host-only result serializes/deserializes and decrypts like the CPU reference (server→client return path) |
 | `SerializeCiphertextExtended` | PASS | extended-basis export: multi-index `EvalFastRotationExt` on GPU → unload → serialize → deserialize → decrypt equals direct decrypt and the CPU reference (R15 extended download) |
-| `DISABLED_AccumulateSumInPlaceStart` | **disabled** | O8 sub-item resolved on the FIDESlib side: the GPU now runs the single unified lazy radix fold `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots, start)` (P2b lazy c1-per-level/c0-once, metadata-neutral per O10, api-side slots restore); only the CPU fallback is still eager doubling because the built OpenFHE reference predates the start-offset `EvalPartialSumInPlace` draft — acceptance test for the reference (`deps/draft-start-accumulate-radix-lazy.patch`), see O8 |
+| `AccumulateSumInPlaceStart` | PASS | start-offset api rotation fold: the patched reference's start-offset `EvalPartialSumInPlace(ct, stride, size, radix, start)` runs the same unified lazy radix fold on the CPU as the GPU, so the variant is now bit-exact (O8 sub-item resolved) |
 | `EvalBootstrapSparseEncapsDense` | value-level PASS | SPARSE_ENCAPSULATED × fully packed: dual sparse-switch key layout validated at value level; bit-exactness deferred to the O6c fix (carve-out) |
 | `EvalBootstrapSparseEncapsLT` | value-level PASS | SPARSE_ENCAPSULATED × LT {1,1}: same dual-context layout; value-level contract only (O6c carve-out) |
 | `EvalBootstrapSparseEncaps` | value-level PASS | SPARSE_ENCAPSULATED sparse, level budget {3,3}: enabled at value level (the dual-context GPU design and the in-context stock reference agree in value; bit-exactness deferred to the O6c fix) |
@@ -190,12 +190,12 @@ fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMU
 the OpenFHE-visible slot count after the fold (whether that restore belongs in `Accumulate`
 itself is an open decision — see O10). Radix-2 keeps the rotation-key footprint at the
 power-of-two set (see O8, radix/key-size tradeoff — key minimization drove this choice).
-Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant now shares the
+Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant shares the same
 unified lazy radix fold on the GPU (single `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots,
-start)`; the separate eager `AccumulateCascadeImpl` is gone — see O8). Its CPU fallback still
-runs the eager doubling until the reference gains the start-offset `EvalPartialSumInPlace`
-(draft: `deps/draft-start-accumulate-radix-lazy.patch`), so
-`DISABLED_AccumulateSumInPlaceStart` stays disabled (O8 sub-item).
+start)`; the separate eager `AccumulateCascadeImpl` is gone — see O8). Its CPU fallback now calls
+the reference's start-offset `EvalPartialSumInPlace(ct, stride, size, radix, startFactor)` (folded
+into `deps/fideslib-1.6.1-compile.patch`), which runs the same lazy fold, so
+`OpenFHECompatTests.AccumulateSumInPlaceStart` is bit-exact (O8 sub-item resolved).
 
 ### R12. api `SetLevel` GPU path rescaled under AUTO techniques *(fixed)*
 `CiphertextImpl::SetLevel`'s device branch called `ct_gpu->dropToLevel(maxDepth - level)` with
@@ -595,14 +595,11 @@ the P2b lazy discipline for **all** start values (c1 settles once per level, c0 
 no more per-level `extend()`+`modDown` round-trip). The api binds the start variant to the same
 `ACCUMULATE_SUM_RADIX` macro as the plain paths (never a literal radix) and restores
 `inputSlots` after the call, matching the R11–O10 slots convention. Start=1 GPU behavior is
-unchanged bit-for-bit (the bootstrap PartialSum guard). The CPU fallback still runs the eager
-doubling `{start·2^i}` because the installed OpenFHE reference has no start-aware
-`EvalPartialSumInPlace`; the concrete reference draft is
-`deps/draft-start-accumulate-radix-lazy.patch` (5-arg `EvalPartialSumInPlace(ct, stride, size,
-radix, startFactor)`, level loop from `startFactor`, radix-2 = doubling of the remaining range,
-plus the api CPU-fallback swap). Eager CPU ≠ lazy GPU (never bit-exact), so
-`DISABLED_AccumulateSumInPlaceStart` must stay disabled until that reference lands and is
-rebuilt — re-enabling it then closes the last AccumulateSum gap.
+unchanged bit-for-bit (the bootstrap PartialSum guard). The CPU fallback now calls the reference's
+start-offset `EvalPartialSumInPlace(ct, stride, size, radix, startFactor)` (5-arg overload, level
+loop from `startFactor`, radix-2 = doubling of the remaining range), which runs the same lazy radix
+fold — so `AccumulateSumInPlaceStart` is **bit-exact**. The reference change is folded into
+`deps/fideslib-1.6.1-compile.patch` and lives on the OpenFHE fork branch `1.6.1-fideslib`.
 
 ### O9. `MODES(name)` macro ignores its parameter
 `test/ParametrizedTest.cuh`'s `MODES(name)` declares identifiers literally named `name_fix`,

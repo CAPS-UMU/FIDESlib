@@ -102,8 +102,10 @@ full local coverage/tooling pipeline, and portable NTT/INTT kernels.
   cases).
 - **FIXEDMANUAL** double-angle rescale placement and T2km1 level alignment fixed.
 - `Accumulate` unified into a single lazy radix fold driven by `ACCUMULATE_SUM_RADIX`
-  (the previous radix-4 eager cascade is gone); the CPU fallback keeps eager doubling until the
-  reference gains a start-aware `EvalPartialSumInPlace` (`deps/draft-start-accumulate-radix-lazy.patch`).
+  (the previous radix-4 eager cascade is gone). The `start`-offset `AccumulateSum` variant is now
+  **bit-exact** too: the patched OpenFHE reference's start-offset
+  `EvalPartialSumInPlace(ct, stride, size, radix, startFactor)` runs the same lazy fold on the CPU
+  (folded into `deps/fideslib-1.6.1-compile.patch` and the fork branch `1.6.1-fideslib`).
 - `src/CKKS/openfhe-interface` ported to the mainline 1.6.1 API (canonical sparse-parameter getters,
   the 7-argument `EvalBootstrapSetup` with `modevallevels`).
 
@@ -167,9 +169,6 @@ full local coverage/tooling pipeline, and portable NTT/INTT kernels.
   values (`EvalBootstrapSparseEncaps`, `EvalBootstrapSparseEncapsDense`,
   `EvalBootstrapSparseEncapsLT`; `UNIFORM_TERNARY` is bit-exact). Bit-exactness for the
   dual-context GPU design is the still-open O6c item (see BITCOMPAT.md).
-- `DISABLED_AccumulateSumInPlaceStart` remains disabled until a start-aware
-  `EvalPartialSumInPlace` lands in the OpenFHE reference (`deps/draft-start-accumulate-radix-lazy.patch`);
-  the GPU result is value-equal to the eager CPU fallback, only not bit-exact.
 - **Multi-GPU** (`LimbPartitionMGPU.cu`) is not exercised by the single-GPU test/coverage run
   (see KERNEL_USAGE.md). Known multi-GPU limitations (peer-copy transport and P2P probing on
   hosts where `cudaDeviceCanAccessPeer` cannot be trusted, `ASSERT_ERROR_OK` NaN detection) are
@@ -186,7 +185,7 @@ on an RTX 4060 Ti (8 GB):
 
 | Suite | Result |
 |---|---|
-| `OpenFHECompatTests` | 73 / 73 pass |
+| `OpenFHECompatTests` | 74 / 74 pass |
 | `OpenFHEBootstrapTests` | 88 / 88 pass |
 | `OpenFHEInterfaceTests` | 192 / 192 pass |
 | `NTTTests` | 48 / 48 pass |
@@ -198,9 +197,9 @@ on an RTX 4060 Ti (8 GB):
 | `OpenFHECompatTests.ComplexDataType` (new) | pass |
 | `OpenFHECompatTests.ComplexBootstrap` (new) | pass |
 | `OpenFHECompatTests.EvalBootstrapSparseEncaps` (newly enabled, value-level) | pass |
+| `OpenFHECompatTests.AccumulateSumInPlaceStart` (newly enabled, bit-exact) | pass |
 | `P2PTransferTest` | 2 pass, 3 skipped (single GPU) |
 | `APIbench` / `P2PBenchmark` | pass (1 skip) |
 
 The `LLMTests` timing suite is excluded: it provisions ~7 GB of rotation keys plus ~1.3 GB of
-plaintexts at 32768 slots and OOMs on an 8 GB card. `DISABLED_AccumulateSumInPlaceStart` remains
-disabled (O8, see above).
+plaintexts at 32768 slots and OOMs on an 8 GB card.

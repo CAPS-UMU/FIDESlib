@@ -376,7 +376,7 @@ index 6f435f2..e8406bf 100644
                                          const std::vector<int64_t>& coefficients) const override;
      /**
 diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
-index 95b9ff5..26d48ad 100644
+index 95b9ff5..eb107ea 100644
 --- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 +++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
 @@ -34,6 +34,7 @@
@@ -413,7 +413,29 @@ index 95b9ff5..26d48ad 100644
  
      std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
                                                                                 uint32_t slots) override;
-@@ -1025,8 +1028,10 @@ class FHECKKSRNS : public FHERNS {
+@@ -747,6 +750,21 @@ class FHECKKSRNS : public FHERNS {
+      * @param radix accumulation branching factor (power of two; 2 = plain doubling)
+      */
+     static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix);
++    /**
++     * Rotation fold with a start offset: as above but the first level starts at
++     * `startFactor*stride` instead of `stride` (levels s = startFactor, startFactor*radix, ...).
++     * Folds ct = sum_{j=0}^{size/startFactor - 1} Rotate(ct, j * startFactor * stride) with the
++     * same radix level structure and the same lazy extended-basis accumulation (element 0 settles
++     * once, element 1 per level) - mirroring FIDESlib's unified start-aware Accumulate. A
++     * start-offset doubling (radix 2) is exactly the plain doubling of the remaining range.
++     * @param ct input/output ciphertext
++     * @param stride slot distance between consecutive summands
++     * @param size number of summands (power of two)
++     * @param radix accumulation branching factor (power of two; 2 = plain doubling)
++     * @param startFactor first-level factor (power of two; 1 = the plain fold)
++     */
++    static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                      uint32_t startFactor);
+ 
+     //------------------------------------------------------------------------------
+     // SERIALIZATION
+@@ -1025,8 +1043,10 @@ class FHECKKSRNS : public FHERNS {
      //------------------------------------------------------------------------------
      // Find Rotation Indices
      //------------------------------------------------------------------------------
@@ -424,7 +446,7 @@ index 95b9ff5..26d48ad 100644
      // ATTN: The following 3 functions are helper methods to be called in FindBootstrapRotationIndices() only.
      // so they DO NOT remove possible duplicates and automorphisms corresponding to 0 and M/4.
      // These methods completely depend on FindBootstrapRotationIndices() to do that.
-@@ -1047,7 +1052,6 @@ class FHECKKSRNS : public FHERNS {
+@@ -1047,7 +1067,6 @@ class FHECKKSRNS : public FHERNS {
  
      void ExtendCiphertext(std::vector<DCRTPoly>& ciphertext, const CryptoContextImpl<DCRTPoly>& cc,
                            const std::shared_ptr<DCRTPoly::Params> params) const;
@@ -432,7 +454,7 @@ index 95b9ff5..26d48ad 100644
      /**
       * Raises the modulus of a depleted ciphertext (bottom level, noise degree 1) to the raised basis, i.e.,
       * extends its bottom RNS limbs (a single prime, or compositeDegree primes for composite scaling) to
-@@ -1057,6 +1061,7 @@ class FHECKKSRNS : public FHERNS {
+@@ -1057,6 +1076,7 @@ class FHECKKSRNS : public FHERNS {
      void ModRaiseInPlace(Ciphertext<DCRTPoly>& raised,
                           const std::shared_ptr<DCRTPoly::Params>& elementParamsRaisedPtr) const;
  
@@ -440,7 +462,7 @@ index 95b9ff5..26d48ad 100644
      void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
  
      /**
-@@ -1128,11 +1133,10 @@ class FHECKKSRNS : public FHERNS {
+@@ -1128,11 +1148,10 @@ class FHECKKSRNS : public FHERNS {
  
      // upper bounds for the number of overflows in the sparse secret cases; the failure probability depends only on
      // K and on the Hamming weight h of the sparse secret (equation (1) of https://eprint.iacr.org/2022/024)
@@ -455,7 +477,7 @@ index 95b9ff5..26d48ad 100644
      // SPARSE_ENCAPSULATED (h = 32): failure probability below 2^{-137} for 2^16 slots
      static constexpr uint32_t K_SPARSE_ENCAPSULATED = 16;
  
-@@ -1526,6 +1530,12 @@ class FHECKKSRNS : public FHERNS {
+@@ -1526,6 +1545,12 @@ class FHECKKSRNS : public FHERNS {
              std::complex<double>(0, 7.211314011213e-11),  std::complex<double>(0, 4.426391086890e-11)};
  };
  
@@ -1860,7 +1882,7 @@ index eabf3a2..883be4e 100644
  
  }  // namespace lbcrypto
 diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
-index 6d1ff13..6254f18 100644
+index 6d1ff13..e2bc3cf 100644
 --- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 +++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
 @@ -38,6 +38,8 @@
@@ -1928,7 +1950,115 @@ index 6d1ff13..6254f18 100644
          }
  
          bool isLTBootstrap = (precom->m_paramsEnc.lvlb == 1) && (precom->m_paramsDec.lvlb == 1);
-@@ -2097,8 +2127,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+@@ -721,6 +751,107 @@ void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride
+                               cryptoParams->GettModqPrecon());
+ }
+ 
++void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                       uint32_t startFactor) {
++    if (size <= 1 || startFactor == 0 || startFactor >= size)
++        return;
++    // A start-offset doubling is just the plain doubling of the remaining range: folding the
++    // stride/size scaling in keeps the radix-2 result bit-identical to the eager-doubling form
++    // (and to EvalPartialSumInPlace(ct, stride, size) for startFactor == 1).
++    if (radix == 2)
++        return EvalPartialSumInPlace(ct, stride * startFactor, size / startFactor);
++
++    const auto cc = ct->GetCryptoContext();
++    const uint32_t N = cc->GetRingDimension();
++    const uint32_t M = cc->GetCyclotomicOrder();
++
++    const uint32_t logRadix = lbcrypto::GetMSB(radix) - 1;
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ct->GetCryptoParameters());
++    if (cryptoParams->GetKeySwitchTechnique() != HYBRID) {
++        for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++            auto base = ct->Clone();
++            auto digits = cc->EvalFastRotationPrecompute(base);
++            for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s)
++                cc->EvalAddInPlace(ct, cc->EvalFastRotation(base, idx, M, digits));
++        }
++        return;
++    }
++
++    const auto algo = cc->GetScheme();
++    auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ct->GetKeyTag());
++
++    std::vector<DCRTPoly>& cv = ct->GetElements();
++    const auto paramsQl = cv[0].GetParams();
++    const auto paramsP = cryptoParams->GetParamsP();
++    const auto paramsQlP = cv[0].GetExtendedCRTBasis(paramsP);
++    const uint32_t sizeQl = paramsQl->GetParams().size();
++    const uint32_t sizeQlP = paramsQlP->GetParams().size();
++
++    const PlaintextModulus t = (cryptoParams->GetNoiseScale() == 1) ? 0 : cryptoParams->GetPlaintextModulus();
++
++    DCRTPoly acc(paramsQlP, Format::EVALUATION, true);
++    auto cMult = cv[0].TimesNoCheck(cryptoParams->GetPModq());
++    for (uint32_t i = 0; i < sizeQl; ++i)
++        acc.SetElementAtIndex(i, std::move(cMult.GetElementAtIndex(i)));
++
++    std::vector<uint32_t> vec(N);
++    for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++        // One digit decomposition per level, shared by all of the level's rotations.
++        auto digits = algo->EvalKeySwitchPrecomputeCore(cv[1], cryptoParams);
++
++        // Per-level sums; the pre-level accumulator is folded into every rotation of the level.
++        DCRTPoly lvl0(paramsQlP, Format::EVALUATION, true);
++        DCRTPoly lvl1(paramsQlP, Format::EVALUATION, true);
++
++        for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s) {
++            uint32_t autoIndex = FindAutomorphismIndex2nComplex(idx, M);
++            auto evalKeyIterator = evalKeyMap.find(autoIndex);
++            if (evalKeyIterator == evalKeyMap.end())
++                OPENFHE_THROW("EvalKey for index [" + std::to_string(autoIndex) + "] is not found.");
++
++            PrecomputeAutoMap(N, autoIndex, &vec);
++
++            auto ba = algo->EvalFastKeySwitchCoreExt(digits, evalKeyIterator->second, paramsQl);
++
++            // ba[0] += acc;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i)
++                ba[0].GetAllElements()[i] += acc.GetAllElements()[i];
++
++            ba[0] = ba[0].AutomorphismTransform(autoIndex, vec);
++            ba[1] = ba[1].AutomorphismTransform(autoIndex, vec);
++
++            // lvl0 += ba[0]; lvl1 += ba[1];
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i) {
++                lvl0.GetAllElements()[i] += ba[0].GetAllElements()[i];
++                lvl1.GetAllElements()[i] += ba[1].GetAllElements()[i];
++            }
++        }
++
++        // acc += lvl0;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++        for (uint32_t i = 0; i < sizeQlP; ++i)
++            acc.GetAllElements()[i] += lvl0.GetAllElements()[i];
++
++        // Element 1 settles once per level from the level's extended sum: the next level's
++        // rotations need its digit decomposition.
++        cv[1] += lvl1.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(),
++                                    cryptoParams->GetPInvModqPrecon(),
++                                    cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                                    cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                                    cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                                    cryptoParams->GettModqPrecon());
++    }
++
++    cv[0] =
++        acc.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(), cryptoParams->GetPInvModqPrecon(),
++                          cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                          cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                          cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                          cryptoParams->GettModqPrecon());
++}
++
+ Ciphertext<DCRTPoly> FHECKKSRNS::EvalBootstrap(ConstCiphertext<DCRTPoly>& ciphertext, uint32_t numIterations,
+                                                uint32_t precision) const {
+     uint32_t slots = ciphertext->GetSlots();
+@@ -2097,8 +2228,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
          auto diag = ExtractShiftedDiagonal(A, ji);
          for (auto& d : diag)
              d *= scale;
@@ -1938,7 +2068,7 @@ index 6d1ff13..6254f18 100644
      }
      return result;
  }
-@@ -2151,7 +2180,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+@@ -2151,7 +2281,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
              for (auto& v : vecA)
                  v *= scale;
              result[ji] = MakeAuxPlaintext(cc, elementParamsPtr, Rotate(vecA, -step * (ji / step)), 1, towersToDrop,
@@ -1947,7 +2077,7 @@ index 6d1ff13..6254f18 100644
          }
      } else {
          // horizontal concatenation - used during homomorphic decoding
-@@ -2174,7 +2203,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+@@ -2174,7 +2304,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
              for (auto& v : vec)
                  v *= scale;
              result[ji] = MakeAuxPlaintext(cc, elementParamsPtr, Rotate(vec, -step * (ji / step)), 1, towersToDrop,
@@ -1956,7 +2086,7 @@ index 6d1ff13..6254f18 100644
          }
      }
  
-@@ -2244,6 +2273,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2244,6 +2374,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
      // running accumulated correction; plaintexts pre-absorb the per-level Aut_{-delta_s}
      int32_t runningAcc = 0;
  
@@ -1988,7 +2118,7 @@ index 6d1ff13..6254f18 100644
      if (uint32_t M4 = M / 4; slots == M4 || flagStCComplex) {
          //------------------------------------------------------------------------------
          // fully-packed mode
-@@ -2255,6 +2309,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2255,6 +2410,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
              const int32_t shiftScale = 1 << ((s - flagRem) * p.layersCollapse + p.remCollapse);
              const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
              const uint32_t limit = p.b * p.g;
@@ -2002,7 +2132,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2267,9 +2328,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2267,9 +2429,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
  
                      auto rot = Rotate(coeff[s][ij],
                                        ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, slots));
@@ -2014,7 +2144,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
              runningAcc += offset * shiftScale;
-@@ -2277,6 +2338,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2277,6 +2439,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
  
          if (flagRem == 1) {
              const uint32_t limit = p.bRem * p.gRem;
@@ -2028,7 +2158,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2288,8 +2356,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2288,8 +2457,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
                      auto rot = Rotate(coeff[stop][ij], ReduceRotation(-static_cast<int32_t>(p.gRem) * (ij / p.gRem) +
                                                                                offsetRem + runningAcc,
                                                                        slots));
@@ -2039,7 +2169,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
          }
-@@ -2305,6 +2373,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2305,6 +2474,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
              const int32_t shiftScale = 1 << ((s - flagRem) * p.layersCollapse + p.remCollapse);
              const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
              const uint32_t limit = p.b * p.g;
@@ -2056,7 +2186,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2312,7 +2390,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2312,7 +2491,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
                  if (ij != p.numRotations) {
                      // concatenate the coefficients horizontally on their third dimension, which corresponds to the # of slots
                      auto clearTmp = coeff[s][ij];
@@ -2066,7 +2196,7 @@ index 6d1ff13..6254f18 100644
                      clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
                      if ((flagRem == 0) && (s == stop + 1)) {
                          for (auto& c : clearTmp)
-@@ -2322,9 +2401,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2322,9 +2502,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
                      auto rot = Rotate(
                              clearTmp,
                              ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, 2 * slots));
@@ -2078,7 +2208,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
              runningAcc += offset * shiftScale;
-@@ -2332,6 +2411,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2332,6 +2512,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
  
          if (flagRem == 1) {
              const uint32_t limit = p.bRem * p.gRem;
@@ -2095,7 +2225,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2339,15 +2428,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+@@ -2339,15 +2529,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
                  if (ij != p.numRotationsRem) {
                      // concatenate the coefficients on their third dimension, which corresponds to the # of slots
                      auto clearTmp = coeff[stop][ij];
@@ -2115,7 +2245,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
          }
-@@ -2413,6 +2503,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2413,6 +2604,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
      // CtS output now carries no extra rotation (absorbed into CtS precompute), so start at 0
      int32_t runningAcc = 0;
  
@@ -2147,7 +2277,7 @@ index 6d1ff13..6254f18 100644
      if (uint32_t M4 = cc.GetCyclotomicOrder() / 4; M4 == slots || flagStCComplex) {
          auto coeff = CoeffDecodingCollapse(A, rotGroup, p.lvlb, flag_i);
  
-@@ -2421,6 +2536,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2421,6 +2637,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
              const int32_t shiftScale = 1 << (s * p.layersCollapse);
              const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
              const uint32_t limit = p.b * p.g;
@@ -2161,7 +2291,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2433,9 +2555,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2433,9 +2656,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
  
                      auto rot = Rotate(coeff[s][ij],
                                        ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, slots));
@@ -2173,7 +2303,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
              runningAcc += offset * shiftScale;
-@@ -2445,6 +2567,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2445,6 +2668,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
              const int32_t shiftScaleRem = 1 << (smax * p.layersCollapse);
              const int32_t rotScale = shiftScaleRem * static_cast<int32_t>(p.gRem);
              const uint32_t limit = p.bRem * p.gRem;
@@ -2187,7 +2317,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2456,9 +2585,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2456,9 +2686,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
                      auto rot = Rotate(
                              coeff[smax][ij],
                              ReduceRotation(-rotScale * (ij / p.gRem) + offsetRem * shiftScaleRem + runningAcc, slots));
@@ -2199,7 +2329,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
          }
-@@ -2475,6 +2605,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2475,6 +2706,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
              const int32_t shiftScale = 1 << (s * p.layersCollapse);
              const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
              const uint32_t limit = p.b * p.g;
@@ -2216,7 +2346,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2493,9 +2633,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2493,9 +2734,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
                      auto rot = Rotate(
                              clearTmp,
                              ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, 2 * slots));
@@ -2228,7 +2358,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
              runningAcc += offset * shiftScale;
-@@ -2503,8 +2643,25 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2503,8 +2744,25 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
  
          if (flagRem == 1) {
              const int32_t shiftScaleRem = 1 << (smax * p.layersCollapse);
@@ -2254,7 +2384,7 @@ index 6d1ff13..6254f18 100644
  #if !defined(__MINGW32__) && !defined(__MINGW64__)
      #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
  #endif
-@@ -2512,7 +2669,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2512,7 +2770,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
                  if (ij != p.numRotationsRem) {
                      // concatenate the coefficients on their third dimension, which corresponds to the # of slots
                      auto clearTmp = coeff[smax][ij];
@@ -2264,7 +2394,7 @@ index 6d1ff13..6254f18 100644
                      clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
                      for (auto& c : clearTmp)
                          c *= scale;
-@@ -2520,9 +2678,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+@@ -2520,9 +2779,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
                      auto rot = Rotate(clearTmp,
                                        ReduceRotation(-rotScale * (ij / p.gRem) + offsetRem * shiftScaleRem + runningAcc,
                                                       2 * slots));
@@ -2276,7 +2406,7 @@ index 6d1ff13..6254f18 100644
                  }
              }
          }
-@@ -4504,4 +4663,15 @@ Ciphertext<DCRTPoly> FHECKKSRNS::KeySwitchSparse(Ciphertext<DCRTPoly>& ciphertex
+@@ -4504,4 +4764,15 @@ Ciphertext<DCRTPoly> FHECKKSRNS::KeySwitchSparse(Ciphertext<DCRTPoly>& ciphertex
      return result;
  }
  

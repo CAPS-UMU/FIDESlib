@@ -2108,15 +2108,14 @@ void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct,
 void CryptoContextImpl<DCRTPoly>::AccumulateSumInPlace(Ciphertext<DCRTPoly>& ct, int slots, int stride, int start) {
 
     if (this->devices.empty()) {
-        auto& context = std::any_cast<const lbcrypto::CryptoContext<lbcrypto::DCRTPoly>&>(this->cpu);
         EnsureMutableCpuCiphertext(ct);
         auto& ctImpl = std::any_cast<lbcrypto::Ciphertext<lbcrypto::DCRTPoly>&>(ct->cpu);
 
-        for (int s = start; s < slots; s <<= 1) {
-            int rot_idx = stride * s;
-            auto tmp = context->EvalRotate(ctImpl, rot_idx);
-            context->EvalAddInPlace(ctImpl, tmp);
-        }
+        // Same lazy radix fold as the GPU path below: the start-offset EvalPartialSumInPlace in
+        // the patched OpenFHE reference (deps/fideslib-1.6.1-compile.patch) keeps the CPU and GPU
+        // results bit-exact (previously this was an eager doubling loop, which is never bit-exact
+        // against the GPU's lazy fold).
+        lbcrypto::FHECKKSRNS::EvalPartialSumInPlace(ctImpl, stride, slots, ACCUMULATE_SUM_RADIX, start);
 
         return;
     }
