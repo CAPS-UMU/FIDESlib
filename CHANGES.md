@@ -2,16 +2,20 @@
 
 All notable changes to FIDESlib are documented in this file. This release is the
 result of the `cleanup` integration branch (merged PRs #47, #48 and #49) and the
-work it accumulated since the previous release, **FIDESlib 2.1.3**.
+work it accumulated since the previous release, **FIDESlib 2.1.3**. It closes
+issues #11, #15, #29, #32, #33 and #42, and supersedes pull requests #18, #45
+and #46.
 
 ## FIDESlib 2.2.0
 
 FIDESlib 2.2.0 is the **CPU/GPU bit-compatibility** release. Every GPU operation
 that OpenFHE can evaluate on the CPU now produces a ciphertext that is *bit-identical*
 to the patched-OpenFHE CPU reference, verified with exact ciphertext comparison
-(`ASSERT_EQ_CIPHERTEXT`) rather than decrypt-level tolerance. The release also adds
-SlotsToCoeffs-first and iterative bootstrapping, the server→client return path, a
-full local coverage/tooling pipeline, and portable NTT/INTT kernels.
+(`ASSERT_EQ_CIPHERTEXT`) rather than decrypt-level tolerance. That includes the
+previously value-only cases: SPARSE_ENCAPSULATED bootstrapping and the start-offset
+rotation fold. The release also adds SlotsToCoeffs-first and iterative bootstrapping,
+complex-valued CKKS, the server→client return path, a full local coverage/tooling
+pipeline, and portable NTT/INTT kernels.
 
 ### Requirements
 
@@ -164,8 +168,36 @@ full local coverage/tooling pipeline, and portable NTT/INTT kernels.
 - `test/BugTests.cu` removed (superseded by the compat/interface suites).
 - `deps/openfhe-1.5.1.patch` and `deps/fideslib-ref-1.5.1.1.patch` removed; superseded by the
   OpenFHE 1.6.1 patches.
+- `deps/draft-start-accumulate-radix-lazy.patch` removed; folded into
+  `deps/fideslib-1.6.1-compile.patch` (and the OpenFHE fork branch `1.6.1-fideslib`).
 - The dead `QlQlInvModqlDivqlModq` table (host mirror and device global) removed.
 - `clang-format` applied across the tree.
+
+### Fixed issues
+
+| Issue | Title | Resolution |
+|---|---|---|
+| **#42** | `evalChebyshevSeries` maps the domain with half the interval WIDTH instead of the MIDPOINT | Fixed: both affine-map branches shift by the midpoint, matching OpenFHE. |
+| **#33** | CKKS bootstrapping incorrect under SPARSE_ENCAPSULATED on GPU (garbage output; SIGSEGV with `numIterations=2`) | Fixed: SPARSE_ENCAPSULATED bootstrap is **bit-exact** across sparse/dense/LT/iterative; the `numIterations=2` SIGSEGV is gone. |
+| **#32** | Plans to add StC-first bootstrapping? | Implemented: `EvalBootstrapStCFirst` + the `btsfirstboot` setup flag (all scaling techniques). |
+| **#29** | Iterative bootstrapping | Implemented: `EvalBootstrap(..., numIterations, precision)` (all four scaling techniques). |
+| **#15** | Multiple NTT and OpenFHE Test Failures (FIDESLIB Release 2.0) | Fixed: NTT suites rewritten against the current kernels; OpenFHE interface/bootstrap suites are bit-exact. |
+| **#11** | Complex-values Bootstrapping | Implemented: public `SetCKKSDataType(COMPLEX)` / `GetCKKSDataType()`; complex encoding, arithmetic and bootstrap covered by tests. |
+
+The Chebyshev-interval family from the same report is also addressed: **#31** (asymmetric
+Chebyshev-interval bootstrap failure) and **#24** (interior coefficients exactly `0.0`), both
+previously closed and carried by this line.
+
+### Superseded pull requests
+
+| PR | Title | Why it is redundant |
+|---|---|---|
+| **#45** | Fix: GPU compatibility for V100, with CUDA 12.x and sm_70 | The `nvidia-smi` architecture auto-detection + portable default (incl. `70-real`) and the associated `MAXP`/level/limb-count/API fixes are all present in this tree. |
+| **#18** | Added complex scalar addition and complex scalar multiplication | Implemented here: complex `addScalar`/`multScalar`, the fused complex WSum, the complex CKKS datatype API, and complex bootstrapping (see #11). |
+| **#46** | Version 2.1.4 | Closed earlier; this release supersedes it (2.2.0). |
+
+The merged PRs #47 (NVTX memory lifetimes), #48 (coverage/tooling) and #49 (StC + iterative
+bootstrap + OpenFHE 1.6.1) are part of this release.
 
 ### Known issues
 

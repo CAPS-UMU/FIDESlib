@@ -16,9 +16,10 @@ A server-side CKKS GPU library fully interoperable with OpenFHE.
 - **OpenFHE 1.6.1 compatibility** with selectable patched-install modes and a non-FMA codegen guard.
 - Portable 1D NTT/INTT kernels, lazy Shoup reduction and other performance work.
 - A local coverage pipeline and a static CUDA kernel-usage report.
-- Bug fixes.
+- Closes issues **#11, #15, #29, #32, #33, #42**; supersedes pull requests **#18, #45**.
 
-See [CHANGES.md](CHANGES.md) for the full changelog.
+See [CHANGES.md](CHANGES.md) for the full changelog (added features, fixed issues and
+superseded pull requests).
 
 ## Features
 
@@ -30,7 +31,7 @@ See [CHANGES.md](CHANGES.md) for the full changelog.
 - High-performance NTT/INTT implementation.
 - Hybrid Key-Switching.
 - Multi-GPU support with NCCL.
-- Sparse Secret Encapsulation support.
+- Sparse Secret Encapsulation support (bit-exact bootstrap).
 - Server→client ciphertext unload and serialization.
 - Many performance optimizations.
 
