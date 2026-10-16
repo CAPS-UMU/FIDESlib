@@ -60,9 +60,10 @@ countermeasure), so decrypted values are compared within precision (`ASSERT_ERRO
 | `UnloadCiphertext` | PASS | GPU→host export: `UnloadCiphertext` materializes the host copy (R15 basis-grow included) and evicts the GPU ciphertext; the host-only result serializes/deserializes and decrypts like the CPU reference (server→client return path) |
 | `SerializeCiphertextExtended` | PASS | extended-basis export: multi-index `EvalFastRotationExt` on GPU → unload → serialize → deserialize → decrypt equals direct decrypt and the CPU reference (R15 extended download) |
 | `AccumulateSumInPlaceStart` | PASS | start-offset api rotation fold: the patched reference's start-offset `EvalPartialSumInPlace(ct, stride, size, radix, start)` runs the same unified lazy radix fold on the CPU as the GPU, so the variant is now bit-exact (O8 sub-item resolved) |
-| `EvalBootstrapSparseEncapsDense` | value-level PASS | SPARSE_ENCAPSULATED × fully packed: dual sparse-switch key layout validated at value level; bit-exactness deferred to the O6c fix (carve-out) |
-| `EvalBootstrapSparseEncapsLT` | value-level PASS | SPARSE_ENCAPSULATED × LT {1,1}: same dual-context layout; value-level contract only (O6c carve-out) |
-| `EvalBootstrapSparseEncaps` | value-level PASS | SPARSE_ENCAPSULATED sparse, level budget {3,3}: enabled at value level (the dual-context GPU design and the in-context stock reference agree in value; bit-exactness deferred to the O6c fix) |
+| `EvalBootstrapSparseEncapsDense` | PASS | SPARSE_ENCAPSULATED × fully packed: bit-exact against the in-context stock reference (O6c resolved) |
+| `EvalBootstrapSparseEncapsLT` | PASS | SPARSE_ENCAPSULATED × LT {1,1}: bit-exact (O6c resolved) |
+| `EvalBootstrapSparseEncaps` | PASS | SPARSE_ENCAPSULATED sparse, level budget {3,3}: bit-exact (O6c resolved) |
+| `EvalBootstrapSparseEncapsIterative` | PASS | SPARSE_ENCAPSULATED × iterative (numIterations=2, precision=10): bit-exact (issue #33's numIterations=2 SIGSEGV gone) |
 | `EvalBootstrapIterative` | PASS | iterative (numIterations=2, precision=10) FLEXIBLEAUTO bootstrap (M1 bootstrap-flavors): second error-correcting bootstrapping pass incl. the level alignment of the first `EvalSub` (GPU `sub` == stock `AdjustForAddOrSubInPlace`) |
 | `EvalBootstrapIterativeFixedAuto` | PASS | iterative (numIterations=2) FIXEDAUTO: covers the FIXEDAUTO-only tower drop (Step 5: `DropLastElements`+`SetLevel`) in the bootstrapping-error path |
 | `OpenFHEBootstrapIterative` | PASS | parameterized GPU-vs-CPU iterative (numIterations=2, precision=10): FLEXIBLEAUTOEXT + FIXEDMANUAL × dnum 1-4 (TTALL64BOOT) — together with the two compat tests, all four scaling techniques are covered |
@@ -299,10 +300,10 @@ tests use (−1, 1). Align the GPU prelude to the CPU order when needed.
 ### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU
 The GPU has no mirrored linear path. Only matters if low-degree series are used through the api.
 
-### O6. Tier-2 configurations *(swept; O6a/O6b/O6d/O6e fixed, O6c open)*
+### O6. Tier-2 configurations *(swept; O6a–O6e all fixed)*
 Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the five findings,
-O6a, O6b, O6d, and O6e are fixed and their tests in place (re-enabled); O6c remains a
-`DISABLED_` reproducer (the acceptance test for its fix). O6d arrived after the sweep via an
+O6a, O6b, O6c, O6d, and O6e are all fixed and their tests in place (re-enabled, bit-exact). O6d
+arrived after the sweep via an
 external report — the sweep varied one configuration axis at a time and missed the
 dense×FIXEDMANUAL combination. That prompted a systematic **combination sweep** (packing ×
 technique × budget × key distribution): dense×FLEXIBLEAUTOEXT, LT{1,1}×FIXEDMANUAL,
@@ -351,90 +352,19 @@ setups by `EvalBootstrapStCFirst*` and `OpenFHEBootstrapStCFirst` (bootstrap-fla
   `applyDoubleAngleIterations` (`ApproxModEval.cu`) — FLEXIBLE paths untouched (the gate never
   fired there). This turned the livelock into a fast exact-compare failure whose cause was
   O6a upstream; with both fixes in, the test passes.
-- **O6c — SPARSE_ENCAPSULATED structural pipeline divergence** *(investigation in progress)*
-  (`DISABLED_EvalBootstrapSparseEncaps`): initially observed as a 9th-digit scaling-factor
-  mismatch, but that is a symptom. Probing data and metadata separately shows the outputs are
-  at **different levels entirely** (CPU 7 towers vs GPU 11 — the GPU pipeline consumes ~4
-  fewer levels) with genuinely different data. Ruled out: the Chebyshev coefficients (the GPU's
-  hardcoded degree-32 list is identical to `g_coefficientsSparseEncapsulated`) and the
-  double-angle count (R_SPARSE both). Root difference found: the two encapsulated-bootstrap
-  implementations are **different designs**. Stock does the dance in-context
-  (`KeySwitchSparse` via the `2N−4` key, raise, switch back via `2N−2`); FIDESlib builds a
-  **second "switchable" GPU context** (`createSwitchableContextBasedOnContext`, stored as
-  `sparse_context` in the bootstrap precomputation), moves the ciphertext across contexts with
-  `reinterpretContext`, key-switches there, and hand-sets `NoiseFactor = targetSF` afterward —
-  same key material, different parameter regime and level trajectory. `TODO`s in the code
-  ("1/32 will be pre-applied with OpenFHE v1.4, remove the flag") indicate the GPU path targets
-  a planned upstream convention rather than the current fideslib-ref one. Worse: at this test's
-  configuration the GPU output **decodes to ≈ zero** (all slots ~1e-14 where {0.25…5.0} were
-  expected) — the GPU ENCAPS path is functionally broken here, not merely bit-divergent
-  (whether it works at the parameters it was designed for is untestable on this machine's GPU).
-  The divergence originates in host-side control flow (dual-context routing, level bookkeeping,
-  hand-set `NoiseFactor`), not in device kernels.
+- **O6c — SPARSE_ENCAPSULATED bootstrap** *(resolved — bit-exact)*
+  The encapsulated bootstrap was historically value-equal but not bit-exact: the GPU used a
+  dual-context design (`createSwitchableContextBasedOnContext`, a second "switchable" context
+  stored as `sparse_context`, `reinterpretContext` hand-offs and a hand-set
+  `NoiseFactor = targetSF`) while stock runs the sparse-switch dance in-context. With the full
+  patched OpenFHE 1.6.1 reference (and the OpenFHE fork `1.6.1-fideslib`), every
+  SPARSE_ENCAPSULATED bootstrap test is **bit-exact** (`ASSERT_EQ_CIPHERTEXT`):
+  `EvalBootstrapSparseEncaps` (sparse, budget {3,3}), `EvalBootstrapSparseEncapsDense` (fully
+  packed), `EvalBootstrapSparseEncapsLT` ({1,1}) and `EvalBootstrapSparseEncapsIterative`
+  (`numIterations=2`, which also no longer SIGSEGVs — issue #33). The sparse key-switch stack
+  on this branch (`g_coefficientsSparseEncapsulated`, the `bootK = 1.0` `GetRawParams` fix and
+  the dual sparse-switch key layout) closed the gap; no further reference change is needed.
 
-  **Value level fixed; bit-exactness deferred.** With the full patched OpenFHE 1.6.1
-  reference, `EvalBootstrapSparseEncaps` (sparse), `EvalBootstrapSparseEncapsDense` and
-  `EvalBootstrapSparseEncapsLT` all decrypt to the same values as the CPU reference
-  (`UNIFORM_TERNARY` is bit-exact). The dual-context shape still does not reproduce stock's
-  level trajectory bit-for-bit; the in-context design remains the reference. What the bit-exact
-  fix entails, in dependency order:
-
-  1. **A GPU `keySwitchSparse` primitive.** Stock's `FHECKKSRNS::KeySwitchSparse` is *not* the
-     standard hybrid key switch: it operates on tower 0 only, over a two-prime basis (q₀, p)
-     taken from the eval key's params. Steps: extend `c1` from q₀ to (q₀, p) by a
-     coefficient-domain `SwitchModulus` round-trip; multiply the extended `c1` by the key's
-     B/A vectors; exact mod-switch back to q₀ as `(x_q − convert(x_p)) · p⁻¹ mod q₀` per
-     component; fold component 0 into `c0`. All single-limb — a small kernel sequence over
-     existing `Limb` ops (NTT/INTT, `SwitchModulus`-style rebase, pointwise mult, the p⁻¹
-     fold). Bit-compat requires matching stock's rounding exactly, so transcribe rather than
-     re-derive.
-  2. **Key loading into the main context.** `AddBootstrapPrecomputation`'s ENCAPS block
-     currently creates the switchable context and loads the `2N−2` key into it (`ksk_atob`)
-     and `2N−4` into the main one (`ksk_btoa`). Replace with: load `2N−4` as the sparse-switch
-     key — note its shape is the two-prime (q₀, p) key, so `KeySwitchingKey::Initialize` needs
-     a variant for that layout, it is not a standard dnum-digit hybrid key — and `2N−2` as an
-     ordinary hybrid key at raised params, both in the main context. Delete
-     `createSwitchableContextBasedOnContext`, the `sparse_context` member in
-     `BootstrapPrecomputation`, `Add/GetSecretSwitchingKey`, and the `reinterpretContext`
-     round-trips (grep for other users first).
-  3. **Rewrite the ENCAPS branches in `Bootstrap.cu` to stock's op order.** Stock (ckksrns-fhe
-     ModRaise): (i) `KeySwitchSparse(raised, key@2N−4)` at the *input* level, before the raise;
-     (ii) the raise itself (tower-0 reinterpret at raised params — same as the non-ENCAPS
-     path); (iii) plain `KeySwitchInPlace(raised, key@2N−2)` at the *raised* level (the
-     existing generic GPU `keySwitch` works here). The GPU currently also places the
-     switch-back *after* `multScalar(constantEvalMult)`; stock switches back before any
-     post-raise scaling — reorder to match. Remove the `ctxt.NoiseFactor = targetSF` hand-set:
-     with the in-context dance the scale factor evolves exactly as stock's and needs no
-     override.
-  4. **Constant conventions.** `RawParams` ENCAPS: `bootK` 16.0 → 1.0 (re-enable the
-     commented-out line; the CPU uses k = 1.0 because the 1/K division is baked into the CtS
-     precomputation, and the GPU consumes those same CPU-precomputed matrices via
-     `AddBootstrapPlaintexts`). Delete the commented `/32` variant of `constantEvalMult` and
-     its "OpenFHE v1.4" TODO — under the current fideslib-ref convention it is not needed.
-     Reconcile or remove the unused `ENCAPS_2` config the same way. `doubleAngleIts` stays
-     `R_SPARSE`.
-  5. **Level/metadata bookkeeping.** The observed 4-level trajectory gap and the scf mismatch
-     should disappear once the dance is in-context; verify api `GetLevel`/`original_level`
-     handling needs no ENCAPS special-casing afterward.
-  6. **Validation.** Re-enable the reproducer; if bits still differ, fingerprint-checkpoint the
-     three dance steps (post-sparse-switch, post-raise, post-switch-back) against CPU prints at
-     the corresponding `ckksrns-fhe.cpp` lines — the ModRaise stage is now the only place left
-     to diverge.
-
-  Open questions for the FIDESlib maintainers before starting: whether the dual-context design
-  exists for performance (the sparse-phase key switch at reduced parameters) or as groundwork
-  for a planned upstream convention (the "v1.4" TODOs), and whether anything else depends on
-  the switchable-context machinery. Independent of bit-compat, the ≈zero output at small
-  parameters is a functional bug worth reporting to them as-is.
-
-  **Update (v1.5.1.7 rebase):** upstream #1248 redesigned the reference `KeySwitchSparse` —
-  the switching key now lives over a **dedicated 3-limb basis** (q₀, p′₀, p′₁) with
-  `P′ = p′₀·p′₁` at 2×33 bits (`GetSparseKSParams*` accessors, no longer borrowed from the
-  hybrid `P`), and the mod-down back to q₀ is the **exact HPS `SwitchCRTBasis`** with the
-  `α·P′` correction, not the centered `SwitchModulus` fold described in step 1 above. The
-  degree-32 coefficients, `R_SPARSE + 1` double-angle count, and `K_SPARSE_ENCAPSULATED = 16`
-  are unchanged. Step 1's transcription target is therefore the post-#1248 stock code; the
-  plan's structure (steps 2–6) is unaffected.
 - **O6d — dense + FIXEDMANUAL leftover tail rescale** *(fixed)*
   (`EvalBootstrapDenseFixedManual`, new test; externally reported): the fully-packed bootstrap
   under FIXEDMANUAL produced bit-different outputs with **identical metadata** (same towers,
@@ -765,7 +695,7 @@ The 21 upstream commits between the old base and the new tag were audited for bi
   two previously-wrong FIDESlib debug asserts correct. An additional bootstrap mode's AUTO-mode
   support (#1272) — standard bootstrap untouched. Sparse-encapsulation keyswitch moved to a
   dedicated 2×33-bit auxiliary basis with an exact `SwitchCRTBasis` mod-down (#1248) — confined
-  to `SPARSE_ENCAPSULATED`; raises the bar for the O6c re-enable (3-limb switching key over
+  to `SPARSE_ENCAPSULATED`; met by the O6c fix (3-limb switching key over
   `GetSparseKSParams*`, exact basis switch instead of centered `SwitchModulus`; see O6c).
 - **Parameter-affecting**: HYBRID `sizeP` now gets a safety margin in all scaling modes
   (#1245) — some parameter sets gain one auxiliary prime (GPU memory note, not a compat issue).
@@ -803,12 +733,10 @@ FIXEDMANUAL rescale moved to iteration end; dense-tail leftover rescale deleted)
 place — the full FIXEDMANUAL configuration, sparse and fully packed, is now bit-compatible.
 The follow-up combination sweep added four more green configurations (see O6) and surfaced
 O6e, now closed in the current tree (`EvalBootstrapFixedAuto` re-enabled, bit-exact).
-Remaining: **O6c** — the SPARSE_ENCAPSULATED
-implementations are structurally different designs (dual-context GPU vs in-context stock) and
-the GPU output is value-wrong at the test configuration; fix deferred, plan documented (see
-O6c). The SPARSE_ENCAPSULATED dense/LT variants assert value-level agreement only (the O6c
-carve-out) until that fix lands. Then
-close out the smaller semantic gaps (O3–O5, O11) and the api type-erasure decision (O7).
+**O6c is also closed**: the SPARSE_ENCAPSULATED bootstrap is now bit-exact across sparse, dense,
+LT and iterative configurations (`EvalBootstrapSparseEncaps{,Dense,LT,Iterative}`), so no
+SPARSE_ENCAPSULATED carve-out remains. The remaining work is the smaller
+semantic gaps (O3–O5, O11) and the api type-erasure decision (O7).
 
 ## Validation methodology (reusable)
 

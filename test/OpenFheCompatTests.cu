@@ -1094,8 +1094,8 @@ TEST(OpenFHECompatTests, EvalBootstrapDenseFixedManual) {
 
 // SPARSE_ENCAPSULATED secret-key distribution takes its own
 // Chebyshev coefficient set (g_coefficientsSparseEncapsulated) and keygen path.
-// The dual-context GPU design and the in-context stock reference are value-equal; bit-exactness
-// is the deferred O6c item (see BITCOMPAT.md), so this asserts the value contract.
+// Bit-exact: the dual-context GPU pipeline reproduces the in-context stock reference
+// limb-for-limb (the O6c divergence is resolved).
 TEST(OpenFHECompatTests, EvalBootstrapSparseEncaps) {
     uint32_t multDepth = 25;
     uint32_t scaleModSize = 50;
@@ -1144,7 +1144,7 @@ TEST(OpenFHECompatTests, EvalBootstrapSparseEncaps) {
 
     auto cBoot2 = cc->EvalBootstrap(ctxt);
 
-    // Value-level contract only: bit-exactness is the deferred O6c item (see BITCOMPAT.md).
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
 
     Plaintext r1;
     cc->Decrypt(keys.secretKey, cBoot1, &r1);
@@ -1417,11 +1417,10 @@ TEST(OpenFHECompatTests, EvalBootstrapSparseSecret) {
 // SPARSE_ENCAPSULATED rows (EvalBootstrapSparseEncapsDense / EvalBootstrapSparseEncapsLT)
 // validate the dual-context switching-key design (BTS_KSPARSE_*_SLOT in RawCiphertext.cu):
 // the CPU reference reads OpenFHE's own sparse-switch keys at 2N-2/2N-4, the GPU pipeline
-// its disjoint FIDESlib keys at 2N-6/2N-8. They assert value-level agreement only — the O6c
-// carve-out (see BITCOMPAT.md): the dual-context design is still bit-divergent from the
-// in-context stock reference (level/metadata gap), so bit-exactness is deferred to the O6c
-// fix. The UNIFORM_TERNARY / SPARSE_TERNARY rows must match bit-exactly — if one of those
-// fails, that is a different bug (e.g. a bootK regression).
+// its disjoint FIDESlib keys at 2N-6/2N-8. They are bit-exact against the in-context stock
+// reference (O6c resolved, see BITCOMPAT.md). The UNIFORM_TERNARY / SPARSE_TERNARY rows must
+// match bit-exactly too — if one of those fails, that is a different bug (e.g. a bootK
+// regression).
 
 // SPARSE_TERNARY × fully packed: sparse-secret run of the dense (complex) fully-packed
 // branch — conjugate split, imaginary component, full approx-mod-reduction.
@@ -1744,10 +1743,10 @@ TEST(OpenFHECompatTests, EvalBootstrapSparseEncapsDense) {
     cc->Decrypt(keys.secretKey, cBoot2, &r2);
     r2->SetLength(numSlots);
 
-    // Value-level agreement is the contract for the SPARSE_ENCAPSULATED rows (the O6c
-    // carve-out): the dual-context GPU design is still bit-divergent (level/metadata gap)
-    // from the in-context stock reference, so bit-exactness is deferred to the O6c fix
-    // (see BITCOMPAT.md). The value check must never be masked by the deferred one.
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    // Bit-exact (O6c resolved): the dual-context GPU pipeline matches the in-context stock
+    // reference limb-for-limb; the value check is kept as a second guard.
     ASSERT_ERROR_OK(r1, r2);
 }
 
@@ -1808,10 +1807,64 @@ TEST(OpenFHECompatTests, EvalBootstrapSparseEncapsLT) {
     cc->Decrypt(keys.secretKey, cBoot2, &r2);
     r2->SetLength(batchSize);
 
-    // Value-level agreement is the contract for the SPARSE_ENCAPSULATED rows (the O6c
-    // carve-out): the dual-context GPU design is still bit-divergent (level/metadata gap)
-    // from the in-context stock reference, so bit-exactness is deferred to the O6c fix
-    // (see BITCOMPAT.md). The value check must never be masked by the deferred one.
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    // Bit-exact (O6c resolved): the dual-context GPU pipeline matches the in-context stock
+    // reference limb-for-limb; the value check is kept as a second guard.
+    ASSERT_ERROR_OK(r1, r2);
+}
+
+// SPARSE_ENCAPSULATED × iterative bootstrap (numIterations=2, precision=10): the
+// second error-correcting pass must stay bit-exact for the encapsulated dual-context
+// pipeline too (issue #33's numIterations=2 SIGSEGV is gone).
+TEST(OpenFHECompatTests, EvalBootstrapSparseEncapsIterative) {
+    uint32_t multDepth = 25;
+    uint32_t scaleModSize = 50;
+    uint32_t batchSize = 8;
+
+    CCParams<CryptoContextCKKSRNS> parameters;
+    parameters.SetSecretKeyDist(SPARSE_ENCAPSULATED);
+    parameters.SetScalingTechnique(FLEXIBLEAUTO);
+    parameters.SetMultiplicativeDepth(multDepth);
+    parameters.SetScalingModSize(scaleModSize);
+    parameters.SetBatchSize(batchSize);
+    parameters.SetSecurityLevel(HEStd_NotSet);
+    parameters.SetRingDim(1 << 12);
+    parameters.SetPlaintextAutoload(false);
+    parameters.SetCiphertextAutoload(true);
+
+    CryptoContext<DCRTPoly> cc = GenCryptoContext(parameters);
+    cc->Enable(PKE);
+    cc->Enable(KEYSWITCH);
+    cc->Enable(LEVELEDSHE);
+    cc->Enable(ADVANCEDSHE);
+    cc->Enable(FHE);
+
+    uint32_t numSlots = batchSize;
+    auto keys = cc->KeyGen();
+    cc->EvalMultKeyGen(keys.secretKey);
+
+    std::vector<uint32_t> levelBudget = { 3, 3 };
+    cc->EvalBootstrapSetup(levelBudget, { 0, 0 }, numSlots, 0);
+    cc->EvalBootstrapKeyGen(keys.secretKey, numSlots);
+
+    std::vector<double> x = { 0.25, 0.5, 0.75, 1.0, 2.0, 3.0, 4.0, 5.0 };
+    Plaintext ptxt = cc->MakeCKKSPackedPlaintext(x, 1, multDepth - 1, nullptr, numSlots);
+    auto ctxt = cc->Encrypt(keys.publicKey, ptxt);
+
+    auto cBoot1 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    cc->SetDevices({ 0 });
+    cc->LoadContext(keys.publicKey);
+    auto cBoot2 = cc->EvalBootstrap(ctxt, 2, 10);
+
+    ASSERT_EQ_CIPHERTEXT(cBoot1, cBoot2);
+
+    Plaintext r1, r2;
+    cc->Decrypt(keys.secretKey, cBoot1, &r1);
+    r1->SetLength(batchSize);
+    cc->Decrypt(keys.secretKey, cBoot2, &r2);
+    r2->SetLength(batchSize);
     ASSERT_ERROR_OK(r1, r2);
 }
 
@@ -2342,9 +2395,8 @@ TEST(OpenFHECompatTests, EvalAddMany) {
 // context/public/private keys, the start-offset AccumulateSumInPlace, and the
 // convolution transforms (GPU-only: the CPU path OPENFHE_THROWs, so those compare
 // against a public-API reference chain instead of a CPU in-context run).
-//  - SPARSE_ENCAPSULATED bootstrap: known structural divergence (O6c) — the
-//    EvalBootstrapSparseEncaps* tests above assert value-level agreement instead of
-//    bit-exactness.
+//  - SPARSE_ENCAPSULATED bootstrap: no longer excluded — the EvalBootstrapSparseEncaps*
+//    tests above are bit-exact (O6c resolved).
 // =====================================================================
 
 // EvalAdd / EvalSub / EvalMult with swapped argument order: (Plaintext, ct) and

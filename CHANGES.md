@@ -101,6 +101,11 @@ full local coverage/tooling pipeline, and portable NTT/INTT kernels.
   `AdjustLevelsAndDepthInPlace` (fixes `CiphertextAdjustMatrix` and the `ExtractContextShowPtMult*`
   cases).
 - **FIXEDMANUAL** double-angle rescale placement and T2km1 level alignment fixed.
+- **SPARSE_ENCAPSULATED bootstrap is bit-exact** against the in-context stock reference across
+  the sparse ({3,3}), fully-packed, LT ({1,1}) and iterative (`numIterations=2`) configurations —
+  the previously value-only O6c carve-out is resolved (`EvalBootstrapSparseEncaps`,
+  `EvalBootstrapSparseEncapsDense`, `EvalBootstrapSparseEncapsLT`,
+  `EvalBootstrapSparseEncapsIterative`).
 - `Accumulate` unified into a single lazy radix fold driven by `ACCUMULATE_SUM_RADIX`
   (the previous radix-4 eager cascade is gone). The `start`-offset `AccumulateSum` variant is now
   **bit-exact** too: the patched OpenFHE reference's start-offset
@@ -164,11 +169,6 @@ full local coverage/tooling pipeline, and portable NTT/INTT kernels.
 
 ### Known issues
 
-- **SPARSE_ENCAPSULATED bootstrapping** (issue #33) is fixed at the value level: with the full
-  patched OpenFHE 1.6.1 reference the sparse, dense and LT configurations all decrypt to the same
-  values (`EvalBootstrapSparseEncaps`, `EvalBootstrapSparseEncapsDense`,
-  `EvalBootstrapSparseEncapsLT`; `UNIFORM_TERNARY` is bit-exact). Bit-exactness for the
-  dual-context GPU design is the still-open O6c item (see BITCOMPAT.md).
 - **Multi-GPU** (`LimbPartitionMGPU.cu`) is not exercised by the single-GPU test/coverage run
   (see KERNEL_USAGE.md). Known multi-GPU limitations (peer-copy transport and P2P probing on
   hosts where `cudaDeviceCanAccessPeer` cannot be trusted, `ASSERT_ERROR_OK` NaN detection) are
@@ -185,7 +185,7 @@ on an RTX 4060 Ti (8 GB):
 
 | Suite | Result |
 |---|---|
-| `OpenFHECompatTests` | 74 / 74 pass |
+| `OpenFHECompatTests` | 75 / 75 pass |
 | `OpenFHEBootstrapTests` | 88 / 88 pass |
 | `OpenFHEInterfaceTests` | 192 / 192 pass |
 | `NTTTests` | 48 / 48 pass |
@@ -196,7 +196,10 @@ on an RTX 4060 Ti (8 GB):
 | `LimbKernelTests` (incl. `LimbKernelTest32`) | 26 / 26 pass |
 | `OpenFHECompatTests.ComplexDataType` (new) | pass |
 | `OpenFHECompatTests.ComplexBootstrap` (new) | pass |
-| `OpenFHECompatTests.EvalBootstrapSparseEncaps` (newly enabled, value-level) | pass |
+| `OpenFHECompatTests.EvalBootstrapSparseEncaps` (newly enabled, bit-exact) | pass |
+| `OpenFHECompatTests.EvalBootstrapSparseEncapsDense` | pass (bit-exact) |
+| `OpenFHECompatTests.EvalBootstrapSparseEncapsLT` | pass (bit-exact) |
+| `OpenFHECompatTests.EvalBootstrapSparseEncapsIterative` (new) | pass (bit-exact) |
 | `OpenFHECompatTests.AccumulateSumInPlaceStart` (newly enabled, bit-exact) | pass |
 | `P2PTransferTest` | 2 pass, 3 skipped (single GPU) |
 | `APIbench` / `P2PBenchmark` | pass (1 skip) |
