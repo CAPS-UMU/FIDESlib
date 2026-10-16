@@ -12,7 +12,7 @@
 // CPU/GPU comparison fails — value-correct, but not bit-exact.
 //
 // See docs / commit history: an OpenFHE installed from the fork's `build/` directory
-// (WITH_NATIVEOPT=ON) makes OpenFHECompatTests.EvalFEFuncBootstrap fail, while the
+// (WITH_NATIVEOPT=ON) makes the bit-exact CPU/GPU compatibility tests fail, while the
 // WITH_NATIVEOPT=OFF install passes.
 //
 #ifndef FIDESLIB_CKKS_OPENFHECOMPAT_CUH
