@@ -9,9 +9,9 @@
 
 namespace FIDESlib::Benchmarks {
 BENCHMARK_DEFINE_F(FIDESlibFixture, ContextCreation)(benchmark::State& state) {
-	for (auto _ : state) {
-		FIDESlib::CKKS::Context c = FIDESlib::CKKS::GenCryptoContextGPU(fideslibParams, { 0 });
-	}
+    for (auto _ : state) {
+        FIDESlib::CKKS::Context c = FIDESlib::CKKS::GenCryptoContextGPU(fideslibParams, { 0 });
+    }
 }
 
 BENCHMARK_REGISTER_F(FIDESlibFixture, ContextCreation)->ArgsProduct({ PARAMETERS });

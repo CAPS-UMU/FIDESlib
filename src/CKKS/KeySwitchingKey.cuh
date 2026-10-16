@@ -13,24 +13,31 @@
 
 namespace FIDESlib {
 namespace CKKS {
-
 class KeySwitchingKey {
-	static constexpr const char* loc{ "KeySwitchingKey" };
-	CudaNvtxRange my_range;
+    static constexpr const char* loc{ "KeySwitchingKey" };
+    CudaNvtxRange my_range;
 
   public:
-	KeyHash keyID;
-	Context& cc;
-	RNSPoly a;
-	RNSPoly b;
-	// std::vector<RNSPoly> mgpu_a;
-	// std::vector<RNSPoly> mgpu_b;
+    KeyHash keyID;
+    Context& cc;
+    RNSPoly a;
+    RNSPoly b;
+    // std::vector<RNSPoly> mgpu_a;
+    // std::vector<RNSPoly> mgpu_b;
 
-	explicit KeySwitchingKey(Context& cc);
+    explicit KeySwitchingKey(Context& cc);
+    KeySwitchingKey(KeySwitchingKey&& k) noexcept;
+    ~KeySwitchingKey();
 
-	void Initialize(RawKeySwitchKey& rkk);
+    void Initialize(RawKeySwitchKey& rkk);
+
+    // Sparse secret-encapsulation (GHS) switching key: a/b live over the sparse basis Ql*P' and
+    // are used directly (no RNS digit decomposition), so they are loaded as plain RNSPolys.
+    void InitializeSparse(RawKeySwitchKey& rkk);
+
+    /** Total GPU bytes held by this key (its a + b polynomials). */
+    uint64_t getMemoryUsage() const;
 };
-
 } // namespace CKKS
 } // namespace FIDESlib
 

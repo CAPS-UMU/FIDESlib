@@ -1,0 +1,1241 @@
+diff --git a/src/core/include/lattice/hal/default/dcrtpoly.h b/src/core/include/lattice/hal/default/dcrtpoly.h
+index 14b4363..6b00744 100644
+--- a/src/core/include/lattice/hal/default/dcrtpoly.h
++++ b/src/core/include/lattice/hal/default/dcrtpoly.h
+@@ -896,7 +896,7 @@ class DCRTPolyImpl final : public DCRTPolyInterface<DCRTPolyImpl<VecType>, VecTy
+         m_vectors[index] = std::move(element);
+     }
+ 
+-  protected:
++  public:
+     std::shared_ptr<Params> m_params{std::make_shared<DCRTPolyImpl::Params>()};
+     Format m_format{Format::EVALUATION};
+     std::vector<PolyType> m_vectors;
+diff --git a/src/core/include/lattice/hal/default/ildcrtparams.h b/src/core/include/lattice/hal/default/ildcrtparams.h
+index a0755c4..3b208d1 100644
+--- a/src/core/include/lattice/hal/default/ildcrtparams.h
++++ b/src/core/include/lattice/hal/default/ildcrtparams.h
+@@ -382,7 +382,7 @@ class ILDCRTParams final : public ElemParams<IntType> {
+         return out << std::endl;
+     }
+ 
+-  private:
++  public:
+     // array of smaller ILParams
+     std::vector<std::shared_ptr<ILNativeParams>> m_params;
+ };
+diff --git a/src/core/include/lattice/hal/default/poly.h b/src/core/include/lattice/hal/default/poly.h
+index e1f95ab..76b0186 100644
+--- a/src/core/include/lattice/hal/default/poly.h
++++ b/src/core/include/lattice/hal/default/poly.h
+@@ -622,8 +622,12 @@ class PolyImpl final : public PolyInterface<PolyImpl<VecType>, VecType, PolyImpl
+ 
+   protected:
+     Format m_format{Format::EVALUATION};
++
++  public:
+     std::shared_ptr<Params> m_params{nullptr};
+     std::unique_ptr<VecType> m_values{nullptr};
++
++  protected:
+     /**
+      * @brief Switches the format of an element over an arbitrary (non-power-of-two) cyclotomic ring with the
+      * Bluestein-based transform, using the root of unity, big modulus and big root of unity of the parameters;
+diff --git a/src/pke/include/cryptocontext.h b/src/pke/include/cryptocontext.h
+index 4e523e7..071223b 100644
+--- a/src/pke/include/cryptocontext.h
++++ b/src/pke/include/cryptocontext.h
+@@ -2285,12 +2285,13 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Multiplier.
+      * @param scalar      Real number multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar) const {
++    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        return m_scheme->EvalMult(ciphertext, scalar);
++        return m_scheme->EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2298,10 +2299,12 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param scalar      Real number multiplier.
+      * @param ciphertext  Multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    inline Ciphertext<Element> EvalMult(double scalar, ConstCiphertext<Element>& ciphertext) const {
+-        return EvalMult(ciphertext, scalar);
++    inline Ciphertext<Element> EvalMult(double scalar, ConstCiphertext<Element>& ciphertext,
++                                        int32_t target_level = -1) const {
++        return EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2309,11 +2312,12 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Ciphertext to modify.
+      * @param scalar      Real number multiplicand.
++     * @param target_level
+      */
+-    void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar) const {
++    void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        m_scheme->EvalMultInPlace(ciphertext, scalar);
++        m_scheme->EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2321,9 +2325,10 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param scalar      Real number multiplier.
+      * @param ciphertext  Ciphertext to modify (multiplicand).
++     * @param target_level
+      */
+-    inline void EvalMultInPlace(double scalar, Ciphertext<Element>& ciphertext) const {
+-        EvalMultInPlace(ciphertext, scalar);
++    inline void EvalMultInPlace(double scalar, Ciphertext<Element>& ciphertext, int32_t target_level = -1) const {
++        EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2331,12 +2336,14 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Multiplier.
+      * @param scalar      Complex number multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar,
++                                 int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        return m_scheme->EvalMult(ciphertext, scalar);
++        return m_scheme->EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2355,11 +2362,13 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Ciphertext to modify.
+      * @param scalar      Complex number multiplicand.
++     * @param target_level
+      */
+-    void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar,
++                         int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        m_scheme->EvalMultInPlace(ciphertext, scalar);
++        m_scheme->EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2810,8 +2819,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                       const std::vector<VectorDataType>& constantVec) const {
+-        return m_scheme->EvalLinearWSum(ciphertextVec, constantVec);
++                                       const std::vector<VectorDataType>& constantVec,
++                                       int32_t target_level = -1) const {
++        return m_scheme->EvalLinearWSum(ciphertextVec, constantVec, target_level);
+     }
+ 
+     /**
+@@ -2836,8 +2846,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                              const std::vector<VectorDataType>& constantsVec) const {
+-        return m_scheme->EvalLinearWSumMutable(ciphertextVec, constantsVec);
++                                              const std::vector<VectorDataType>& constantsVec,
++                                              int32_t target_level = -1) const {
++        return m_scheme->EvalLinearWSumMutable(ciphertextVec, constantsVec, target_level);
+     }
+ 
+     /**
+@@ -2849,8 +2860,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(const std::vector<VectorDataType>& constantsVec,
+-                                              std::vector<Ciphertext<Element>>& ciphertextVec) const {
+-        return EvalLinearWSumMutable(ciphertextVec, constantsVec);
++                                              std::vector<Ciphertext<Element>>& ciphertextVec,
++                                              int32_t target_level = -1) const {
++        return EvalLinearWSumMutable(ciphertextVec, constantsVec, target_level);
+     }
+ 
+     //------------------------------------------------------------------------------
+@@ -3698,8 +3710,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     void EvalBootstrapSetup(std::vector<uint32_t> levelBudget = {5, 4}, std::vector<uint32_t> dim1 = {0, 0},
+                             uint32_t slots = 0, uint32_t correctionFactor = 0, bool precompute = true,
+-                            bool BTSlotsEncoding = false) {
+-        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
++                            bool BTSlotsEncoding = false, int32_t modevallevels = -1) {
++        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding,
++                                     modevallevels);
+     }
+ 
+     /**
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
+index 6f435f2..aad6af4 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
+@@ -61,50 +61,78 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
+     //------------------------------------------------------------------------------
+ 
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<int64_t>& constants) const override;
++                                        const std::vector<int64_t>& constants,
++                                        int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with real constants, leaving the inputs unchanged; the
+      * products are accumulated and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the real weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<double>& constants) const override;
++                                        const std::vector<double>& constants, int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with complex constants, leaving the inputs unchanged; the
+      * products are accumulated and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the complex weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<std::complex<double>>& constants) const override;
++                                        const std::vector<std::complex<double>>& constants,
++                                        int32_t target_level = -1) const override;
+ 
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<int64_t>& constants) const override;
++                                               const std::vector<int64_t>& constants,
++                                               int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with real constants; the inputs are first brought to the
+      * same level and noise scale degree (they are modified) and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the real weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<double>& constants) const override;
++                                               const std::vector<double>& constants,
++                                               int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with complex constants; the inputs are first brought to the
+      * same level and noise scale degree (they are modified) and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the complex weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<std::complex<double>>& constants) const override;
++                                               const std::vector<std::complex<double>>& constants,
++                                               int32_t target_level = -1) const override;
++
++    /**
++     * Compile-only stand-in for the FIDESlib weighted-sum-with-bias helper. The compile-minimal
++     * OpenFHE patch does not carry the fused reference implementation, so this is a plain
++     * Mult/Add weighted sum (no fused/unreduced-power discipline and no bit-exact guarantee
++     * against the FIDESlib GPU path).
++     *
++     * @param ciphertexts the input ciphertexts
++     * @param constants the real weights; constants[1..limit] multiply ciphertexts[0..limit-1]
++     * @param bias the additive constant
++     * @param limit number of terms, or 0 for all
++     * @param target_level the target level, or -1 to use the current level
++     * @param rescale whether to ModReduce the result once at the end
++     * @return the weighted sum plus bias
++     */
++    static Ciphertext<DCRTPoly> EvalPartialLinearWSumWithBias_(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                               const std::vector<double>& constants, double bias,
++                                                               uint32_t limit = 0, int32_t target_level = -1,
++                                                               bool rescale = true);
+ 
+     //------------------------------------------------------------------------------
+     // EVAL POLYNOMIAL
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
+index 95b9ff5..95b4acf 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
+@@ -34,6 +34,7 @@
+ 
+ #include <complex>
+ #include <cstdint>
++#include <limits>
+ #include <map>
+ #include <memory>
+ #include <string>
+@@ -153,13 +154,14 @@ using namespace std::literals::complex_literals;
+  * multiplicative depth these procedures consume. All bootstrapping flavors require HYBRID key switching.
+  */
+ class FHECKKSRNS : public FHERNS {
+-  private:
++  public:
+     // correction factor, which we scale the message by to improve precision
+     uint32_t m_correctionFactor;
+ 
+     // key tuple is dim1, levelBudgetEnc, levelBudgetDec
+     std::map<uint32_t, std::shared_ptr<CKKSBootstrapPrecom>> m_bootPrecomMap;
+ 
++  private:
+     using ParmType = typename DCRTPoly::Params;
+     using DugType = typename DCRTPoly::DugType;
+     using DggType = typename DCRTPoly::DggType;
+@@ -197,7 +199,8 @@ class FHECKKSRNS : public FHERNS {
+      */
+     void EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+                             std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute,
+-                            bool BTSlotsEncoding) override;
++                            bool BTSlotsEncoding,
++                            uint32_t modevallevels = std::numeric_limits<uint32_t>::max()) override;
+ 
+     std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
+                                                                                uint32_t slots) override;
+@@ -747,6 +750,21 @@ class FHECKKSRNS : public FHERNS {
+      * @param radix accumulation branching factor (power of two; 2 = plain doubling)
+      */
+     static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix);
++    /**
++     * Rotation fold with a start offset: as above but the first level starts at
++     * `startFactor*stride` instead of `stride` (levels s = startFactor, startFactor*radix, ...).
++     * Folds ct = sum_{j=0}^{size/startFactor - 1} Rotate(ct, j * startFactor * stride) with the
++     * same radix level structure and the same lazy extended-basis accumulation (element 0 settles
++     * once, element 1 per level) - mirroring FIDESlib's unified start-aware Accumulate. A
++     * start-offset doubling (radix 2) is exactly the plain doubling of the remaining range.
++     * @param ct input/output ciphertext
++     * @param stride slot distance between consecutive summands
++     * @param size number of summands (power of two)
++     * @param radix accumulation branching factor (power of two; 2 = plain doubling)
++     * @param startFactor first-level factor (power of two; 1 = the plain fold)
++     */
++    static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                      uint32_t startFactor);
+ 
+     //------------------------------------------------------------------------------
+     // SERIALIZATION
+@@ -1057,7 +1075,9 @@ class FHECKKSRNS : public FHERNS {
+     void ModRaiseInPlace(Ciphertext<DCRTPoly>& raised,
+                          const std::shared_ptr<DCRTPoly::Params>& elementParamsRaisedPtr) const;
+ 
++  public:
+     void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
++  private:
+ 
+     /**
+      * The function-independent part of FE functional bootstrapping: SlotsToCoeffs, modulus raise,
+@@ -1128,11 +1148,10 @@ class FHECKKSRNS : public FHERNS {
+ 
+     // upper bounds for the number of overflows in the sparse secret cases; the failure probability depends only on
+     // K and on the Hamming weight h of the sparse secret (equation (1) of https://eprint.iacr.org/2022/024)
+-
+-    // SPARSE_TERNARY (h = 192): failure probability of about 2^{-39} per coefficient, i.e., 2^{-22} for 2^16 slots.
+-    // Also used for SPARSE_ENCAPSULATED with the denser sparse secret (h = 64: first modulus above 60 bits), where
+-    // the failure probability is below 2^{-142} for 2^16 slots.
++  public:
++    // TODO: unify this
+     static constexpr uint32_t K_SPARSE = 28;
++    static constexpr uint32_t K_SPARSE_ALT = 25;
+     // SPARSE_ENCAPSULATED (h = 32): failure probability below 2^{-137} for 2^16 slots
+     static constexpr uint32_t K_SPARSE_ENCAPSULATED = 16;
+ 
+@@ -1526,6 +1545,12 @@ class FHECKKSRNS : public FHERNS {
+             std::complex<double>(0, 7.211314011213e-11),  std::complex<double>(0, 4.426391086890e-11)};
+ };
+ 
++// Runtime accessors to the standard CKKS bootstrap Chebyshev tables (defined in
++// ckksrns-fhe.cpp). FIDESlib reads the installed release's tables at runtime.
++const std::vector<double>& GetBootTableCoeffSparse();
++const std::vector<double>& GetBootTableCoeffSparseEncapsulated();
++const std::vector<double>& GetBootTableCoeffUniform();
++
+ }  // namespace lbcrypto
+ 
+ #endif  // SRC_PKE_INCLUDE_SCHEME_CKKSRNS_CKKSRNS_FHE_H_
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
+index 5ff3db6..7b6e0d7 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
+@@ -164,17 +164,20 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the product
+      */
+-    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const override;
++    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                  int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a real constant in place (see EvalMult).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const override;
++    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a plaintext in place and updates the scaling factor of the product: for the
+@@ -194,17 +197,21 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the product
+      */
+-    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const override;
++    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                  int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a complex constant in place (see EvalMult).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const override;
++    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                         int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by an unscaled integer: the ciphertext elements are multiplied by the integer directly,
+@@ -298,16 +305,19 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const;
++    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level = -1) const;
+ 
+     /**
+      * Core of the multiplication by a complex constant (see the real overload).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const;
++    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                             int32_t target_level = -1) const;
+ 
+     /**
+      * Brings two ciphertexts to the same level and noise scale degree before a binary operation. For FIXEDMANUAL
+@@ -351,9 +361,11 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the ciphertext the constant will multiply (provides the level and moduli)
+      * @param operand the constant
++     * @param scaling_factor the scaling factor to scale the constant by, or -1 to use the level's scaling factor
+      * @return the CRT representation of the scaled constant, one residue per tower
+      */
+-    std::vector<DCRTPoly::Integer> GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const;
++    std::vector<DCRTPoly::Integer> GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                                         double scaling_factor = -1.0) const;
+ 
+     /////////////////////////////////////
+     // SERIALIZATION
+diff --git a/src/pke/include/schemebase/base-advancedshe.h b/src/pke/include/schemebase/base-advancedshe.h
+index 5e32ea7..a505ef6 100644
+--- a/src/pke/include/schemebase/base-advancedshe.h
++++ b/src/pke/include/schemebase/base-advancedshe.h
+@@ -113,10 +113,11 @@ class AdvancedSHEBase {
+      *
+      * @param ciphertextVec vector of input ciphertexts.
+      * @param weights vector containing the weights.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<int64_t>& weights) const {
++                                               const std::vector<int64_t>& weights, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -128,7 +129,7 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<double>& weights) const {
++                                               const std::vector<double>& weights, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -140,7 +141,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<std::complex<double>>& weights) const {
++                                               const std::vector<std::complex<double>>& weights,
++                                               int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -154,7 +156,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<int64_t>& weights) const {
++                                                      const std::vector<int64_t>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -166,7 +169,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<double>& weights) const {
++                                                      const std::vector<double>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -178,7 +182,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<std::complex<double>>& weights) const {
++                                                      const std::vector<std::complex<double>>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+diff --git a/src/pke/include/schemebase/base-cryptoparameters.h b/src/pke/include/schemebase/base-cryptoparameters.h
+index 1a4992c..0e05afb 100644
+--- a/src/pke/include/schemebase/base-cryptoparameters.h
++++ b/src/pke/include/schemebase/base-cryptoparameters.h
+@@ -266,8 +266,10 @@ class CryptoParametersBase : public Serializable {
+     }
+ 
+     /// element-specific parameters
++  public:
+     std::shared_ptr<typename Element::Params> m_params;
+ 
++  protected:
+     /// encoding-specific parameters
+     EncodingParams m_encodingParams;
+ };
+diff --git a/src/pke/include/schemebase/base-fhe.h b/src/pke/include/schemebase/base-fhe.h
+index b96bbbf..cb0cc6e 100644
+--- a/src/pke/include/schemebase/base-fhe.h
++++ b/src/pke/include/schemebase/base-fhe.h
+@@ -107,7 +107,7 @@ class FHEBase {
+      */
+     virtual void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, std::vector<uint32_t> levelBudget,
+                                     std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor,
+-                                    bool precompute, bool BTSlotsEncoding) {
++                                    bool precompute, bool BTSlotsEncoding, uint32_t modevallevels = -1) {
+         OPENFHE_THROW(NOT_SUPPORTED_SIMPLE_ERROR);
+     }
+ 
+diff --git a/src/pke/include/schemebase/base-leveledshe.h b/src/pke/include/schemebase/base-leveledshe.h
+index a7045b4..8c7b660 100644
+--- a/src/pke/include/schemebase/base-leveledshe.h
++++ b/src/pke/include/schemebase/base-leveledshe.h
+@@ -579,9 +579,11 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input ciphertext.
+      * @param scalar the real constant.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the new ciphertext.
+      */
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar,
++                                         int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -590,8 +592,9 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input/output ciphertext.
+      * @param scalar the real constant.
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -602,9 +605,11 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input ciphertext.
+      * @param scalar the complex constant.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the new ciphertext.
+      */
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar,
++                                         int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -613,8 +618,10 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input/output ciphertext.
+      * @param scalar the complex constant.
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar,
++                                 int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+diff --git a/src/pke/include/schemebase/base-scheme.h b/src/pke/include/schemebase/base-scheme.h
+index 88d4a0d..9172c1d 100644
+--- a/src/pke/include/schemebase/base-scheme.h
++++ b/src/pke/include/schemebase/base-scheme.h
+@@ -716,24 +716,27 @@ class SchemeBase {
+         m_LeveledSHE->MultByMonomialInPlace(ciphertext, power);
+     }
+ 
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double constant) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double constant,
++                                         int32_t target_level) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        return m_LeveledSHE->EvalMult(ciphertext, constant);
++        return m_LeveledSHE->EvalMult(ciphertext, constant, target_level);
+     }
+ 
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double constant) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double constant, int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        m_LeveledSHE->EvalMultInPlace(ciphertext, constant);
++        m_LeveledSHE->EvalMultInPlace(ciphertext, constant, target_level);
+     }
+ 
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> constant) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> constant,
++                                         int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        return m_LeveledSHE->EvalMult(ciphertext, constant);
++        return m_LeveledSHE->EvalMult(ciphertext, constant, target_level);
+     }
+ 
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> constant) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> constant,
++                                 int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        m_LeveledSHE->EvalMultInPlace(ciphertext, constant);
++        m_LeveledSHE->EvalMultInPlace(ciphertext, constant, target_level);
+     }
+ 
+     virtual Ciphertext<Element> MultByInteger(ConstCiphertext<Element>& ciphertext, uint64_t integer) const {
+@@ -1003,20 +1006,22 @@ class SchemeBase {
+ 
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                       const std::vector<VectorDataType>& constantVec) const {
++                                       const std::vector<VectorDataType>& constantVec,
++                                       int32_t target_level = -1) const {
+         VerifyAdvancedSHEEnabled(__func__);
+         if (!ciphertextVec.size())
+             OPENFHE_THROW("Input ciphertext vector is empty");
+-        return m_AdvancedSHE->EvalLinearWSum(ciphertextVec, constantVec);
++        return m_AdvancedSHE->EvalLinearWSum(ciphertextVec, constantVec, target_level);
+     }
+ 
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                              const std::vector<VectorDataType>& constantVec) const {
++                                              const std::vector<VectorDataType>& constantVec,
++                                              int32_t target_level = -1) const {
+         VerifyAdvancedSHEEnabled(__func__);
+         if (!ciphertextVec.size())
+             OPENFHE_THROW("Input ciphertext vector is empty");
+-        return m_AdvancedSHE->EvalLinearWSumMutable(ciphertextVec, constantVec);
++        return m_AdvancedSHE->EvalLinearWSumMutable(ciphertextVec, constantVec, target_level);
+     }
+ 
+     /////////////////////////////////////
+@@ -1465,9 +1470,11 @@ class SchemeBase {
+ 
+     void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, const std::vector<uint32_t>& levelBudget = {5, 4},
+                             const std::vector<uint32_t>& dim1 = {0, 0}, uint32_t slots = 0,
+-                            uint32_t correctionFactor = 0, bool precompute = true, bool BTSlotsEncoding = false) {
++                            uint32_t correctionFactor = 0, bool precompute = true, bool BTSlotsEncoding = false,
++                            int32_t modevallevels = -1) {
+         VerifyFHEEnabled(__func__);
+-        m_FHE->EvalBootstrapSetup(cc, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
++        m_FHE->EvalBootstrapSetup(cc, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding,
++                                  modevallevels);
+     }
+ 
+     // Cache teardown is best-effort and must stay noexcept: a scheme that never enabled the
+@@ -1959,7 +1966,10 @@ class SchemeBase {
+     /** threshold key generation and decryption; set by Enable(MULTIPARTY) */
+     std::shared_ptr<MultipartyBase<Element>> m_Multiparty;
+     /** CKKS bootstrapping and functional bootstrapping; set by Enable(FHE) */
++  public:
+     std::shared_ptr<FHEBase<Element>> m_FHE;
++
++  protected:
+     /** CKKS <-> FHEW scheme switching; set by Enable(SCHEMESWITCH) */
+     std::shared_ptr<FHEBase<Element>> m_SchemeSwitch;
+ 
+diff --git a/src/pke/lib/cryptocontext.cpp b/src/pke/lib/cryptocontext.cpp
+index b338e5e..6bb123b 100644
+--- a/src/pke/lib/cryptocontext.cpp
++++ b/src/pke/lib/cryptocontext.cpp
+@@ -906,8 +906,8 @@ template class CryptoContextImpl<DCRTPoly>;
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeries<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesLinear<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesPS<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+-    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSum<VECTOR_TYPE>(std::vector<ReadOnlyCiphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&) const; \
+-    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSumMutable<VECTOR_TYPE>(const std::vector<VECTOR_TYPE>&, std::vector<Ciphertext<DCRTPoly>>&) const; \
++    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSum<VECTOR_TYPE>(std::vector<ReadOnlyCiphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&, int32_t) const; \
++    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSumMutable<VECTOR_TYPE>(std::vector<Ciphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&, int32_t) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPoly<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyLinear<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyPS<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const;
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
+index eabf3a2..bb4a4e7 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
+@@ -104,86 +104,126 @@ static Ciphertext<DCRTPoly> evalStreamedLinearWSum(const std::vector<CtType>& ci
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> internalEvalLinearWSum(const std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                            const std::vector<VectorDataType>& constants) {
++                                            const std::vector<VectorDataType>& constants, int32_t target_level) {
+     return evalStreamedLinearWSum(ciphertexts, constants.data(), static_cast<uint32_t>(ciphertexts.size()));
+ }
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> internalEvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                   const std::vector<VectorDataType>& constants) {
++                                                   const std::vector<VectorDataType>& constants,
++                                                   int32_t target_level = -1) {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertexts[0]->GetCryptoParameters());
+ 
+     auto cc = ciphertexts[0]->GetCryptoContext();
+ 
+     const uint32_t limit = ciphertexts.size();
+ 
+-    if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+-        // Check to see if input ciphertexts are of same level
+-        // and adjust if needed to the max level among them
+-        uint32_t maxLevel = ciphertexts[0]->GetLevel();
+-        uint32_t maxIdx = 0;
+-        for (uint32_t i = 1; i < limit; ++i) {
+-            if ((ciphertexts[i]->GetLevel() > maxLevel) ||
+-                ((ciphertexts[i]->GetLevel() == maxLevel) && (ciphertexts[i]->GetNoiseScaleDeg() == 2))) {
+-                maxLevel = ciphertexts[i]->GetLevel();
+-                maxIdx = i;
++    if (target_level == -1) {
++        if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
++            // Check to see if input ciphertexts are of same level
++            // and adjust if needed to the max level among them
++            uint32_t maxLevel = ciphertexts[0]->GetLevel();
++            uint32_t maxIdx = 0;
++            for (uint32_t i = 1; i < limit; ++i) {
++                if ((ciphertexts[i]->GetLevel() > maxLevel) ||
++                    ((ciphertexts[i]->GetLevel() == maxLevel) && (ciphertexts[i]->GetNoiseScaleDeg() == 2))) {
++                    maxLevel = ciphertexts[i]->GetLevel();
++                    maxIdx = i;
++                }
+             }
+-        }
+ 
+-        auto algo = cc->GetScheme();
+-        for (uint32_t i = 0; i < maxIdx; ++i)
+-            algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
+-        for (uint32_t i = maxIdx + 1; i < limit; ++i)
+-            algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
++            auto algo = cc->GetScheme();
++            for (uint32_t i = 0; i < maxIdx; ++i)
++                algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
++            for (uint32_t i = maxIdx + 1; i < limit; ++i)
++                algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
+ 
+-        uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
+-        if (ciphertexts[maxIdx]->GetNoiseScaleDeg() == 2) {
+-            for (uint32_t i = 0; i < limit; ++i)
+-                algo->ModReduceInternalInPlace(ciphertexts[i], compositeDegree);
++            uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
++            if (ciphertexts[maxIdx]->GetNoiseScaleDeg() == 2) {
++                for (uint32_t i = 0; i < limit; ++i)
++                    algo->ModReduceInternalInPlace(ciphertexts[i], compositeDegree);
++            }
+         }
+-    }
+ 
+-    cc->EvalMultInPlace(ciphertexts[0], constants[0]);
+-    for (uint32_t i = 1; i < limit; ++i) {
+-        cc->EvalMultInPlace(ciphertexts[i], constants[i]);
+-        cc->EvalAddInPlaceNoCheck(ciphertexts[0], ciphertexts[i]);
++        cc->EvalMultInPlace(ciphertexts[0], constants[0]);
++        for (uint32_t i = 1; i < limit; ++i) {
++            cc->EvalMultInPlace(ciphertexts[i], constants[i]);
++            cc->EvalAddInPlaceNoCheck(ciphertexts[0], ciphertexts[i]);
++        }
++        cc->ModReduceInPlace(ciphertexts[0]);
++        return ciphertexts[0];
++    } else {
++        OPENFHE_THROW("target_level parameter not implemented");
+     }
+-    cc->ModReduceInPlace(ciphertexts[0]);
+-    return ciphertexts[0];
+ }
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> EvalPartialLinearWSum(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                           const std::vector<VectorDataType>& constants, uint32_t limit = 0) {
++                                           const std::vector<VectorDataType>& constants, uint32_t limit = 0,
++                                           int32_t target_level = -1, bool rescale = true) {
+     if (0 == limit)
+         limit = ciphertexts.size();
+-    return evalStreamedLinearWSum(ciphertexts, constants.data() + 1, limit);
++
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertexts[0]->GetCryptoParameters());
++
++    auto cc = ciphertexts[0]->GetCryptoContext();
++
++    if (target_level == -1) {
++        return evalStreamedLinearWSum(ciphertexts, constants.data() + 1, limit);
++    } else {
++        OPENFHE_THROW("target_level parameter not implemented");
++    }
++}
++
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPartialLinearWSumWithBias_(
++        const std::vector<Ciphertext<DCRTPoly>>& ciphertexts, const std::vector<double>& constants, double bias,
++        uint32_t limit, int32_t target_level, bool rescale) {
++    // Compile-only replacement for the FIDESlib reference helper: a plain Mult/Add weighted
++    // sum. Not bit-exact to the fused GPU transcription.
++    if (0 == limit)
++        limit = ciphertexts.size();
++
++    auto cc = ciphertexts[0]->GetCryptoContext();
++
++    auto out = cc->EvalMult(ciphertexts[0], constants[1], target_level);
++    for (uint32_t i = 1; i < limit; ++i)
++        cc->EvalAddInPlace(out, cc->EvalMult(ciphertexts[i], constants[i + 1], target_level));
++    cc->EvalAddInPlace(out, bias);
++    if (rescale)
++        cc->ModReduceInPlace(out);
++    return out;
+ }
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<int64_t>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<int64_t>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<double>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<double>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<std::complex<double>>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<std::complex<double>>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                               const std::vector<int64_t>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++                                                               const std::vector<int64_t>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                               const std::vector<double>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++                                                               const std::vector<double>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+-Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(
+-        std::vector<Ciphertext<DCRTPoly>>& ciphertexts, const std::vector<std::complex<double>>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                               const std::vector<std::complex<double>>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+ 
+ //------------------------------------------------------------------------------
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
+index 6d1ff13..12a99eb 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
+@@ -177,7 +177,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
+ 
+ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+                                     std::vector<uint32_t> dim1, uint32_t numSlots, uint32_t correctionFactor,
+-                                    bool precompute, bool BTSlotsEncoding) {
++                                    bool precompute, bool BTSlotsEncoding, uint32_t modevallevels) {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
+ 
+     if (cryptoParams->GetKeySwitchTechnique() != HYBRID)
+@@ -302,14 +302,42 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
+         auto st = cryptoParams->GetScalingTechnique();
+         uint32_t L0 = cryptoParams->GetElementParams()->GetParams().size() - (st == FLEXIBLEAUTOEXT);
+ 
+-        uint32_t lEnc = L0 - compositeDegree * (precom->m_paramsEnc.lvlb + 1);
++        // The extended-basis tower count L0 is the available modulus chain (depth+1 for
++        // FIXEDMANUAL). lEnc/lDec below are the towers left for the CoeffsToSlots/SlotsToCoeffs
++        // plaintexts after reserving the bootstrap's multiplicative depth. If a requested level
++        // budget needs more towers than exist, the subtraction would wrap (uint32_t) and feed an
++        // enormous value into Eval{SlotsToCoeffs,CoeffsToSlots}Precompute, whose tower-drop loop
++        // then erases at begin() - 1 (heap corruption). Reject such configurations explicitly.
++        uint32_t lEnc;
++        {
++            const uint32_t encCost = compositeDegree * (precom->m_paramsEnc.lvlb + 1);
++            if (encCost > L0) {
++                OPENFHE_THROW(
++                        "EvalBootstrapSetup: level budget too deep for the modulus chain: "
++                        "CoeffsToSlots needs " +
++                        std::to_string(encCost) + " towers but only " + std::to_string(L0) + " are available");
++            }
++            lEnc = L0 - encCost;
++        }
+         uint32_t lDec;
+         if (precom->BTSlotsEncoding) {
+             lDec = (2 + (st == FLEXIBLEAUTOEXT)) * compositeDegree;
+         } else {
+-            uint32_t depthBT = GetModDepthInternal(cryptoParams->GetSecretKeyDist()) + precom->m_paramsEnc.lvlb +
+-                               precom->m_paramsDec.lvlb;
+-            lDec = L0 - compositeDegree * depthBT;
++            uint32_t approxModDepth = modevallevels == std::numeric_limits<uint32_t>::max() ?
++                                              GetModDepthInternal(cryptoParams->GetSecretKeyDist()) :
++                                              modevallevels;
++            const uint32_t depthBT = approxModDepth + precom->m_paramsEnc.lvlb + precom->m_paramsDec.lvlb;
++            const uint32_t decCost = compositeDegree * depthBT;
++            if (decCost > L0) {
++                OPENFHE_THROW(
++                        "EvalBootstrapSetup: multiplicative depth too small for the requested "
++                        "level budget: bootstrapping needs " +
++                        std::to_string(decCost) + " towers (approxModDepth " + std::to_string(approxModDepth) +
++                        " + enc " + std::to_string(precom->m_paramsEnc.lvlb) + " + dec " +
++                        std::to_string(precom->m_paramsDec.lvlb) + ") but only " + std::to_string(L0) +
++                        " are available");
++            }
++            lDec = L0 - decCost;
+         }
+ 
+         bool isLTBootstrap = (precom->m_paramsEnc.lvlb == 1) && (precom->m_paramsDec.lvlb == 1);
+@@ -721,6 +749,107 @@ void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride
+                               cryptoParams->GettModqPrecon());
+ }
+ 
++void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                       uint32_t startFactor) {
++    if (size <= 1 || startFactor == 0 || startFactor >= size)
++        return;
++    // A start-offset doubling is just the plain doubling of the remaining range: folding the
++    // stride/size scaling in keeps the radix-2 result bit-identical to the eager-doubling form
++    // (and to EvalPartialSumInPlace(ct, stride, size) for startFactor == 1).
++    if (radix == 2)
++        return EvalPartialSumInPlace(ct, stride * startFactor, size / startFactor);
++
++    const auto cc = ct->GetCryptoContext();
++    const uint32_t N = cc->GetRingDimension();
++    const uint32_t M = cc->GetCyclotomicOrder();
++
++    const uint32_t logRadix = lbcrypto::GetMSB(radix) - 1;
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ct->GetCryptoParameters());
++    if (cryptoParams->GetKeySwitchTechnique() != HYBRID) {
++        for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++            auto base = ct->Clone();
++            auto digits = cc->EvalFastRotationPrecompute(base);
++            for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s)
++                cc->EvalAddInPlace(ct, cc->EvalFastRotation(base, idx, M, digits));
++        }
++        return;
++    }
++
++    const auto algo = cc->GetScheme();
++    auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ct->GetKeyTag());
++
++    std::vector<DCRTPoly>& cv = ct->GetElements();
++    const auto paramsQl = cv[0].GetParams();
++    const auto paramsP = cryptoParams->GetParamsP();
++    const auto paramsQlP = cv[0].GetExtendedCRTBasis(paramsP);
++    const uint32_t sizeQl = paramsQl->GetParams().size();
++    const uint32_t sizeQlP = paramsQlP->GetParams().size();
++
++    const PlaintextModulus t = (cryptoParams->GetNoiseScale() == 1) ? 0 : cryptoParams->GetPlaintextModulus();
++
++    DCRTPoly acc(paramsQlP, Format::EVALUATION, true);
++    auto cMult = cv[0].TimesNoCheck(cryptoParams->GetPModq());
++    for (uint32_t i = 0; i < sizeQl; ++i)
++        acc.SetElementAtIndex(i, std::move(cMult.GetElementAtIndex(i)));
++
++    std::vector<uint32_t> vec(N);
++    for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++        // One digit decomposition per level, shared by all of the level's rotations.
++        auto digits = algo->EvalKeySwitchPrecomputeCore(cv[1], cryptoParams);
++
++        // Per-level sums; the pre-level accumulator is folded into every rotation of the level.
++        DCRTPoly lvl0(paramsQlP, Format::EVALUATION, true);
++        DCRTPoly lvl1(paramsQlP, Format::EVALUATION, true);
++
++        for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s) {
++            uint32_t autoIndex = FindAutomorphismIndex2nComplex(idx, M);
++            auto evalKeyIterator = evalKeyMap.find(autoIndex);
++            if (evalKeyIterator == evalKeyMap.end())
++                OPENFHE_THROW("EvalKey for index [" + std::to_string(autoIndex) + "] is not found.");
++
++            PrecomputeAutoMap(N, autoIndex, &vec);
++
++            auto ba = algo->EvalFastKeySwitchCoreExt(digits, evalKeyIterator->second, paramsQl);
++
++            // ba[0] += acc;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i)
++                ba[0].GetAllElements()[i] += acc.GetAllElements()[i];
++
++            ba[0] = ba[0].AutomorphismTransform(autoIndex, vec);
++            ba[1] = ba[1].AutomorphismTransform(autoIndex, vec);
++
++            // lvl0 += ba[0]; lvl1 += ba[1];
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i) {
++                lvl0.GetAllElements()[i] += ba[0].GetAllElements()[i];
++                lvl1.GetAllElements()[i] += ba[1].GetAllElements()[i];
++            }
++        }
++
++        // acc += lvl0;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++        for (uint32_t i = 0; i < sizeQlP; ++i)
++            acc.GetAllElements()[i] += lvl0.GetAllElements()[i];
++
++        // Element 1 settles once per level from the level's extended sum: the next level's
++        // rotations need its digit decomposition.
++        cv[1] += lvl1.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(),
++                                    cryptoParams->GetPInvModqPrecon(),
++                                    cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                                    cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                                    cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                                    cryptoParams->GettModqPrecon());
++    }
++
++    cv[0] =
++        acc.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(), cryptoParams->GetPInvModqPrecon(),
++                          cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                          cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                          cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                          cryptoParams->GettModqPrecon());
++}
++
+ Ciphertext<DCRTPoly> FHECKKSRNS::EvalBootstrap(ConstCiphertext<DCRTPoly>& ciphertext, uint32_t numIterations,
+                                                uint32_t precision) const {
+     uint32_t slots = ciphertext->GetSlots();
+@@ -4504,4 +4633,15 @@ Ciphertext<DCRTPoly> FHECKKSRNS::KeySwitchSparse(Ciphertext<DCRTPoly>& ciphertex
+     return result;
+ }
+ 
++// Runtime accessors to the standard CKKS bootstrap Chebyshev tables.
++const std::vector<double>& GetBootTableCoeffSparse() {
++    return FHECKKSRNS::g_coefficientsSparse;
++}
++const std::vector<double>& GetBootTableCoeffSparseEncapsulated() {
++    return FHECKKSRNS::g_coefficientsSparseEncapsulated;
++}
++const std::vector<double>& GetBootTableCoeffUniform() {
++    return FHECKKSRNS::g_coefficientsUniform;
++}
++
+ }  // namespace lbcrypto
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
+index 4ac84b3..bcbb7ab 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
+@@ -128,35 +128,38 @@ void LeveledSHECKKSRNS::EvalSubInPlace(Ciphertext<DCRTPoly>& ciphertext, double
+ // SHE MULTIPLICATION
+ /////////////////////////////////////////
+ 
+-Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const {
++Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                                 int32_t target_level) const {
+     auto result = ciphertext->Clone();
+-    EvalMultInPlace(result, operand);
++    EvalMultInPlace(result, operand, target_level);
+     return result;
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const {
++void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+     if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+         if (ciphertext->GetNoiseScaleDeg() == 2)
+             ModReduceInternalInPlace(ciphertext, cryptoParams->GetCompositeDegree());
+     }
+-    EvalMultCoreInPlace(ciphertext, operand);
++
++    EvalMultCoreInPlace(ciphertext, operand, target_level);
+ }
+ 
+-Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                 std::complex<double> operand) const {
++Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                                 int32_t target_level) const {
+     auto result = ciphertext->Clone();
+-    EvalMultInPlace(result, operand);
++    EvalMultInPlace(result, operand, target_level);
+     return result;
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const {
++void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                        int32_t target_level) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+     if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+         if (ciphertext->GetNoiseScaleDeg() == 2)
+             ModReduceInternalInPlace(ciphertext, cryptoParams->GetCompositeDegree());
+     }
+-    EvalMultCoreInPlace(ciphertext, operand);
++    EvalMultCoreInPlace(ciphertext, operand, target_level);
+ }
+ 
+ void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, ConstPlaintext& plaintext) const {
+@@ -454,12 +457,22 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalAddOrSub(Cons
+ 
+ #if NATIVEINT == 128
+ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                                        double operand) const {
++                                                                        double operand, double scaling_factor) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+ 
+     uint32_t precision = 52;
+     double powP = std::pow(2, precision);
+ 
++    // Target-level support: the 64-bit branch encodes the constant scaled by the requested
++    // scFactor (or, when scaling_factor == -1, by the level's scaling factor). This branch
++    // encodes the constant at the canonical scaling factor 2^P (P = GetPlaintextModulus()), so
++    // when a target scFactor is supplied we prescale the operand by scFactor / 2^P; the shift
++    // below then lands the constant on scFactor. With scaling_factor == -1 the operand is left
++    // untouched and the behaviour is identical to before (encode at 2^P).
++    if (scaling_factor != -1.0) {
++        operand *= scaling_factor / std::exp2(cryptoParams->GetPlaintextModulus());
++    }
++
+     // the idea is to break down real numbers
+     // expressed as input_mantissa * 2^input_exponent
+     // into (input_mantissa * 2^52) * 2^(p - 52 + input_exponent)
+@@ -501,7 +514,7 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCip
+ }
+ #else  // NATIVEINT == 64
+ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                                        double operand) const {
++                                                                        double operand, double scaling_factor) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+ 
+     const std::vector<DCRTPoly>& cv = ciphertext->GetElements();
+@@ -510,7 +523,10 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCip
+     for (uint32_t i = 0; i < numTowers; ++i)
+         moduli[i] = cv[0].GetElementAtIndex(i).GetModulus();
+ 
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    double scFactor = scaling_factor;
++    if (scaling_factor == -1.0) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
+ 
+     #if defined(HAVE_INT128)
+     typedef int128_t DoubleInteger;
+@@ -846,20 +862,42 @@ void LeveledSHECKKSRNS::AdjustLevelsAndDepthToOneInPlace(Ciphertext<DCRTPoly>& c
+     }
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const {
++void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand,
++                                            int32_t target_level) const {
++    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
++    double scFactor;
++    if (target_level == -1) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    } else {
++        scFactor = cryptoParams->GetScalingFactorRealBig(target_level) /
++                   cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
++
+     auto& cv = ciphertext->GetElements();
+-    auto factors = GetElementForEvalMult(ciphertext, operand);
++    auto factors = GetElementForEvalMult(ciphertext, operand, scFactor);
+     for (uint32_t i = 0; i < cv.size(); ++i)
+         cv[i] = cv[i] * factors;
+ 
+     ciphertext->SetNoiseScaleDeg(ciphertext->GetNoiseScaleDeg() + 1);
+ 
+-    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
+     ciphertext->SetScalingFactor(ciphertext->GetScalingFactor() * scFactor);
++
++    if (target_level != -1) {
++        this->LevelReduceInternalInPlace(ciphertext, (target_level - ciphertext->GetLevel()));
++    }
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const {
++void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                            int32_t target_level) const {
++    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
++    double scFactor;
++    if (target_level == -1) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    } else {
++        scFactor = cryptoParams->GetScalingFactorRealBig(target_level) /
++                   cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
++
+     auto& cv = ciphertext->GetElements();
+ 
+     // MultByMonomialInPlace
+@@ -871,17 +909,18 @@ void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, st
+     monomialDCRT = monomial;
+     monomialDCRT.SetFormat(Format::EVALUATION);
+ 
+-    auto factorsRe = GetElementForEvalMult(ciphertext, operand.real());
+-    auto factorsIm = monomialDCRT * GetElementForEvalMult(ciphertext, operand.imag());
++    auto factorsRe = GetElementForEvalMult(ciphertext, operand.real(), scFactor);
++    auto factorsIm = monomialDCRT * GetElementForEvalMult(ciphertext, operand.imag(), scFactor);
+ 
+     for (uint32_t i = 0; i < cv.size(); ++i)
+         cv[i] = (cv[i] * factorsRe) + (cv[i] * factorsIm);
+ 
+     ciphertext->SetNoiseScaleDeg(ciphertext->GetNoiseScaleDeg() + 1);
+ 
+-    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
+     ciphertext->SetScalingFactor(ciphertext->GetScalingFactor() * scFactor);
++    if (target_level != -1) {
++        this->LevelReduceInternalInPlace(ciphertext, (target_level - ciphertext->GetLevel()));
++    }
+ }
+ 
+ uint32_t LeveledSHECKKSRNS::FindAutomorphismIndex(uint32_t index, uint32_t m) const {

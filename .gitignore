@@ -12,10 +12,17 @@ build/
 
 /doxygen/latex/
 /doxygen/html/
-
+/install/
 .vscode/
 .idea/
 
 deps/openfhe-src/
 
 .cache/
+
+__pycache__/
+*.pyc
+build-*/
+
+# Coverage pipeline output (scripts/run_coverage.sh).
+coverage/

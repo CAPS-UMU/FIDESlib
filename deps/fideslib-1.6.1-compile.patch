@@ -1,0 +1,2614 @@
+diff --git a/src/core/include/lattice/hal/default/dcrtpoly.h b/src/core/include/lattice/hal/default/dcrtpoly.h
+index 14b4363..6b00744 100644
+--- a/src/core/include/lattice/hal/default/dcrtpoly.h
++++ b/src/core/include/lattice/hal/default/dcrtpoly.h
+@@ -896,7 +896,7 @@ class DCRTPolyImpl final : public DCRTPolyInterface<DCRTPolyImpl<VecType>, VecTy
+         m_vectors[index] = std::move(element);
+     }
+ 
+-  protected:
++  public:
+     std::shared_ptr<Params> m_params{std::make_shared<DCRTPolyImpl::Params>()};
+     Format m_format{Format::EVALUATION};
+     std::vector<PolyType> m_vectors;
+diff --git a/src/core/include/lattice/hal/default/ildcrtparams.h b/src/core/include/lattice/hal/default/ildcrtparams.h
+index a0755c4..3b208d1 100644
+--- a/src/core/include/lattice/hal/default/ildcrtparams.h
++++ b/src/core/include/lattice/hal/default/ildcrtparams.h
+@@ -382,7 +382,7 @@ class ILDCRTParams final : public ElemParams<IntType> {
+         return out << std::endl;
+     }
+ 
+-  private:
++  public:
+     // array of smaller ILParams
+     std::vector<std::shared_ptr<ILNativeParams>> m_params;
+ };
+diff --git a/src/core/include/lattice/hal/default/poly.h b/src/core/include/lattice/hal/default/poly.h
+index e1f95ab..76b0186 100644
+--- a/src/core/include/lattice/hal/default/poly.h
++++ b/src/core/include/lattice/hal/default/poly.h
+@@ -622,8 +622,12 @@ class PolyImpl final : public PolyInterface<PolyImpl<VecType>, VecType, PolyImpl
+ 
+   protected:
+     Format m_format{Format::EVALUATION};
++
++  public:
+     std::shared_ptr<Params> m_params{nullptr};
+     std::unique_ptr<VecType> m_values{nullptr};
++
++  protected:
+     /**
+      * @brief Switches the format of an element over an arbitrary (non-power-of-two) cyclotomic ring with the
+      * Bluestein-based transform, using the root of unity, big modulus and big root of unity of the parameters;
+diff --git a/src/pke/include/ciphertext-fwd.h b/src/pke/include/ciphertext-fwd.h
+index 76391f2..da71e23 100644
+--- a/src/pke/include/ciphertext-fwd.h
++++ b/src/pke/include/ciphertext-fwd.h
+@@ -83,6 +83,9 @@ struct seriesPowers {
+     std::vector<Ciphertext<Element>> powersRe;
+     /** powers of degree k*2^i, i = 0..m-1, of the real part (Paterson-Stockmeyer only) */
+     std::vector<Ciphertext<Element>> powers2Re;
++    /** unreduced (pre-ModReduce) powers2, FIDESlib fused path only: used by the fused PS add/rescale
++     * ordering so the add of powers2 and the trailing rescale reproduce the GPU transcription bit-for-bit */
++    std::vector<Ciphertext<Element>> powers2NoRescaleRe;
+     /** power of degree k*(2m-1) of the real part (Paterson-Stockmeyer only) */
+     Ciphertext<Element> power2km1Re;
+     /** Paterson-Stockmeyer baby-step degree k */
+diff --git a/src/pke/include/cryptocontext.h b/src/pke/include/cryptocontext.h
+index 4e523e7..4c1c221 100644
+--- a/src/pke/include/cryptocontext.h
++++ b/src/pke/include/cryptocontext.h
+@@ -1788,6 +1788,7 @@ class CryptoContextImpl : public Serializable {
+      */
+     void EvalSubInPlace(Ciphertext<Element>& ciphertext1, ConstCiphertext<Element>& ciphertext2) const {
+         TypeCheck(ciphertext1, ciphertext2);
++
+         m_scheme->EvalSubInPlace(ciphertext1, ciphertext2);
+     }
+ 
+@@ -2285,12 +2286,13 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Multiplier.
+      * @param scalar      Real number multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar) const {
++    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        return m_scheme->EvalMult(ciphertext, scalar);
++        return m_scheme->EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2298,10 +2300,12 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param scalar      Real number multiplier.
+      * @param ciphertext  Multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    inline Ciphertext<Element> EvalMult(double scalar, ConstCiphertext<Element>& ciphertext) const {
+-        return EvalMult(ciphertext, scalar);
++    inline Ciphertext<Element> EvalMult(double scalar, ConstCiphertext<Element>& ciphertext,
++                                        int32_t target_level = -1) const {
++        return EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2309,11 +2313,12 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Ciphertext to modify.
+      * @param scalar      Real number multiplicand.
++     * @param target_level
+      */
+-    void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar) const {
++    void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        m_scheme->EvalMultInPlace(ciphertext, scalar);
++        m_scheme->EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2321,9 +2326,10 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param scalar      Real number multiplier.
+      * @param ciphertext  Ciphertext to modify (multiplicand).
++     * @param target_level
+      */
+-    inline void EvalMultInPlace(double scalar, Ciphertext<Element>& ciphertext) const {
+-        EvalMultInPlace(ciphertext, scalar);
++    inline void EvalMultInPlace(double scalar, Ciphertext<Element>& ciphertext, int32_t target_level = -1) const {
++        EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2331,12 +2337,14 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Multiplier.
+      * @param scalar      Complex number multiplicand.
++     * @param target_level
+      * @return Resulting ciphertext.
+      */
+-    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar,
++                                 int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        return m_scheme->EvalMult(ciphertext, scalar);
++        return m_scheme->EvalMult(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2355,11 +2363,13 @@ class CryptoContextImpl : public Serializable {
+      *
+      * @param ciphertext  Ciphertext to modify.
+      * @param scalar      Complex number multiplicand.
++     * @param target_level
+      */
+-    void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar,
++                         int32_t target_level = -1) const {
+         if (!ciphertext)
+             OPENFHE_THROW("Input ciphertext is nullptr");
+-        m_scheme->EvalMultInPlace(ciphertext, scalar);
++        m_scheme->EvalMultInPlace(ciphertext, scalar, target_level);
+     }
+ 
+     /**
+@@ -2810,8 +2820,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                       const std::vector<VectorDataType>& constantVec) const {
+-        return m_scheme->EvalLinearWSum(ciphertextVec, constantVec);
++                                       const std::vector<VectorDataType>& constantVec,
++                                       int32_t target_level = -1) const {
++        return m_scheme->EvalLinearWSum(ciphertextVec, constantVec, target_level);
+     }
+ 
+     /**
+@@ -2836,8 +2847,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                              const std::vector<VectorDataType>& constantsVec) const {
+-        return m_scheme->EvalLinearWSumMutable(ciphertextVec, constantsVec);
++                                              const std::vector<VectorDataType>& constantsVec,
++                                              int32_t target_level = -1) const {
++        return m_scheme->EvalLinearWSumMutable(ciphertextVec, constantsVec, target_level);
+     }
+ 
+     /**
+@@ -2849,8 +2861,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(const std::vector<VectorDataType>& constantsVec,
+-                                              std::vector<Ciphertext<Element>>& ciphertextVec) const {
+-        return EvalLinearWSumMutable(ciphertextVec, constantsVec);
++                                              std::vector<Ciphertext<Element>>& ciphertextVec,
++                                              int32_t target_level = -1) const {
++        return EvalLinearWSumMutable(ciphertextVec, constantsVec, target_level);
+     }
+ 
+     //------------------------------------------------------------------------------
+@@ -2873,6 +2886,26 @@ class CryptoContextImpl : public Serializable {
+         return m_scheme->EvalPowers(ciphertext, coefficients);
+     }
+ 
++    /**
++     * @brief FIDESlib fused variant of EvalPowers (CKKS only).
++     *
++     * Same power set, built with the FIDESlib fused discipline (ungated internal rescale, no final
++     * level alignment, unreduced powers2 retained for EvalPolyWithPrecomp). The CPU implementation is a
++     * bit-exact reference for the FIDESlib GPU transcription; it carries no fused speed-up.
++     *
++     * @param ciphertext    Input ciphertext.
++     * @param coefficients  Polynomial coefficients (vector's size = (degree + 1)).
++     * @param fused         Select the FIDESlib fused power build.
++     * @return Resulting structure of powers.
++     */
++    template <typename VectorDataType = double>
++    std::shared_ptr<seriesPowers<Element>> EvalPowers(ConstCiphertext<Element>& ciphertext,
++                                                      const std::vector<VectorDataType>& coefficients,
++                                                      bool fused) const {
++        ValidateCiphertext(ciphertext);
++        return m_scheme->EvalPowers(ciphertext, coefficients, fused);
++    }
++
+     /**
+      * @brief Evaluates a polynomial (given as a power series) on a ciphertext (CKKS only).
+      *        Use EvalPolyLinear() for low polynomial degrees (degree < 5), or EvalPolyPS() for higher degrees.
+@@ -2906,6 +2939,25 @@ class CryptoContextImpl : public Serializable {
+         return m_scheme->EvalPolyWithPrecomp(powers, coefficients);
+     }
+ 
++    /**
++     * @brief FIDESlib fused variant of EvalPolyWithPrecomp (CKKS only).
++     *
++     * Evaluates a polynomial from a fused EvalPowers precomputation with the FIDESlib fused
++     * Patterson-Stockmeyer discipline. The CPU implementation is a bit-exact reference for the
++     * FIDESlib GPU transcription; it carries no fused speed-up.
++     *
++     * @param powers        Powers returned by the fused EvalPowers.
++     * @param coefficients  Polynomial coefficients (vector's size = (degree + 1)).
++     * @param fused         Select the FIDESlib fused evaluation.
++     * @return Resulting ciphertext.
++     */
++    template <typename VectorDataType = double>
++    Ciphertext<Element> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<Element>> powers,
++                                            const std::vector<VectorDataType>& coefficients, bool fused) const {
++        ValidateSeriesPowers(powers);
++        return m_scheme->EvalPolyWithPrecomp(powers, coefficients, fused);
++    }
++
+     /**
+      * @brief Naive polynomial evaluation using a binary tree approach (efficient for low-degree polynomials, <10).
+      *        Polynomials are given as a power series. Supported only in CKKS.
+@@ -3698,8 +3750,9 @@ class CryptoContextImpl : public Serializable {
+      */
+     void EvalBootstrapSetup(std::vector<uint32_t> levelBudget = {5, 4}, std::vector<uint32_t> dim1 = {0, 0},
+                             uint32_t slots = 0, uint32_t correctionFactor = 0, bool precompute = true,
+-                            bool BTSlotsEncoding = false) {
+-        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
++                            bool BTSlotsEncoding = false, int32_t modevallevels = -1) {
++        m_scheme->EvalBootstrapSetup(*this, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding,
++                                     modevallevels);
+     }
+ 
+     /**
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
+index 6f435f2..e8406bf 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-advancedshe.h
+@@ -61,50 +61,64 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
+     //------------------------------------------------------------------------------
+ 
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<int64_t>& constants) const override;
++                                        const std::vector<int64_t>& constants,
++                                        int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with real constants, leaving the inputs unchanged; the
+      * products are accumulated and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the real weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<double>& constants) const override;
++                                        const std::vector<double>& constants, int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with complex constants, leaving the inputs unchanged; the
+      * products are accumulated and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the complex weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                        const std::vector<std::complex<double>>& constants) const override;
++                                        const std::vector<std::complex<double>>& constants,
++                                        int32_t target_level = -1) const override;
+ 
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<int64_t>& constants) const override;
++                                               const std::vector<int64_t>& constants,
++                                               int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with real constants; the inputs are first brought to the
+      * same level and noise scale degree (they are modified) and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the real weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<double>& constants) const override;
++                                               const std::vector<double>& constants,
++                                               int32_t target_level = -1) const override;
+     /**
+      * Computes the linear weighted sum of ciphertexts with complex constants; the inputs are first brought to the
+      * same level and noise scale degree (they are modified) and the sum is rescaled once at the end.
+      *
+      * @param ciphertexts the input ciphertexts
+      * @param constants the complex weights, one per ciphertext
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the weighted sum
+      */
+     Ciphertext<DCRTPoly> EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                               const std::vector<std::complex<double>>& constants) const override;
++                                               const std::vector<std::complex<double>>& constants,
++                                               int32_t target_level = -1) const override;
++
++    static Ciphertext<DCRTPoly> EvalPartialLinearWSumWithBias_(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                               const std::vector<double>& constants, double bias,
++                                                               uint32_t limit = 0, int32_t target_level = -1,
++                                                               bool rescale = true);
+ 
+     //------------------------------------------------------------------------------
+     // EVAL POLYNOMIAL
+@@ -133,6 +147,20 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
+     std::shared_ptr<seriesPowers<DCRTPoly>> EvalPowers(
+             ConstCiphertext<DCRTPoly>& x, const std::vector<std::complex<double>>& coefficients) const override;
+ 
++    /**
++     * FIDESlib fused variants of EvalPowers: identical power sets, but built with the FIDESlib fused
++     * discipline (ungated ModReduceInternalInPlace rescale, no final level alignment, and the unreduced
++     * powers2 stored). The CPU implementation has no fused speed-up — it only needs to reproduce the
++     * FIDESlib GPU transcription bit-for-bit.
++     */
++    std::shared_ptr<seriesPowers<DCRTPoly>> EvalPowers(ConstCiphertext<DCRTPoly>& x,
++                                                       const std::vector<int64_t>& coefficients, bool fused) const override;
++    std::shared_ptr<seriesPowers<DCRTPoly>> EvalPowers(ConstCiphertext<DCRTPoly>& x,
++                                                       const std::vector<double>& coefficients, bool fused) const override;
++    std::shared_ptr<seriesPowers<DCRTPoly>> EvalPowers(ConstCiphertext<DCRTPoly>& x,
++                                                       const std::vector<std::complex<double>>& coefficients,
++                                                       bool fused) const override;
++
+     Ciphertext<DCRTPoly> EvalPoly(ConstCiphertext<DCRTPoly>& ciphertext,
+                                   const std::vector<int64_t>& coefficients) const override;
+     /**
+@@ -190,6 +218,18 @@ class AdvancedSHECKKSRNS : public AdvancedSHERNS {
+     Ciphertext<DCRTPoly> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> powers,
+                                              const std::vector<std::complex<double>>& coefficients) const override;
+ 
++    /**
++     * FIDESlib fused variants of EvalPolyWithPrecomp: evaluate the (fused) power precomputation with the
++     * FIDESlib fused PS discipline. Bit-exact to the FIDESlib GPU transcription, with no CPU speed-up.
++     */
++    Ciphertext<DCRTPoly> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> powers,
++                                             const std::vector<int64_t>& coefficients, bool fused) const override;
++    Ciphertext<DCRTPoly> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> powers,
++                                             const std::vector<double>& coefficients, bool fused) const override;
++    Ciphertext<DCRTPoly> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> powers,
++                                             const std::vector<std::complex<double>>& coefficients,
++                                             bool fused) const override;
++
+     Ciphertext<DCRTPoly> EvalPolyLinear(ConstCiphertext<DCRTPoly>& x,
+                                         const std::vector<int64_t>& coefficients) const override;
+     /**
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
+index 95b9ff5..eb107ea 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-fhe.h
+@@ -34,6 +34,7 @@
+ 
+ #include <complex>
+ #include <cstdint>
++#include <limits>
+ #include <map>
+ #include <memory>
+ #include <string>
+@@ -153,13 +154,14 @@ using namespace std::literals::complex_literals;
+  * multiplicative depth these procedures consume. All bootstrapping flavors require HYBRID key switching.
+  */
+ class FHECKKSRNS : public FHERNS {
+-  private:
++  public:
+     // correction factor, which we scale the message by to improve precision
+     uint32_t m_correctionFactor;
+ 
+     // key tuple is dim1, levelBudgetEnc, levelBudgetDec
+     std::map<uint32_t, std::shared_ptr<CKKSBootstrapPrecom>> m_bootPrecomMap;
+ 
++  private:
+     using ParmType = typename DCRTPoly::Params;
+     using DugType = typename DCRTPoly::DugType;
+     using DggType = typename DCRTPoly::DggType;
+@@ -197,7 +199,8 @@ class FHECKKSRNS : public FHERNS {
+      */
+     void EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+                             std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor, bool precompute,
+-                            bool BTSlotsEncoding) override;
++                            bool BTSlotsEncoding,
++                            uint32_t modevallevels = std::numeric_limits<uint32_t>::max()) override;
+ 
+     std::shared_ptr<std::map<uint32_t, EvalKey<DCRTPoly>>> EvalBootstrapKeyGen(const PrivateKey<DCRTPoly> privateKey,
+                                                                                uint32_t slots) override;
+@@ -747,6 +750,21 @@ class FHECKKSRNS : public FHERNS {
+      * @param radix accumulation branching factor (power of two; 2 = plain doubling)
+      */
+     static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix);
++    /**
++     * Rotation fold with a start offset: as above but the first level starts at
++     * `startFactor*stride` instead of `stride` (levels s = startFactor, startFactor*radix, ...).
++     * Folds ct = sum_{j=0}^{size/startFactor - 1} Rotate(ct, j * startFactor * stride) with the
++     * same radix level structure and the same lazy extended-basis accumulation (element 0 settles
++     * once, element 1 per level) - mirroring FIDESlib's unified start-aware Accumulate. A
++     * start-offset doubling (radix 2) is exactly the plain doubling of the remaining range.
++     * @param ct input/output ciphertext
++     * @param stride slot distance between consecutive summands
++     * @param size number of summands (power of two)
++     * @param radix accumulation branching factor (power of two; 2 = plain doubling)
++     * @param startFactor first-level factor (power of two; 1 = the plain fold)
++     */
++    static void EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                      uint32_t startFactor);
+ 
+     //------------------------------------------------------------------------------
+     // SERIALIZATION
+@@ -1025,8 +1043,10 @@ class FHECKKSRNS : public FHERNS {
+     //------------------------------------------------------------------------------
+     // Find Rotation Indices
+     //------------------------------------------------------------------------------
++  public:
+     std::vector<int32_t> FindBootstrapRotationIndices(uint32_t slots, uint32_t M);
+ 
++  private:
+     // ATTN: The following 3 functions are helper methods to be called in FindBootstrapRotationIndices() only.
+     // so they DO NOT remove possible duplicates and automorphisms corresponding to 0 and M/4.
+     // These methods completely depend on FindBootstrapRotationIndices() to do that.
+@@ -1047,7 +1067,6 @@ class FHECKKSRNS : public FHERNS {
+ 
+     void ExtendCiphertext(std::vector<DCRTPoly>& ciphertext, const CryptoContextImpl<DCRTPoly>& cc,
+                           const std::shared_ptr<DCRTPoly::Params> params) const;
+-
+     /**
+      * Raises the modulus of a depleted ciphertext (bottom level, noise degree 1) to the raised basis, i.e.,
+      * extends its bottom RNS limbs (a single prime, or compositeDegree primes for composite scaling) to
+@@ -1057,6 +1076,7 @@ class FHECKKSRNS : public FHERNS {
+     void ModRaiseInPlace(Ciphertext<DCRTPoly>& raised,
+                          const std::shared_ptr<DCRTPoly::Params>& elementParamsRaisedPtr) const;
+ 
++  public:
+     void ApplyDoubleAngleIterations(Ciphertext<DCRTPoly>& ciphertext, uint32_t numIt) const;
+ 
+     /**
+@@ -1128,11 +1148,10 @@ class FHECKKSRNS : public FHERNS {
+ 
+     // upper bounds for the number of overflows in the sparse secret cases; the failure probability depends only on
+     // K and on the Hamming weight h of the sparse secret (equation (1) of https://eprint.iacr.org/2022/024)
+-
+-    // SPARSE_TERNARY (h = 192): failure probability of about 2^{-39} per coefficient, i.e., 2^{-22} for 2^16 slots.
+-    // Also used for SPARSE_ENCAPSULATED with the denser sparse secret (h = 64: first modulus above 60 bits), where
+-    // the failure probability is below 2^{-142} for 2^16 slots.
++  public:
++    // TODO: unify this
+     static constexpr uint32_t K_SPARSE = 28;
++    static constexpr uint32_t K_SPARSE_ALT = 25;
+     // SPARSE_ENCAPSULATED (h = 32): failure probability below 2^{-137} for 2^16 slots
+     static constexpr uint32_t K_SPARSE_ENCAPSULATED = 16;
+ 
+@@ -1526,6 +1545,12 @@ class FHECKKSRNS : public FHERNS {
+             std::complex<double>(0, 7.211314011213e-11),  std::complex<double>(0, 4.426391086890e-11)};
+ };
+ 
++// Runtime accessors to the standard CKKS bootstrap Chebyshev tables (defined in
++// ckksrns-fhe.cpp). FIDESlib reads the installed release's tables at runtime.
++const std::vector<double>& GetBootTableCoeffSparse();
++const std::vector<double>& GetBootTableCoeffSparseEncapsulated();
++const std::vector<double>& GetBootTableCoeffUniform();
++
+ }  // namespace lbcrypto
+ 
+ #endif  // SRC_PKE_INCLUDE_SCHEME_CKKSRNS_CKKSRNS_FHE_H_
+diff --git a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
+index 5ff3db6..7b6e0d7 100644
+--- a/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
++++ b/src/pke/include/scheme/ckksrns/ckksrns-leveledshe.h
+@@ -164,17 +164,20 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the product
+      */
+-    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const override;
++    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                  int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a real constant in place (see EvalMult).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const override;
++    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a plaintext in place and updates the scaling factor of the product: for the
+@@ -194,17 +197,21 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the product
+      */
+-    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const override;
++    Ciphertext<DCRTPoly> EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                  int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by a complex constant in place (see EvalMult).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const override;
++    void EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                         int32_t target_level = -1) const override;
+ 
+     /**
+      * Multiplies a ciphertext by an unscaled integer: the ciphertext elements are multiplied by the integer directly,
+@@ -298,16 +305,19 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const;
++    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level = -1) const;
+ 
+     /**
+      * Core of the multiplication by a complex constant (see the real overload).
+      *
+      * @param ciphertext the input ciphertext, replaced by the product
+      * @param operand the constant to multiply by
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const;
++    void EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                             int32_t target_level = -1) const;
+ 
+     /**
+      * Brings two ciphertexts to the same level and noise scale degree before a binary operation. For FIXEDMANUAL
+@@ -351,9 +361,11 @@ class LeveledSHECKKSRNS : public LeveledSHERNS {
+      *
+      * @param ciphertext the ciphertext the constant will multiply (provides the level and moduli)
+      * @param operand the constant
++     * @param scaling_factor the scaling factor to scale the constant by, or -1 to use the level's scaling factor
+      * @return the CRT representation of the scaled constant, one residue per tower
+      */
+-    std::vector<DCRTPoly::Integer> GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const;
++    std::vector<DCRTPoly::Integer> GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                                         double scaling_factor = -1.0) const;
+ 
+     /////////////////////////////////////
+     // SERIALIZATION
+diff --git a/src/pke/include/schemebase/base-advancedshe.h b/src/pke/include/schemebase/base-advancedshe.h
+index 5e32ea7..18f5a57 100644
+--- a/src/pke/include/schemebase/base-advancedshe.h
++++ b/src/pke/include/schemebase/base-advancedshe.h
+@@ -113,10 +113,11 @@ class AdvancedSHEBase {
+      *
+      * @param ciphertextVec vector of input ciphertexts.
+      * @param weights vector containing the weights.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<int64_t>& weights) const {
++                                               const std::vector<int64_t>& weights, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -128,7 +129,7 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<double>& weights) const {
++                                               const std::vector<double>& weights, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -140,7 +141,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                               const std::vector<std::complex<double>>& weights) const {
++                                               const std::vector<std::complex<double>>& weights,
++                                               int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -154,7 +156,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<int64_t>& weights) const {
++                                                      const std::vector<int64_t>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -166,7 +169,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<double>& weights) const {
++                                                      const std::vector<double>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+     /**
+@@ -178,7 +182,8 @@ class AdvancedSHEBase {
+      * @return A ciphertext containing the linear weighted sum.
+      */
+     virtual Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                                      const std::vector<std::complex<double>>& weights) const {
++                                                      const std::vector<std::complex<double>>& weights,
++                                                      int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -227,6 +232,26 @@ class AdvancedSHEBase {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
++    /**
++     * FIDESlib fused variant of EvalPowers (see the CKKS implementation). The CPU implementation is a
++     * bit-exact reference only; it carries no fused speed-up.
++     */
++    virtual std::shared_ptr<seriesPowers<Element>> EvalPowers(ConstCiphertext<Element>& ciphertext,
++                                                              const std::vector<int64_t>& coefficients,
++                                                              bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++    virtual std::shared_ptr<seriesPowers<Element>> EvalPowers(ConstCiphertext<Element>& ciphertext,
++                                                              const std::vector<double>& coefficients,
++                                                              bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++    virtual std::shared_ptr<seriesPowers<Element>> EvalPowers(ConstCiphertext<Element>& ciphertext,
++                                                              const std::vector<std::complex<double>>& coefficients,
++                                                              bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++
+     /**
+      * Method for polynomial evaluation for polynomials represented in the power series.
+      * Uses EvalPolyLinear() for low polynomial degrees (degree < 5), or EvalPolyPS() for higher degrees.
+@@ -310,6 +335,24 @@ class AdvancedSHEBase {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
++    /**
++     * FIDESlib fused variant of EvalPolyWithPrecomp (see the CKKS implementation). The CPU implementation
++     * is a bit-exact reference only; it carries no fused speed-up.
++     */
++    virtual Ciphertext<Element> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<Element>> powers,
++                                                    const std::vector<int64_t>& coefficients, bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++    virtual Ciphertext<Element> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<Element>> powers,
++                                                    const std::vector<double>& coefficients, bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++    virtual Ciphertext<Element> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<Element>> powers,
++                                                    const std::vector<std::complex<double>>& coefficients,
++                                                    bool fused) const {
++        OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
++    }
++
+     /**
+      * Method for polynomial evaluation for polynomials represented in the power
+      * series. This uses a binary tree computation of
+diff --git a/src/pke/include/schemebase/base-cryptoparameters.h b/src/pke/include/schemebase/base-cryptoparameters.h
+index 1a4992c..0e05afb 100644
+--- a/src/pke/include/schemebase/base-cryptoparameters.h
++++ b/src/pke/include/schemebase/base-cryptoparameters.h
+@@ -266,8 +266,10 @@ class CryptoParametersBase : public Serializable {
+     }
+ 
+     /// element-specific parameters
++  public:
+     std::shared_ptr<typename Element::Params> m_params;
+ 
++  protected:
+     /// encoding-specific parameters
+     EncodingParams m_encodingParams;
+ };
+diff --git a/src/pke/include/schemebase/base-fhe.h b/src/pke/include/schemebase/base-fhe.h
+index b96bbbf..cb0cc6e 100644
+--- a/src/pke/include/schemebase/base-fhe.h
++++ b/src/pke/include/schemebase/base-fhe.h
+@@ -107,7 +107,7 @@ class FHEBase {
+      */
+     virtual void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, std::vector<uint32_t> levelBudget,
+                                     std::vector<uint32_t> dim1, uint32_t slots, uint32_t correctionFactor,
+-                                    bool precompute, bool BTSlotsEncoding) {
++                                    bool precompute, bool BTSlotsEncoding, uint32_t modevallevels = -1) {
+         OPENFHE_THROW(NOT_SUPPORTED_SIMPLE_ERROR);
+     }
+ 
+diff --git a/src/pke/include/schemebase/base-leveledshe.h b/src/pke/include/schemebase/base-leveledshe.h
+index a7045b4..8c7b660 100644
+--- a/src/pke/include/schemebase/base-leveledshe.h
++++ b/src/pke/include/schemebase/base-leveledshe.h
+@@ -579,9 +579,11 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input ciphertext.
+      * @param scalar the real constant.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the new ciphertext.
+      */
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double scalar,
++                                         int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -590,8 +592,9 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input/output ciphertext.
+      * @param scalar the real constant.
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double scalar, int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -602,9 +605,11 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input ciphertext.
+      * @param scalar the complex constant.
++     * @param target_level the target level, or -1 to use the current level.
+      * @return the new ciphertext.
+      */
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> scalar,
++                                         int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+@@ -613,8 +618,10 @@ class LeveledSHEBase {
+      *
+      * @param ciphertext the input/output ciphertext.
+      * @param scalar the complex constant.
++     * @param target_level the target level, or -1 to use the current level.
+      */
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> scalar,
++                                 int32_t target_level = -1) const {
+         OPENFHE_THROW(NOT_IMPLEMENTED_ERROR);
+     }
+ 
+diff --git a/src/pke/include/schemebase/base-scheme.h b/src/pke/include/schemebase/base-scheme.h
+index 88d4a0d..ea3b268 100644
+--- a/src/pke/include/schemebase/base-scheme.h
++++ b/src/pke/include/schemebase/base-scheme.h
+@@ -716,24 +716,27 @@ class SchemeBase {
+         m_LeveledSHE->MultByMonomialInPlace(ciphertext, power);
+     }
+ 
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double constant) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, double constant,
++                                         int32_t target_level) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        return m_LeveledSHE->EvalMult(ciphertext, constant);
++        return m_LeveledSHE->EvalMult(ciphertext, constant, target_level);
+     }
+ 
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double constant) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, double constant, int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        m_LeveledSHE->EvalMultInPlace(ciphertext, constant);
++        m_LeveledSHE->EvalMultInPlace(ciphertext, constant, target_level);
+     }
+ 
+-    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> constant) const {
++    virtual Ciphertext<Element> EvalMult(ConstCiphertext<Element>& ciphertext, std::complex<double> constant,
++                                         int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        return m_LeveledSHE->EvalMult(ciphertext, constant);
++        return m_LeveledSHE->EvalMult(ciphertext, constant, target_level);
+     }
+ 
+-    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> constant) const {
++    virtual void EvalMultInPlace(Ciphertext<Element>& ciphertext, std::complex<double> constant,
++                                 int32_t target_level = -1) const {
+         VerifyLeveledSHEEnabled(__func__);
+-        m_LeveledSHE->EvalMultInPlace(ciphertext, constant);
++        m_LeveledSHE->EvalMultInPlace(ciphertext, constant, target_level);
+     }
+ 
+     virtual Ciphertext<Element> MultByInteger(ConstCiphertext<Element>& ciphertext, uint64_t integer) const {
+@@ -1003,20 +1006,22 @@ class SchemeBase {
+ 
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSum(std::vector<ReadOnlyCiphertext<Element>>& ciphertextVec,
+-                                       const std::vector<VectorDataType>& constantVec) const {
++                                       const std::vector<VectorDataType>& constantVec,
++                                       int32_t target_level = -1) const {
+         VerifyAdvancedSHEEnabled(__func__);
+         if (!ciphertextVec.size())
+             OPENFHE_THROW("Input ciphertext vector is empty");
+-        return m_AdvancedSHE->EvalLinearWSum(ciphertextVec, constantVec);
++        return m_AdvancedSHE->EvalLinearWSum(ciphertextVec, constantVec, target_level);
+     }
+ 
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalLinearWSumMutable(std::vector<Ciphertext<Element>>& ciphertextVec,
+-                                              const std::vector<VectorDataType>& constantVec) const {
++                                              const std::vector<VectorDataType>& constantVec,
++                                              int32_t target_level = -1) const {
+         VerifyAdvancedSHEEnabled(__func__);
+         if (!ciphertextVec.size())
+             OPENFHE_THROW("Input ciphertext vector is empty");
+-        return m_AdvancedSHE->EvalLinearWSumMutable(ciphertextVec, constantVec);
++        return m_AdvancedSHE->EvalLinearWSumMutable(ciphertextVec, constantVec, target_level);
+     }
+ 
+     /////////////////////////////////////
+@@ -1030,6 +1035,14 @@ class SchemeBase {
+         return m_AdvancedSHE->EvalPowers(ciphertext, coefficients);
+     }
+ 
++    template <typename VectorDataType = double>
++    std::shared_ptr<seriesPowers<Element>> EvalPowers(ConstCiphertext<Element>& ciphertext,
++                                                      const std::vector<VectorDataType>& coefficients,
++                                                      bool fused) const {
++        VerifyAdvancedSHEEnabled(__func__);
++        return m_AdvancedSHE->EvalPowers(ciphertext, coefficients, fused);
++    }
++
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalPoly(ConstCiphertext<Element>& ciphertext,
+                                  const std::vector<VectorDataType>& coefficients) const {
+@@ -1044,6 +1057,13 @@ class SchemeBase {
+         return m_AdvancedSHE->EvalPolyWithPrecomp(powers, coefficients);
+     }
+ 
++    template <typename VectorDataType = double>
++    Ciphertext<Element> EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<Element>> powers,
++                                            const std::vector<VectorDataType>& coefficients, bool fused) const {
++        VerifyAdvancedSHEEnabled(__func__);
++        return m_AdvancedSHE->EvalPolyWithPrecomp(powers, coefficients, fused);
++    }
++
+     template <typename VectorDataType = double>
+     Ciphertext<Element> EvalPolyLinear(ConstCiphertext<Element>& ciphertext,
+                                        const std::vector<VectorDataType>& coefficients) const {
+@@ -1465,9 +1485,11 @@ class SchemeBase {
+ 
+     void EvalBootstrapSetup(const CryptoContextImpl<Element>& cc, const std::vector<uint32_t>& levelBudget = {5, 4},
+                             const std::vector<uint32_t>& dim1 = {0, 0}, uint32_t slots = 0,
+-                            uint32_t correctionFactor = 0, bool precompute = true, bool BTSlotsEncoding = false) {
++                            uint32_t correctionFactor = 0, bool precompute = true, bool BTSlotsEncoding = false,
++                            int32_t modevallevels = -1) {
+         VerifyFHEEnabled(__func__);
+-        m_FHE->EvalBootstrapSetup(cc, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding);
++        m_FHE->EvalBootstrapSetup(cc, levelBudget, dim1, slots, correctionFactor, precompute, BTSlotsEncoding,
++                                  modevallevels);
+     }
+ 
+     // Cache teardown is best-effort and must stay noexcept: a scheme that never enabled the
+@@ -1959,7 +1981,10 @@ class SchemeBase {
+     /** threshold key generation and decryption; set by Enable(MULTIPARTY) */
+     std::shared_ptr<MultipartyBase<Element>> m_Multiparty;
+     /** CKKS bootstrapping and functional bootstrapping; set by Enable(FHE) */
++  public:
+     std::shared_ptr<FHEBase<Element>> m_FHE;
++
++  protected:
+     /** CKKS <-> FHEW scheme switching; set by Enable(SCHEMESWITCH) */
+     std::shared_ptr<FHEBase<Element>> m_SchemeSwitch;
+ 
+diff --git a/src/pke/include/schemerns/rns-cryptoparameters.h b/src/pke/include/schemerns/rns-cryptoparameters.h
+index 44a1952..a5be4d8 100644
+--- a/src/pke/include/schemerns/rns-cryptoparameters.h
++++ b/src/pke/include/schemerns/rns-cryptoparameters.h
+@@ -686,7 +686,11 @@ class CryptoParametersRNS : public CryptoParametersRLWE<DCRTPoly> {
+         if (m_scalTechnique == FLEXIBLEAUTO || m_scalTechnique == FLEXIBLEAUTOEXT ||
+             m_scalTechnique == COMPOSITESCALINGAUTO || m_scalTechnique == COMPOSITESCALINGMANUAL) {
+             if (l >= m_scalingFactorsReal.size()) {
+-                // TODO: Return an error here.
++                std::string s = "invalid level ";
++                s += std::to_string(l);
++                s += " greater/eq than ";
++                s += std::to_string(m_scalingFactorsReal.size());
++                OPENFHE_THROW(s);
+                 return m_approxSF;
+             }
+ 
+@@ -709,8 +713,12 @@ class CryptoParametersRNS : public CryptoParametersRLWE<DCRTPoly> {
+         if (m_scalTechnique == FLEXIBLEAUTO || m_scalTechnique == FLEXIBLEAUTOEXT ||
+             m_scalTechnique == COMPOSITESCALINGAUTO || m_scalTechnique == COMPOSITESCALINGMANUAL) {
+             if (l >= m_scalingFactorsRealBig.size()) {
+-                // TODO: Return an error here.
+-                return m_approxSF;
++                std::string s = "invalid level ";
++                s += std::to_string(l);
++                s += " greater/eq than ";
++                s += std::to_string(m_scalingFactorsRealBig.size());
++                OPENFHE_THROW(s);
++                return m_approxSF * m_approxSF;
+             }
+ 
+             return m_scalingFactorsRealBig[l];
+@@ -1638,7 +1646,7 @@ class CryptoParametersRNS : public CryptoParametersRLWE<DCRTPoly> {
+     /////////////////////////////////////
+     // BGVrns ModReduce
+     /////////////////////////////////////
+-
++  public:
+     // Stores NTL precomputations for [t]_{q_i}
+     std::vector<NativeInteger> m_tModqPrecon;
+ 
+diff --git a/src/pke/lib/cryptocontext.cpp b/src/pke/lib/cryptocontext.cpp
+index b338e5e..6bb123b 100644
+--- a/src/pke/lib/cryptocontext.cpp
++++ b/src/pke/lib/cryptocontext.cpp
+@@ -906,8 +906,8 @@ template class CryptoContextImpl<DCRTPoly>;
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeries<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesLinear<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalChebyshevSeriesPS<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&, double, double) const; \
+-    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSum<VECTOR_TYPE>(std::vector<ReadOnlyCiphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&) const; \
+-    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSumMutable<VECTOR_TYPE>(const std::vector<VECTOR_TYPE>&, std::vector<Ciphertext<DCRTPoly>>&) const; \
++    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSum<VECTOR_TYPE>(std::vector<ReadOnlyCiphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&, int32_t) const; \
++    template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalLinearWSumMutable<VECTOR_TYPE>(std::vector<Ciphertext<DCRTPoly>>&, const std::vector<VECTOR_TYPE>&, int32_t) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPoly<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyLinear<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const; \
+     template Ciphertext<DCRTPoly> CryptoContextImpl<DCRTPoly>::EvalPolyPS<VECTOR_TYPE>(ConstCiphertext<DCRTPoly>&, const std::vector<VECTOR_TYPE>&) const;
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
+index eabf3a2..883be4e 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-advancedshe.cpp
+@@ -37,6 +37,9 @@ CKKS implementation. See https://eprint.iacr.org/2020/1118 for details.
+ 
+ #include <cmath>
+ #include <complex>
++#include <iostream>
++#include <cstdint>
++#include <cstring>
+ #include <cstdint>
+ #include <memory>
+ #include <utility>
+@@ -104,86 +107,189 @@ static Ciphertext<DCRTPoly> evalStreamedLinearWSum(const std::vector<CtType>& ci
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> internalEvalLinearWSum(const std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                            const std::vector<VectorDataType>& constants) {
++                                            const std::vector<VectorDataType>& constants, int32_t target_level) {
+     return evalStreamedLinearWSum(ciphertexts, constants.data(), static_cast<uint32_t>(ciphertexts.size()));
+ }
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> internalEvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                   const std::vector<VectorDataType>& constants) {
++                                                   const std::vector<VectorDataType>& constants,
++                                                   int32_t target_level = -1) {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertexts[0]->GetCryptoParameters());
+ 
+     auto cc = ciphertexts[0]->GetCryptoContext();
+ 
+     const uint32_t limit = ciphertexts.size();
+ 
+-    if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+-        // Check to see if input ciphertexts are of same level
+-        // and adjust if needed to the max level among them
+-        uint32_t maxLevel = ciphertexts[0]->GetLevel();
+-        uint32_t maxIdx = 0;
+-        for (uint32_t i = 1; i < limit; ++i) {
+-            if ((ciphertexts[i]->GetLevel() > maxLevel) ||
+-                ((ciphertexts[i]->GetLevel() == maxLevel) && (ciphertexts[i]->GetNoiseScaleDeg() == 2))) {
+-                maxLevel = ciphertexts[i]->GetLevel();
+-                maxIdx = i;
++    if (target_level == -1) {
++        if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
++            // Check to see if input ciphertexts are of same level
++            // and adjust if needed to the max level among them
++            uint32_t maxLevel = ciphertexts[0]->GetLevel();
++            uint32_t maxIdx = 0;
++            for (uint32_t i = 1; i < limit; ++i) {
++                if ((ciphertexts[i]->GetLevel() > maxLevel) ||
++                    ((ciphertexts[i]->GetLevel() == maxLevel) && (ciphertexts[i]->GetNoiseScaleDeg() == 2))) {
++                    maxLevel = ciphertexts[i]->GetLevel();
++                    maxIdx = i;
++                }
+             }
+-        }
+ 
+-        auto algo = cc->GetScheme();
+-        for (uint32_t i = 0; i < maxIdx; ++i)
+-            algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
+-        for (uint32_t i = maxIdx + 1; i < limit; ++i)
+-            algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
++            auto algo = cc->GetScheme();
++            for (uint32_t i = 0; i < maxIdx; ++i)
++                algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
++            for (uint32_t i = maxIdx + 1; i < limit; ++i)
++                algo->AdjustLevelsAndDepthInPlace(ciphertexts[i], ciphertexts[maxIdx]);
+ 
+-        uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
+-        if (ciphertexts[maxIdx]->GetNoiseScaleDeg() == 2) {
+-            for (uint32_t i = 0; i < limit; ++i)
+-                algo->ModReduceInternalInPlace(ciphertexts[i], compositeDegree);
++            uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
++            if (ciphertexts[maxIdx]->GetNoiseScaleDeg() == 2) {
++                for (uint32_t i = 0; i < limit; ++i)
++                    algo->ModReduceInternalInPlace(ciphertexts[i], compositeDegree);
++            }
+         }
+-    }
+ 
+-    cc->EvalMultInPlace(ciphertexts[0], constants[0]);
+-    for (uint32_t i = 1; i < limit; ++i) {
+-        cc->EvalMultInPlace(ciphertexts[i], constants[i]);
+-        cc->EvalAddInPlaceNoCheck(ciphertexts[0], ciphertexts[i]);
++        cc->EvalMultInPlace(ciphertexts[0], constants[0]);
++        for (uint32_t i = 1; i < limit; ++i) {
++            cc->EvalMultInPlace(ciphertexts[i], constants[i]);
++            cc->EvalAddInPlaceNoCheck(ciphertexts[0], ciphertexts[i]);
++        }
++        cc->ModReduceInPlace(ciphertexts[0]);
++        return ciphertexts[0];
++    } else {
++        OPENFHE_THROW("target_level parameter not implemented");
+     }
+-    cc->ModReduceInPlace(ciphertexts[0]);
+-    return ciphertexts[0];
+ }
+ 
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> EvalPartialLinearWSum(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                           const std::vector<VectorDataType>& constants, uint32_t limit = 0) {
++                                           const std::vector<VectorDataType>& constants, uint32_t limit = 0,
++                                           int32_t target_level = -1, bool rescale = true) {
++    if (0 == limit)
++        limit = ciphertexts.size();
++
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertexts[0]->GetCryptoParameters());
++
++    auto cc = ciphertexts[0]->GetCryptoContext();
++
++    if (target_level == -1) {
++        return evalStreamedLinearWSum(ciphertexts, constants.data() + 1, limit);
++    } else {
++        OPENFHE_THROW("target_level parameter not implemented");
++    }
++}
++
++/**
++ * carlos.a.d@um.es: This function has 2 improvements over the legacy wsum:
++ *  1. generate output at the desired level and correct scale by applying the formula:
++ *  (desired output) Delta_{target_level}^2 * ct * weight =  ( ct * Delta_{current_level} ) * ( weight * Delta_{target_level}^2 / Delta_{current_level})
++ *  on multiplications by constant, for each multiplicand individually:
++ *      Benefit: omision of adjustment calls or temporary ciphertext copies
++ *  2. apply bias term / constant term / degree zero term of the formula within PS BEFORE rescaling
++ *
++ *  Set INCLUDE_SMALL_TERMS = true to not skip small weights (to be tested for accuracy and correctness)
++ *      Comment: Weight skipping should (probably) depend on the magnitude of the parameter set's scaling factor and expected noise to only include productive
++ *      terms into the homomorphic computation.
++ */
++template <typename VectorDataType>
++Ciphertext<DCRTPoly> EvalPartialLinearWSumWithBias(const std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                   const std::vector<VectorDataType>& constants, VectorDataType bias,
++                                                   uint32_t limit = 0, int32_t target_level = -1, bool rescale = true) {
++    constexpr bool INCLUDE_SMALL_TERMS = false;
+     if (0 == limit)
+         limit = ciphertexts.size();
+-    return evalStreamedLinearWSum(ciphertexts, constants.data() + 1, limit);
++
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertexts[0]->GetCryptoParameters());
++
++    auto cc = ciphertexts[0]->GetCryptoContext();
++
++    if (target_level == -1) {
++        OPENFHE_THROW("Not implemented for BASELINE cheby or other uses");
++    } else {
++        size_t maxLevel = ciphertexts[0]->GetLevel();
++        if (ciphertexts[0]->GetNoiseScaleDeg() == 2)
++            OPENFHE_THROW("Not modulo reduced");
++        for (uint32_t i = 1; i < limit; ++i) {
++            if ((ciphertexts[i]->GetLevel() > maxLevel) ||
++                ((ciphertexts[i]->GetLevel() == maxLevel) && (ciphertexts[i]->GetNoiseScaleDeg() == 2))) {
++                maxLevel = ciphertexts[i]->GetLevel();
++            }
++
++            if (ciphertexts[i]->GetNoiseScaleDeg() == 2)
++                OPENFHE_THROW("Not modulo reduced");
++        }
++
++        auto out = cc->EvalMult(ciphertexts[0], constants[1], target_level);
++        if (!INCLUDE_SMALL_TERMS && !IsNotEqualZero(constants[1])) {
++            // --- 2. Build zero DCRTPoly objects in the right format ---
++            // Get the parameters used for ciphertext polynomials
++            const auto cryptoParams = cc->GetCryptoParameters();
++            const auto paramsPK = std::make_shared<lbcrypto::M4DCRTParams>(*(cryptoParams->GetElementParams()));
++            for (int i = 0; i < target_level; ++i)
++                paramsPK->PopLastParam();
++
++            // Create two zero polynomials in EVALUATION format (standard for ciphertexts)
++            std::vector<DCRTPoly> zeroElems;
++            zeroElems.reserve(2);
++
++            for (size_t i = 0; i < 2; ++i) {
++                // DCRTPoly constructor with a zero initializer and params
++                DCRTPoly zeroPoly(paramsPK,  // parameters
++                                  Format::EVALUATION, true);
++
++                zeroElems.push_back(std::move(zeroPoly));
++            }
++
++            out->SetElements(std::move(zeroElems));
++        }
++        for (uint32_t i = 1; i < limit; ++i) {
++            if (INCLUDE_SMALL_TERMS || IsNotEqualZero(constants[i + 1]))
++                cc->EvalAddInPlace(out, cc->EvalMult(ciphertexts[i], constants[i + 1], target_level));
++        }
++        if (INCLUDE_SMALL_TERMS || IsNotEqualZero(bias))
++            cc->EvalAddInPlace(out, bias);
++        if (rescale)
++            cc->ModReduceInPlace(out);
++        return out;
++    }
++}
++
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPartialLinearWSumWithBias_(
++        const std::vector<Ciphertext<DCRTPoly>>& ciphertexts, const std::vector<double>& constants, double bias,
++        uint32_t limit, int32_t target_level, bool rescale) {
++    auto res = EvalPartialLinearWSumWithBias<double>(ciphertexts, constants, bias, limit, target_level, rescale);
++    return res;
+ }
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<int64_t>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<int64_t>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<double>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<double>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSum(std::vector<ReadOnlyCiphertext<DCRTPoly>>& ciphertexts,
+-                                                        const std::vector<std::complex<double>>& constants) const {
+-    return internalEvalLinearWSum(ciphertexts, constants);
++                                                        const std::vector<std::complex<double>>& constants,
++                                                        int32_t target_level) const {
++    return internalEvalLinearWSum(ciphertexts, constants, target_level);
+ }
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                               const std::vector<int64_t>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++                                                               const std::vector<int64_t>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
+-                                                               const std::vector<double>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++                                                               const std::vector<double>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+-Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(
+-        std::vector<Ciphertext<DCRTPoly>>& ciphertexts, const std::vector<std::complex<double>>& constants) const {
+-    return internalEvalLinearWSumMutable(ciphertexts, constants);
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(std::vector<Ciphertext<DCRTPoly>>& ciphertexts,
++                                                               const std::vector<std::complex<double>>& constants,
++                                                               int32_t target_level) const {
++    return internalEvalLinearWSumMutable(ciphertexts, constants, target_level);
+ }
+ 
+ //------------------------------------------------------------------------------
+@@ -192,7 +298,8 @@ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalLinearWSumMutable(
+ 
+ template <typename VectorDataType>
+ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersLinear(ConstCiphertext<DCRTPoly>& x,
+-                                                                 const std::vector<VectorDataType>& coefficients) {
++                                                                 const std::vector<VectorDataType>& coefficients,
++                                                                 bool fused = false) {
+     const uint32_t k = coefficients.size() - 1;
+     std::vector<bool> indices(k);
+ 
+@@ -225,7 +332,10 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersLinear(ConstCiphertext
+     for (uint32_t i = 2; i <= k; ++i) {
+         if (0 == (i & (i - 1))) {
+             powers[i - 1] = cc->EvalSquare(powers[i / 2 - 1]);
+-            cc->ModReduceInPlace(powers[i - 1]);
++            if (fused)
++                cc->GetScheme()->ModReduceInternalInPlace(powers[i - 1], compositeDegree);
++            else
++                cc->ModReduceInPlace(powers[i - 1]);
+         } else {
+             if (indices[i - 1]) {
+                 uint64_t p = (uint64_t(1) << (GetMSB(i) - 1)) - 1;
+@@ -234,24 +344,30 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersLinear(ConstCiphertext
+                 cc->LevelReduceInPlace(powers[r], nullptr, diff / compositeDegree);
+ 
+                 powers[i - 1] = cc->EvalMult(powers[p], powers[r]);
+-                cc->ModReduceInPlace(powers[i - 1]);
++                if (fused)
++                    cc->GetScheme()->ModReduceInternalInPlace(powers[i - 1], compositeDegree);
++                else
++                    cc->ModReduceInPlace(powers[i - 1]);
+             }
+         }
+     }
+ 
+-    // Bring all computed powers to the level and the noise-scale degree of the top power, so that the terms of
+-    // every series later evaluated from this basis add without any adjustment (under FIXEDMANUAL every power
+-    // has degree 1, so only the number of towers is aligned), as in the Paterson-Stockmeyer basis.
+-    auto algo = cc->GetScheme();
+-    for (uint32_t i = 1; i < k; ++i) {
+-        if (indices[i - 1])
+-            algo->AdjustLevelsAndDepthInPlace(powers[i - 1], powers[k - 1]);
++    // brings all powers of x to the same level (skipped in the fused mode: the fused WSum's
++    // target_level folds each input's tower drop)
++    if (!fused) {
++        for (uint32_t i = 1; i < k; ++i) {
++            if (indices[i - 1]) {
++                uint32_t diff = powers[k - 1]->GetLevel() - powers[i - 1]->GetLevel();
++                cc->LevelReduceInPlace(powers[i - 1], nullptr, diff / compositeDegree);
++            }
++        }
+     }
+ 
+     return std::make_shared<seriesPowers<DCRTPoly>>(std::move(powers));
+ }
+ 
+-std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersPS(ConstCiphertext<DCRTPoly>& x, uint32_t degree) {
++std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersPS(ConstCiphertext<DCRTPoly>& x, uint32_t degree,
++                                                             bool fused = false) {
+     auto degs = ComputeDegreesPS(degree);
+     uint32_t k = degs[0];
+     uint32_t m = degs[1];
+@@ -272,51 +388,97 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalPowersPS(ConstCiphertext<DCR
+         } else {
+             uint32_t diff = powers[powerOf2 - 1]->GetLevel() - powers[rem - 1]->GetLevel();
+             cc->LevelReduceInPlace(powers[rem - 1], nullptr, diff / compositeDegree);
+-            powers[i - 1] = cc->EvalMult(powers[powerOf2 - 1], powers[rem - 1]);
++            if (!fused) {
++                powers[i - 1] = cc->EvalMult(powers[powerOf2 - 1], powers[rem - 1]);
++            } else {
++                // FIDESlib fused decomposition: x^i = x^{floor(i/2)} * x^{ceil(i/2)}. This mirrors the
++                // GPU unconditionally (its `if (i & 1 == 0)` condition is a precedence no-op), so the
++                // even case is an EvalMult(x^{i/2}, x^{i/2}), not EvalSquare, to stay bit-exact.
++                powers[i - 1] = cc->EvalMult(powers[i / 2 - 1], powers[i / 2 - 1 + (i & 1)]);
++            }
+         }
+ 
+         if (++rem == powerOf2) {
+             powerOf2 <<= 1;
+             rem = 0;
+         }
+-        cc->ModReduceInPlace(powers[i - 1]);
++        if (fused)
++            cc->GetScheme()->ModReduceInternalInPlace(powers[i - 1], compositeDegree);
++        else
++            cc->ModReduceInPlace(powers[i - 1]);
+     }
+ 
+-    // Bring all powers to the level and the noise-scale degree of the top power (under FIXEDMANUAL every power
+-    // has degree 1, so only the number of towers is aligned).
+-    for (uint32_t i = 1; i < k; ++i)
+-        cc->GetScheme()->AdjustLevelsAndDepthInPlace(powers[i - 1], powers[k - 1]);
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(powers[k - 1]->GetCryptoParameters());
++    // brings all powers of x to the same level (skipped in the fused mode: the fused WSum's
++    // target_level folds each input's tower drop)
++    if (!fused) {
++        if (cryptoParams->GetScalingTechnique() == FIXEDMANUAL) {
++            // brings all powers of x to the same level
++            uint32_t levelk = powers[k - 1]->GetLevel();
++            for (uint32_t i = 1; i < k; ++i)
++                cc->LevelReduceInPlace(powers[i - 1], nullptr, levelk - powers[i - 1]->GetLevel());
++        } else {
++            for (uint32_t i = 1; i < k; ++i)
++                cc->GetScheme()->AdjustLevelsAndDepthInPlace(powers[i - 1], powers[k - 1]);
++        }
++    }
+ 
+     // computes powers of form k*2^i for x and the product of the powers in power2, that yield x^{k(2*m - 1)}
+     std::vector<Ciphertext<DCRTPoly>> powers2(m);
++    std::vector<Ciphertext<DCRTPoly>> powers2NoRescale(m);
+     powers2[0] = powers.back();
+ 
+     auto power2km1 = powers.back();
+ 
+     for (uint32_t i = 1; i < m; ++i) {
+         powers2[i] = cc->EvalSquare(powers2[i - 1]);
+-        cc->ModReduceInPlace(powers2[i]);
++        if (fused) {
++            // the fused PS evaluator requires powers2 at noise-scale-degree 1 and needs the
++            // unreduced copy for the add-before-rescale ordering
++            powers2NoRescale[i] = powers2[i]->Clone();
++            if (powers2[i]->GetNoiseScaleDeg() == 2)
++                cc->GetScheme()->ModReduceInternalInPlace(powers2[i], compositeDegree);
++        } else {
++            cc->ModReduceInPlace(powers2[i]);
++        }
+         power2km1 = cc->EvalMult(powers2[i], power2km1);
+         cc->ModReduceInPlace(power2km1);
+     }
+ 
+-    return std::make_shared<seriesPowers<DCRTPoly>>(std::move(powers), std::move(powers2), std::move(power2km1), k, m);
++    auto sp = std::make_shared<seriesPowers<DCRTPoly>>(std::move(powers), std::move(powers2), std::move(power2km1), k, m);
++    if (fused)
++        sp->powers2NoRescaleRe = std::move(powers2NoRescale);
++    return sp;
+ }
+ 
+ std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(ConstCiphertext<DCRTPoly>& x,
+                                                                        const std::vector<int64_t>& coefficients) const {
++    return EvalPowers(x, coefficients, false);
++}
++std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(ConstCiphertext<DCRTPoly>& x,
++                                                                       const std::vector<int64_t>& coefficients,
++                                                                       bool fused) const {
+     uint32_t d = Degree(coefficients);
+-    return (d < 5) ? internalEvalPowersLinear(x, coefficients) : internalEvalPowersPS(x, d);
++    return (d < 5) ? internalEvalPowersLinear(x, coefficients, fused) : internalEvalPowersPS(x, d, fused);
+ }
+ std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(ConstCiphertext<DCRTPoly>& x,
+                                                                        const std::vector<double>& coefficients) const {
++    return EvalPowers(x, coefficients, false);
++}
++std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(ConstCiphertext<DCRTPoly>& x,
++                                                                       const std::vector<double>& coefficients,
++                                                                       bool fused) const {
+     uint32_t d = Degree(coefficients);
+-    return (d < 5) ? internalEvalPowersLinear(x, coefficients) : internalEvalPowersPS(x, d);
++    return (d < 5) ? internalEvalPowersLinear(x, coefficients, fused) : internalEvalPowersPS(x, d, fused);
+ }
+ std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(
+         ConstCiphertext<DCRTPoly>& x, const std::vector<std::complex<double>>& coefficients) const {
++    return EvalPowers(x, coefficients, false);
++}
++std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalPowers(
++        ConstCiphertext<DCRTPoly>& x, const std::vector<std::complex<double>>& coefficients, bool fused) const {
+     uint32_t d = Degree(coefficients);
+-    return (d < 5) ? internalEvalPowersLinear(x, coefficients) : internalEvalPowersPS(x, d);
++    return (d < 5) ? internalEvalPowersLinear(x, coefficients, fused) : internalEvalPowersPS(x, d, fused);
+ }
+ 
+ // The powers may be a precomputation shared across several polynomials (EvalPolyWithPrecomp), so every
+@@ -340,7 +502,7 @@ static inline Ciphertext<DCRTPoly> internalEvalPolyLinearWithPrecomp(const std::
+     for (uint32_t i = 1; i < k; ++i) {
+         if (IsNotEqualZero(coefficients[i])) {
+             auto term = cc->EvalMult(powers[i - 1], coefficients[i]);
+-            cc->EvalAddMutableInPlace(result, term);
++            cc->EvalAddInPlace(result, term);
+         }
+     }
+ 
+@@ -468,6 +630,124 @@ Ciphertext<DCRTPoly> internalEvalPolyPSWithPrecomp(const std::shared_ptr<seriesP
+     return result;
+ }
+ 
++// FIDESlib fused (value-level, non-optimized CPU reference) Patterson-Stockmeyer evaluator:
++// same algebra as InnerEvalPolyPS, but the constant term is folded as the WSum bias, the x^k
++// term is an extra weight, and the composition does mult -> add without the trailing rescale
++// (the caller owns the single ModReduce). Transcribed from the FIDESlib GPU
++// innerEvalPolyPSFused (ApproxModEval.cu) so the two are bit-exact. The CPU version runs the
++// serial FULL mode; the RECORD/REMAINING batching on the GPU reorders identical per-node
++// operations, so the bits are the same.
++template <typename VectorDataType>
++Ciphertext<DCRTPoly> InnerEvalPolyPSFused(ConstCiphertext<DCRTPoly>& x,
++                                          const std::vector<VectorDataType>& coefficients, uint32_t k, uint32_t m,
++                                          const std::vector<Ciphertext<DCRTPoly>>& powers,
++                                          const std::vector<Ciphertext<DCRTPoly>>& powers2,
++                                          const std::vector<Ciphertext<DCRTPoly>>& powers2NoRescale,
++                                          int32_t levelOffset = 0) {
++    // Compute k*2^{m-1}-k because we use it a lot
++    uint32_t k2m2k = k * (1 << (m - 1)) - k;
++
++    // Divide coefficients by x^{k*2^{m-1}}
++    std::vector<VectorDataType> xkm(k2m2k + k + 1);
++    xkm.back() = 1;
++    auto divqr   = LongDivisionPoly(coefficients, xkm);
++
++    // Subtract x^{k(2^{m-1} - 1)} from r
++    auto& r2 = divqr->r;
++    if (auto n = Degree(r2); static_cast<int32_t>(k2m2k - n) <= 0) {
++        r2.resize(n + 1);
++        r2[k2m2k] -= 1;
++    } else {
++        r2.resize(k2m2k + 1);
++        r2.back() = -1;
++    }
++
++    auto divcs = LongDivisionPoly(r2, divqr->q);
++    auto cc    = x->GetCryptoContext();
++
++    Ciphertext<DCRTPoly> cu, qu, su;
++    const int32_t targetBase =
++            static_cast<int32_t>(powers2[m - 1]->GetLevel()) + (powers2[m - 1]->GetNoiseScaleDeg() == 1 ? 1 : 0);
++
++    // q branch: qu = q[0] + x^k + sum_{i=1..k-1} q[i]*x^i as one fused WSum
++    if (Degree(divqr->q) > k) {
++        qu = InnerEvalPolyPSFused(x, divqr->q, k, m - 1, powers, powers2, powers2NoRescale, levelOffset);
++        cc->ModReduceInPlace(qu);
++    } else {
++        auto v = divqr->q;
++        v.resize(k + 1);
++        v[k] = (VectorDataType)1;
++        qu   = EvalPartialLinearWSumWithBias(powers, v, v.front(), k, targetBase - levelOffset, true);
++    }
++
++    // s branch: mirror of the q branch, WITHOUT the trailing rescale (the composition reduces once)
++    auto& s2 = divcs->r;
++    s2.resize(k2m2k + 1);
++    s2.back() = 1;
++    if (Degree(s2) > k) {
++        su = InnerEvalPolyPSFused(x, s2, k, m - 1, powers, powers2, powers2NoRescale, levelOffset + 1);
++    } else {
++        auto v = s2;
++        v.resize(k + 1);
++        v[k] = (VectorDataType)1;
++        su   = EvalPartialLinearWSumWithBias(powers, v, v.front(), k, targetBase - levelOffset - 1, false);
++    }
++
++    // c branch: cu = powers2[m-1] + sum_{i=1..n} q[i]*x^i + q[0]
++    if (uint32_t n = Degree(divcs->q); n == 0) {
++        cu = cc->EvalAdd(powers2[m - 1], divcs->q.front());
++    } else {
++        cu = EvalPartialLinearWSumWithBias(powers, divcs->q, divcs->q.front(), n, targetBase - levelOffset, false);
++        if (cu->GetLevel() == powers2NoRescale[m - 1]->GetLevel()) {
++            cc->EvalAddInPlace(cu, powers2NoRescale[m - 1]);
++            cc->ModReduceInPlace(cu);
++        } else {
++            cc->ModReduceInPlace(cu);
++            cc->EvalAddInPlace(cu, powers2[m - 1]);
++        }
++    }
++
++    // result = EvalMult(cu, qu) + su  (no trailing ModReduce: the caller rescales)
++    auto result = cc->EvalMult(cu, qu);
++    cc->EvalAddInPlace(result, su);
++    return result;
++}
++
++template <typename VectorDataType>
++Ciphertext<DCRTPoly> internalEvalPolyPSWithPrecompFused(const std::shared_ptr<seriesPowers<DCRTPoly>>& ctxtPowers,
++                                                        const std::vector<VectorDataType>& coefficients) {
++    auto& powers          = ctxtPowers->powersRe;
++    auto& powers2         = ctxtPowers->powers2Re;
++    auto& powers2NoRescale = ctxtPowers->powers2NoRescaleRe;
++    auto& power2km1       = ctxtPowers->power2km1Re;
++    auto k                = ctxtPowers->k;
++    auto m                = ctxtPowers->m;
++
++    uint32_t k2m2k = k * (1 << (m - 1)) - k;
++
++    auto f2 = coefficients;
++    f2.resize(Degree(f2) + 1);
++    f2.resize(2 * k2m2k + k + 1);
++    f2.back() = 1;
++
++    auto result = InnerEvalPolyPSFused(powers[0], f2, k, m, powers, powers2, powers2NoRescale, 0);
++    // the composition tree no longer rescales internally; the root owns the single ModReduce
++    auto cc = powers[0]->GetCryptoContext();
++    cc->ModReduceInPlace(result);
++    cc->EvalSubInPlace(result, power2km1);
++    return result;
++}
++
++template <typename VectorDataType>
++Ciphertext<DCRTPoly> internalEvalPolyWithPrecomp(const std::shared_ptr<seriesPowers<DCRTPoly>>& ctxtPowers,
++                                                 const std::vector<VectorDataType>& coeffs, bool fused) {
++    if (Degree(coeffs) < 5)
++        return internalEvalPolyLinearWithPrecomp(ctxtPowers->powersRe, coeffs);
++    if (!fused)
++        return internalEvalPolyPSWithPrecomp(ctxtPowers, coeffs);
++    return internalEvalPolyPSWithPrecompFused(ctxtPowers, coeffs);
++}
++
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPoly(ConstCiphertext<DCRTPoly>& x,
+                                                   const std::vector<int64_t>& coeffs) const {
+     return (Degree(coeffs) < 5) ? EvalPolyLinear(x, coeffs) : EvalPolyPS(x, coeffs);
+@@ -483,18 +763,28 @@ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPoly(ConstCiphertext<DCRTPoly>& x,
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
+                                                              const std::vector<int64_t>& coeffs) const {
+-    return (Degree(coeffs) < 5) ? internalEvalPolyLinearWithPrecomp(ctxtPowers->powersRe, coeffs) :
+-                                  internalEvalPolyPSWithPrecomp(ctxtPowers, coeffs);
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, false);
++}
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
++                                                             const std::vector<int64_t>& coeffs, bool fused) const {
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, fused);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
+                                                              const std::vector<double>& coeffs) const {
+-    return (Degree(coeffs) < 5) ? internalEvalPolyLinearWithPrecomp(ctxtPowers->powersRe, coeffs) :
+-                                  internalEvalPolyPSWithPrecomp(ctxtPowers, coeffs);
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, false);
++}
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
++                                                             const std::vector<double>& coeffs, bool fused) const {
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, fused);
+ }
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
+                                                              const std::vector<std::complex<double>>& coeffs) const {
+-    return (Degree(coeffs) < 5) ? internalEvalPolyLinearWithPrecomp(ctxtPowers->powersRe, coeffs) :
+-                                  internalEvalPolyPSWithPrecomp(ctxtPowers, coeffs);
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, false);
++}
++Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyWithPrecomp(std::shared_ptr<seriesPowers<DCRTPoly>> ctxtPowers,
++                                                             const std::vector<std::complex<double>>& coeffs,
++                                                             bool fused) const {
++    return internalEvalPolyWithPrecomp(ctxtPowers, coeffs, fused);
+ }
+ 
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalPolyLinear(ConstCiphertext<DCRTPoly>& x,
+@@ -569,11 +859,10 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysLinear(ConstCipher
+         }
+     }
+ 
+-    // Bring all polynomials to the level and the noise-scale degree of the top one, so that the terms of every
+-    // series later evaluated from this basis add without any adjustment (see internalEvalPowersLinear).
+-    auto algo = cc->GetScheme();
++    uint32_t compositeDegree =
++            std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(x->GetCryptoParameters())->GetCompositeDegree();
+     for (uint32_t i = 1; i < k; ++i)
+-        algo->AdjustLevelsAndDepthInPlace(T[i - 1], T[k - 1]);
++        cc->LevelReduceInPlace(T[i - 1], nullptr, (T[k - 1]->GetLevel() - T[i - 1]->GetLevel()) / compositeDegree);
+ 
+     return std::make_shared<seriesPowers<DCRTPoly>>(std::move(T));
+ }
+@@ -593,7 +882,7 @@ Ciphertext<DCRTPoly> internalEvalChebyshevSeriesLinearWithPrecomp(const std::vec
+     for (uint32_t i = 0; i < k; ++i) {
+         if (IsNotEqualZero(coefficients[i + 1])) {
+             auto term = cc->EvalMult(T[i], coefficients[i + 1]);
+-            cc->EvalAddMutableInPlace(result, term);
++            cc->EvalAddInPlace(result, term);
+         }
+     }
+ 
+@@ -606,10 +895,21 @@ Ciphertext<DCRTPoly> internalEvalChebyshevSeriesLinearWithPrecomp(const std::vec
+     return result;
+ }
+ 
++/**
++ *  carlos.a.d@um.es changes:
++ *      Added PS alternative code (old behaviour enabled through BASELINE global flag) that leverages the new scalar-mult on CKKS with a target level to reduce
++ *      "adjustForMult/adjustForAdd" calls both on evalPartialWSum and on the recursive structure of PS. A new parameter is added to track the needed output level
++ *      of each recursive call "level_offset" (to reduce adjustForMult/adjustForAdd  and also the number of towers upon which the primitives run on).
++ *      Operation ordering is changed from Rescale(cu * qu) + su to Rescale(cu * qu + su) by carefully moving where rescale calls are placed within the
++ *      recursive structure.
++ *      See the new EvalPartialLinearWSumWithBias function that also reorders addition and rescale.
++ */
++
+ template <typename VectorDataType>
+ Ciphertext<DCRTPoly> InnerEvalChebyshevPS(ConstCiphertext<DCRTPoly>& x, const std::vector<VectorDataType>& coefficients,
+                                           uint32_t k, uint32_t m, const std::vector<Ciphertext<DCRTPoly>>& T,
+-                                          const std::vector<Ciphertext<DCRTPoly>>& T2) {
++                                          const std::vector<Ciphertext<DCRTPoly>>& T2, int32_t level_offset = 0,
++                                          const std::vector<Ciphertext<DCRTPoly>>& T2_norescale = {}) {
+     // Compute k*2^{m-1}-k because we use it a lot
+     uint32_t k2m2k = k * (1 << (m - 1)) - k;
+ 
+@@ -618,6 +918,9 @@ Ciphertext<DCRTPoly> InnerEvalChebyshevPS(ConstCiphertext<DCRTPoly>& x, const st
+     Tkm.back() = 1;
+     auto divqr = LongDivisionChebyshev(coefficients, Tkm);
+ 
++    uint32_t compositeDegree =
++            std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(x->GetCryptoParameters())->GetCompositeDegree();
++
+     // Subtract x^{k(2^{m-1} - 1)} from r
+     auto& r2 = divqr->r;
+     if (uint32_t n = Degree(r2); static_cast<int32_t>(k2m2k - n) <= 0) {
+@@ -638,26 +941,14 @@ Ciphertext<DCRTPoly> InnerEvalChebyshevPS(ConstCiphertext<DCRTPoly>& x, const st
+         // Evaluate q and s2 at u.
+         // If their degrees are larger than k, then recursively apply the Paterson-Stockmeyer algorithm.
+         if (Degree(divqr->q) > k) {
+-            qu = InnerEvalChebyshevPS(x, divqr->q, k, m - 1, T, T2);
++            qu = InnerEvalChebyshevPS(x, divqr->q, k, m - 1, T, T2, level_offset, T2_norescale);
++            cc->ModReduceInPlace(qu);
+         } else {
+-            // dq = k from construction
+-            // perform scalar multiplication for all other terms and sum them up if there are non-zero coefficients
+-
+-            // the highest order coefficient will always be a power of two up to 2^{m-1} because q is "monic" but the Chebyshev rule adds a factor of 2
+-            // we don't need to increase the depth by multiplying the highest order coefficient, but instead checking and summing, since we work with m <= 4.
+-            qu = T[k - 1]->Clone();
+-            const uint32_t limit = std::log2(ToReal(divqr->q.back()));
+-            for (uint32_t i = 0; i < limit; ++i)
+-                cc->EvalAddInPlaceNoCheck(qu, qu);
+-
+-            // adds the free term (at x^0)
+-            cc->EvalAddInPlace(qu, divqr->q.front() / 2.0);
+-            // The number of levels of qu is the same as the number of levels of T[k-1] + 1.
+-            // Will only get here when m = 2, so the number of levels of qu and T2[m-1] will be the same.
+-
+-            divqr->q.resize(k);
+-            if (uint32_t n = Degree(divqr->q); n > 0)
+-                cc->EvalAddInPlace(qu, EvalPartialLinearWSum(T, divqr->q, n));
++            qu = EvalPartialLinearWSumWithBias(
++                    T, divqr->q, divqr->q.front() / (VectorDataType)2.0, divqr->q.size() - 1,
++                    (int)T2[m - 1]->GetLevel() +
++                            compositeDegree * (level_offset - (T2[m - 1]->GetNoiseScaleDeg() == 1)),
++                    true);
+         }
+     }
+ 
+@@ -669,56 +960,51 @@ Ciphertext<DCRTPoly> InnerEvalChebyshevPS(ConstCiphertext<DCRTPoly>& x, const st
+         s2.back() = 1;
+ 
+         if (Degree(s2) > k) {
+-            su = InnerEvalChebyshevPS(x, s2, k, m - 1, T, T2);
++            su = InnerEvalChebyshevPS(x, s2, k, m - 1, T, T2, level_offset + 1, T2_norescale);
+         } else {
+-            // the highest order coefficient will always be 1 because s2 is monic.
+-            su = T[k - 1]->Clone();
+-
+-            // ds = k from construction
+-            // perform scalar multiplication for all other terms and sum them up if there are non-zero coefficients
+-            s2.resize(k);
+-            if (uint32_t n = Degree(s2); n > 0)
+-                cc->EvalAddInPlace(su, EvalPartialLinearWSum(T, s2, n));
+-
+-            // adds the free term (at x^0)
+-            cc->EvalAddInPlace(su, s2.front() / 2.0);
+-
+-            // The number of levels of su is the same as the number of levels of T[k-1] or T[k-1] + 1. Need to reduce it to T2[m-1] + 1.
+-            cc->LevelReduceInPlace(su, nullptr);
++            su = EvalPartialLinearWSumWithBias(
++                    T, s2, s2.front() / (VectorDataType)2.0, (uint32_t)s2.size() - 1,
++                    (int)T2[m - 1]->GetLevel() +
++                            compositeDegree * (level_offset + 1 - (T2[m - 1]->GetNoiseScaleDeg() == 1)),
++                    false);
+         }
+     }
+ 
+     if (uint32_t n = Degree(divcs->q); n >= 1) {
+-        if (n == 1) {
+-            if (IsNotEqualOne(divcs->q[1])) {
+-                cu = cc->EvalMult(T.front(), divcs->q[1]);
+-                cc->ModReduceInPlace(cu);
+-            } else {
+-                cu = T.front()->Clone();
+-            }
++        cu = EvalPartialLinearWSumWithBias(
++                T, divcs->q, divcs->q.front() / (VectorDataType)2.0, divcs->q.size() - 1,
++                (int)T2[m - 1]->GetLevel() + compositeDegree * (level_offset - (T2[m - 1]->GetNoiseScaleDeg() == 1)),
++                false);
++        // FIDESlib T2_norescale reorder (mirrors the GPU innerEvalChebyshevPS c-branch): when the
++        // unreduced WSum lands at the pre-ModReduce T2[m-1] level (level_offset == 0), add the
++        // unreduced T2 before the single ModReduce; otherwise reduce first, then add the reduced T2.
++        if (!T2_norescale.empty() && cu->GetLevel() == T2_norescale[m - 1]->GetLevel()) {
++            cc->EvalAddInPlace(cu, T2_norescale[m - 1]);
++            cc->ModReduceInPlace(cu);
+         } else {
+-            cu = EvalPartialLinearWSum(T, divcs->q, n);
++            cc->ModReduceInPlace(cu);
++            cu = cc->EvalAdd(T2[m - 1], cu);
+         }
+-
+-        // adds the free term (at x^0)
+-        cc->EvalAddInPlace(cu, divcs->q.front() / 2.0);
+-
+-        // Need to reduce levels up to the level of T2[m-1].
+-        uint32_t cd =
+-                std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(x->GetCryptoParameters())->GetCompositeDegree();
+-        cc->LevelReduceInPlace(cu, nullptr, (T2[m - 1]->GetLevel() - cu->GetLevel()) / cd);
++    } else {
++        cu = cc->EvalAdd(T2[m - 1], divcs->q.front() / 2.0);
+     }
+ 
+-    cu = cu ? cc->EvalAdd(T2[m - 1], cu) : cc->EvalAdd(T2[m - 1], divcs->q.front() / 2.0);
+-
+ #pragma omp taskwait
+-
+-    auto result = cc->EvalMult(cu, qu);
+-    cc->ModReduceInPlace(result);
+-    cc->EvalAddInPlace(result, su);
+-    return result;
++    cc->EvalMultMutableInPlace(cu, qu);
++    cc->EvalAddInPlace(cu, su);
++    return cu;
+ }
+ 
++/**
++ * carlos.a.d@um.es changes:
++ *  Change 1: Refactor input range adjustment preamble to handle special cases:
++ *      - Interval of size 2 -> only addition needed (1 mult and 1 level saved)
++ *      - Interval centered around 0 -> only mult needed (addittion ommited)
++ *  Change 2: Manual rescales in place to reduce number of adjustment calls:
++ *      - Ensure all T[i] ciphertexts are kept at noiseScaleDegree == 1 so that evalPartialLinearWSumWithBias works correctly
++ *          (no further need to keep all T[i] at the same level, evalPartialLinearWSumWithBias handles this transparently and at 0 cost)
++ *      - Optimize T2[i], T2km1 computation aswell
++ */
+ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysPS(ConstCiphertext<DCRTPoly>& x, uint32_t degree,
+                                                                  double a, double b) {
+     auto degs = ComputeDegreesPS(degree);
+@@ -728,21 +1014,39 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysPS(ConstCiphertext
+     // computes linear transformation y = -1 + 2 (x-a)/(b-a)
+     // consumes one level when a <> -1 && b <> 1
+     auto cc = x->GetCryptoContext();
++    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(x->GetCryptoParameters());
++    const uint32_t compositeDegree = cryptoParams->GetCompositeDegree();
++    const bool fixedManual          = (cryptoParams->GetScalingTechnique() == FIXEDMANUAL);
++
+     std::vector<Ciphertext<DCRTPoly>> T(k);
+-    if (!IsNotEqualNegOne(a) && !IsNotEqualOne(b)) {
+-        // no linear transformation is needed if a = -1, b = 1
+-        // T_1(y) = y
+-        T[0] = x->Clone();
+-    } else {
++    // FIXEDMANUAL only: unreduced (noise-scale-degree 2) copy of T[0], used by the odd-T subtract so
++    // the "- y" happens before the rescale (mirrors the FIDESlib GPU transcription).
++    std::vector<Ciphertext<DCRTPoly>> T_norescale;
++    T[0] = x->Clone();
++    if (IsNotEqualNegOne(a) || IsNotEqualOne(b)) {
+         // linear transformation is needed
+         double alpha = 2 / (b - a);
+-        double beta = a * alpha;
++        double beta  = a * alpha;
+ 
+-        T[0] = cc->EvalMult(x, alpha);
+-        cc->ModReduceInPlace(T[0]);
+-        cc->EvalAddInPlace(T[0], -1.0 - beta);
++        if (IsNotEqualOne(alpha)) {
++            // normalize an unreduced input before the scalar multiply (FIDESlib does x.rescaleInternal())
++            if (T[0]->GetNoiseScaleDeg() == 2)
++                cc->GetScheme()->ModReduceInternalInPlace(T[0], compositeDegree);
++            cc->EvalMultInPlace(T[0], alpha);
++        }
++        if (IsNotEqualZero(-1.0 - beta))
++            cc->EvalAddInPlace(T[0], -1.0 - beta);
++    }
++    if (fixedManual) {
++        T_norescale.emplace_back(T[0]->Clone());
++        // force noise-scale-degree 2 so the odd-T subtract below matches the unreduced T[0]
++        if (T_norescale[0]->GetNoiseScaleDeg() == 1)
++            cc->EvalMultInPlace(T_norescale[0], 1.0);
+     }
++    if (T[0]->GetNoiseScaleDeg() == 2)
++        cc->GetScheme()->ModReduceInternalInPlace(T[0], compositeDegree);
+ 
++    std::vector<Ciphertext<DCRTPoly>> T2(m);
+     // Computes Chebyshev polynomials up to degree k
+     // for y: T_1(y) = y, T_2(y), ... , T_k(y)
+     // uses binary tree multiplication
+@@ -751,26 +1055,27 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysPS(ConstCiphertext
+             // compute T_{2i+1}(y) = 2*T_i(y)*T_{i+1}(y) - y
+             T[i - 1] = cc->EvalMult(T[i / 2 - 1], T[i / 2]);
+             cc->EvalAddInPlaceNoCheck(T[i - 1], T[i - 1]);
+-            cc->ModReduceInPlace(T[i - 1]);
+-            cc->EvalSubInPlace(T[i - 1], T[0]);
++            // subtract "- y" BEFORE the rescale (FIDESlib order); FIXEDMANUAL subtracts the
++            // unreduced T[0] so the noise-scale degrees match the unreduced product.
++            cc->EvalSubInPlace(T[i - 1], fixedManual ? T_norescale[0] : T[0]);
++            cc->GetScheme()->ModReduceInternalInPlace(T[i - 1], compositeDegree);
+         } else {
+             // compute T_{2i}(y) = 2*T_i(y)^2 - 1
+             T[i - 1] = cc->EvalSquare(T[i / 2 - 1]);
+             cc->EvalAddInPlaceNoCheck(T[i - 1], T[i - 1]);
+-            cc->ModReduceInPlace(T[i - 1]);
+             cc->EvalAddInPlace(T[i - 1], -1.0);
++            cc->GetScheme()->ModReduceInternalInPlace(T[i - 1], compositeDegree);
+         }
+     }
+ 
+-    // Bring all polynomials to the level and the noise-scale degree of the top one (under FIXEDMANUAL every
+-    // polynomial has degree 1, so only the number of towers is aligned).
+-    for (uint32_t i = 1; i < k; ++i)
+-        cc->GetScheme()->AdjustLevelsAndDepthInPlace(T[i - 1], T[k - 1]);
+-
+-    std::vector<Ciphertext<DCRTPoly>> T2(m);
+     // T2[0] is used as a placeholder
+     T2[0] = T.back();
+ 
++    // FIDESlib T2_norescale: unreduced (pre-ModReduce) copies of T2[i], consumed by the
++    // InnerEvalChebyshevPS c-branch reorder (add the unreduced T2 before the single ModReduce at
++    // level_offset == 0). Mirrors the GPU evalChebyshevSeries T2_norescale construction.
++    std::vector<Ciphertext<DCRTPoly>> T2_norescale(m);
++
+     // computes T_{k(2*m - 1)}(y)
+     auto T2km1 = T.back();
+ 
+@@ -778,8 +1083,11 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysPS(ConstCiphertext
+         // Compute the Chebyshev polynomials T_k(y), T_{2k}(y), T_{4k}(y), ... , T_{2^{m-1}k}(y)
+         T2[i] = cc->EvalSquare(T2[i - 1]);
+         cc->EvalAddInPlaceNoCheck(T2[i], T2[i]);
+-        cc->ModReduceInPlace(T2[i]);
+         cc->EvalAddInPlace(T2[i], -1.0);
++        T2_norescale[i] = T2[i]->Clone();
++        uint32_t compositeDegree =
++                std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(x->GetCryptoParameters())->GetCompositeDegree();
++        cc->GetScheme()->ModReduceInternalInPlace(T2[i], compositeDegree);
+ 
+         // compute T_{k(2*m - 1)} = 2*T_{k(2^{m-1}-1)}(y)*T_{k*2^{m-1}}(y) - T_k(y)
+         T2km1 = cc->EvalMult(T2km1, T2[i]);
+@@ -788,7 +1096,9 @@ std::shared_ptr<seriesPowers<DCRTPoly>> internalEvalChebyPolysPS(ConstCiphertext
+         cc->EvalSubInPlace(T2km1, T2[0]);
+     }
+ 
+-    return std::make_shared<seriesPowers<DCRTPoly>>(std::move(T), std::move(T2), std::move(T2km1), k, m);
++    auto sp = std::make_shared<seriesPowers<DCRTPoly>>(std::move(T), std::move(T2), std::move(T2km1), k, m);
++    sp->powers2NoRescaleRe = std::move(T2_norescale);
++    return sp;
+ }
+ 
+ template <typename VectorDataType>
+@@ -797,6 +1107,7 @@ Ciphertext<DCRTPoly> internalEvalChebyshevSeriesPSWithPrecomp(const std::shared_
+     auto& T = ctxtPolys->powersRe;
+     auto& T2 = ctxtPolys->powers2Re;
+     auto& T2km1 = ctxtPolys->power2km1Re;
++    auto& T2_norescale = ctxtPolys->powers2NoRescaleRe;
+     auto k = ctxtPolys->k;
+     auto m = ctxtPolys->m;
+ 
+@@ -810,16 +1121,21 @@ Ciphertext<DCRTPoly> internalEvalChebyshevSeriesPSWithPrecomp(const std::shared_
+     f2.back() = 1;
+ 
+     // Serialize tree if k*2^{m-1} < 128
+-    if (k * (1U << (m - 1)) < 128)
+-        return T[0]->GetCryptoContext()->EvalSub(InnerEvalChebyshevPS(T[0], f2, k, m, T, T2), T2km1);
+-
+-    Ciphertext<DCRTPoly> result;
++    if (k * (1U << (m - 1)) < 128) {
++        Ciphertext<DCRTPoly> aux = InnerEvalChebyshevPS(T[0], f2, k, m, T, T2, 0, T2_norescale);
++        T[0]->GetCryptoContext()->ModReduceInPlace(aux);
++        T[0]->GetCryptoContext()->EvalSubInPlace(aux, T2km1);
++        return aux;
++    }
++    Ciphertext<DCRTPoly> aux;
+ #pragma omp parallel num_threads(OpenFHEParallelControls.GetThreadLimit(6 * m + 2))
+     {
+ #pragma omp single
+-        result = T[0]->GetCryptoContext()->EvalSub(InnerEvalChebyshevPS(T[0], f2, k, m, T, T2), T2km1);
++        aux = InnerEvalChebyshevPS(T[0], f2, k, m, T, T2, 0, T2_norescale);
+     }
+-    return result;
++    T[0]->GetCryptoContext()->ModReduceInPlace(aux);
++    T[0]->GetCryptoContext()->EvalSubInPlace(aux, T2km1);
++    return aux;
+ }
+ 
+ std::shared_ptr<seriesPowers<DCRTPoly>> AdvancedSHECKKSRNS::EvalChebyPolys(ConstCiphertext<DCRTPoly>& x,
+@@ -901,10 +1217,12 @@ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalChebyshevSeriesPS(ConstCiphertext<D
+                                                                double b) const {
+     return internalEvalChebyshevSeriesPSWithPrecomp(internalEvalChebyPolysPS(x, Degree(coeffs), a, b), coeffs);
+ }
++
+ Ciphertext<DCRTPoly> AdvancedSHECKKSRNS::EvalChebyshevSeriesPS(ConstCiphertext<DCRTPoly>& x,
+                                                                const std::vector<std::complex<double>>& coeffs,
+                                                                double a, double b) const {
+-    return internalEvalChebyshevSeriesPSWithPrecomp(internalEvalChebyPolysPS(x, Degree(coeffs), a, b), coeffs);
++    auto powers = internalEvalChebyPolysPS(x, Degree(coeffs), a, b);
++    return internalEvalChebyshevSeriesPSWithPrecomp(powers, coeffs);
+ }
+ 
+ }  // namespace lbcrypto
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
+index 6d1ff13..e2bc3cf 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-fhe.cpp
+@@ -38,6 +38,8 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <complex>
++#include <iostream>
++#include <cstdint>
+ #include <cstdint>
+ #include <functional>
+ #include <limits>
+@@ -177,7 +179,7 @@ Ciphertext<DCRTPoly> FHECKKSRNS::EvalHornerGiantRotate(ConstCiphertext<DCRTPoly>
+ 
+ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::vector<uint32_t> levelBudget,
+                                     std::vector<uint32_t> dim1, uint32_t numSlots, uint32_t correctionFactor,
+-                                    bool precompute, bool BTSlotsEncoding) {
++                                    bool precompute, bool BTSlotsEncoding, uint32_t modevallevels) {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(cc.GetCryptoParameters());
+ 
+     if (cryptoParams->GetKeySwitchTechnique() != HYBRID)
+@@ -302,14 +304,42 @@ void FHECKKSRNS::EvalBootstrapSetup(const CryptoContextImpl<DCRTPoly>& cc, std::
+         auto st = cryptoParams->GetScalingTechnique();
+         uint32_t L0 = cryptoParams->GetElementParams()->GetParams().size() - (st == FLEXIBLEAUTOEXT);
+ 
+-        uint32_t lEnc = L0 - compositeDegree * (precom->m_paramsEnc.lvlb + 1);
++        // The extended-basis tower count L0 is the available modulus chain (depth+1 for
++        // FIXEDMANUAL). lEnc/lDec below are the towers left for the CoeffsToSlots/SlotsToCoeffs
++        // plaintexts after reserving the bootstrap's multiplicative depth. If a requested level
++        // budget needs more towers than exist, the subtraction would wrap (uint32_t) and feed an
++        // enormous value into Eval{SlotsToCoeffs,CoeffsToSlots}Precompute, whose tower-drop loop
++        // then erases at begin() - 1 (heap corruption). Reject such configurations explicitly.
++        uint32_t lEnc;
++        {
++            const uint32_t encCost = compositeDegree * (precom->m_paramsEnc.lvlb + 1);
++            if (encCost > L0) {
++                OPENFHE_THROW(
++                        "EvalBootstrapSetup: level budget too deep for the modulus chain: "
++                        "CoeffsToSlots needs " +
++                        std::to_string(encCost) + " towers but only " + std::to_string(L0) + " are available");
++            }
++            lEnc = L0 - encCost;
++        }
+         uint32_t lDec;
+         if (precom->BTSlotsEncoding) {
+             lDec = (2 + (st == FLEXIBLEAUTOEXT)) * compositeDegree;
+         } else {
+-            uint32_t depthBT = GetModDepthInternal(cryptoParams->GetSecretKeyDist()) + precom->m_paramsEnc.lvlb +
+-                               precom->m_paramsDec.lvlb;
+-            lDec = L0 - compositeDegree * depthBT;
++            uint32_t approxModDepth = modevallevels == std::numeric_limits<uint32_t>::max() ?
++                                              GetModDepthInternal(cryptoParams->GetSecretKeyDist()) :
++                                              modevallevels;
++            const uint32_t depthBT = approxModDepth + precom->m_paramsEnc.lvlb + precom->m_paramsDec.lvlb;
++            const uint32_t decCost = compositeDegree * depthBT;
++            if (decCost > L0) {
++                OPENFHE_THROW(
++                        "EvalBootstrapSetup: multiplicative depth too small for the requested "
++                        "level budget: bootstrapping needs " +
++                        std::to_string(decCost) + " towers (approxModDepth " + std::to_string(approxModDepth) +
++                        " + enc " + std::to_string(precom->m_paramsEnc.lvlb) + " + dec " +
++                        std::to_string(precom->m_paramsDec.lvlb) + ") but only " + std::to_string(L0) +
++                        " are available");
++            }
++            lDec = L0 - decCost;
+         }
+ 
+         bool isLTBootstrap = (precom->m_paramsEnc.lvlb == 1) && (precom->m_paramsDec.lvlb == 1);
+@@ -721,6 +751,107 @@ void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride
+                               cryptoParams->GettModqPrecon());
+ }
+ 
++void FHECKKSRNS::EvalPartialSumInPlace(Ciphertext<DCRTPoly>& ct, uint32_t stride, uint32_t size, uint32_t radix,
++                                       uint32_t startFactor) {
++    if (size <= 1 || startFactor == 0 || startFactor >= size)
++        return;
++    // A start-offset doubling is just the plain doubling of the remaining range: folding the
++    // stride/size scaling in keeps the radix-2 result bit-identical to the eager-doubling form
++    // (and to EvalPartialSumInPlace(ct, stride, size) for startFactor == 1).
++    if (radix == 2)
++        return EvalPartialSumInPlace(ct, stride * startFactor, size / startFactor);
++
++    const auto cc = ct->GetCryptoContext();
++    const uint32_t N = cc->GetRingDimension();
++    const uint32_t M = cc->GetCyclotomicOrder();
++
++    const uint32_t logRadix = lbcrypto::GetMSB(radix) - 1;
++    const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ct->GetCryptoParameters());
++    if (cryptoParams->GetKeySwitchTechnique() != HYBRID) {
++        for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++            auto base = ct->Clone();
++            auto digits = cc->EvalFastRotationPrecompute(base);
++            for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s)
++                cc->EvalAddInPlace(ct, cc->EvalFastRotation(base, idx, M, digits));
++        }
++        return;
++    }
++
++    const auto algo = cc->GetScheme();
++    auto evalKeyMap = cc->GetEvalAutomorphismKeyMap(ct->GetKeyTag());
++
++    std::vector<DCRTPoly>& cv = ct->GetElements();
++    const auto paramsQl = cv[0].GetParams();
++    const auto paramsP = cryptoParams->GetParamsP();
++    const auto paramsQlP = cv[0].GetExtendedCRTBasis(paramsP);
++    const uint32_t sizeQl = paramsQl->GetParams().size();
++    const uint32_t sizeQlP = paramsQlP->GetParams().size();
++
++    const PlaintextModulus t = (cryptoParams->GetNoiseScale() == 1) ? 0 : cryptoParams->GetPlaintextModulus();
++
++    DCRTPoly acc(paramsQlP, Format::EVALUATION, true);
++    auto cMult = cv[0].TimesNoCheck(cryptoParams->GetPModq());
++    for (uint32_t i = 0; i < sizeQl; ++i)
++        acc.SetElementAtIndex(i, std::move(cMult.GetElementAtIndex(i)));
++
++    std::vector<uint32_t> vec(N);
++    for (uint32_t s = startFactor; s < size; s <<= logRadix) {
++        // One digit decomposition per level, shared by all of the level's rotations.
++        auto digits = algo->EvalKeySwitchPrecomputeCore(cv[1], cryptoParams);
++
++        // Per-level sums; the pre-level accumulator is folded into every rotation of the level.
++        DCRTPoly lvl0(paramsQlP, Format::EVALUATION, true);
++        DCRTPoly lvl1(paramsQlP, Format::EVALUATION, true);
++
++        for (uint32_t idx = stride * s; idx < stride * size && idx < radix * stride * s; idx += stride * s) {
++            uint32_t autoIndex = FindAutomorphismIndex2nComplex(idx, M);
++            auto evalKeyIterator = evalKeyMap.find(autoIndex);
++            if (evalKeyIterator == evalKeyMap.end())
++                OPENFHE_THROW("EvalKey for index [" + std::to_string(autoIndex) + "] is not found.");
++
++            PrecomputeAutoMap(N, autoIndex, &vec);
++
++            auto ba = algo->EvalFastKeySwitchCoreExt(digits, evalKeyIterator->second, paramsQl);
++
++            // ba[0] += acc;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i)
++                ba[0].GetAllElements()[i] += acc.GetAllElements()[i];
++
++            ba[0] = ba[0].AutomorphismTransform(autoIndex, vec);
++            ba[1] = ba[1].AutomorphismTransform(autoIndex, vec);
++
++            // lvl0 += ba[0]; lvl1 += ba[1];
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++            for (uint32_t i = 0; i < sizeQlP; ++i) {
++                lvl0.GetAllElements()[i] += ba[0].GetAllElements()[i];
++                lvl1.GetAllElements()[i] += ba[1].GetAllElements()[i];
++            }
++        }
++
++        // acc += lvl0;
++#pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(sizeQlP))
++        for (uint32_t i = 0; i < sizeQlP; ++i)
++            acc.GetAllElements()[i] += lvl0.GetAllElements()[i];
++
++        // Element 1 settles once per level from the level's extended sum: the next level's
++        // rotations need its digit decomposition.
++        cv[1] += lvl1.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(),
++                                    cryptoParams->GetPInvModqPrecon(),
++                                    cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                                    cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                                    cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                                    cryptoParams->GettModqPrecon());
++    }
++
++    cv[0] =
++        acc.ApproxModDown(paramsQl, paramsP, cryptoParams->GetPInvModq(), cryptoParams->GetPInvModqPrecon(),
++                          cryptoParams->GetPHatInvModp(), cryptoParams->GetPHatInvModpPrecon(),
++                          cryptoParams->GetPHatModq(), cryptoParams->GetModqBarrettMu(),
++                          cryptoParams->GettInvModp(), cryptoParams->GettInvModpPrecon(), t,
++                          cryptoParams->GettModqPrecon());
++}
++
+ Ciphertext<DCRTPoly> FHECKKSRNS::EvalBootstrap(ConstCiphertext<DCRTPoly>& ciphertext, uint32_t numIterations,
+                                                uint32_t precision) const {
+     uint32_t slots = ciphertext->GetSlots();
+@@ -2097,8 +2228,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+         auto diag = ExtractShiftedDiagonal(A, ji);
+         for (auto& d : diag)
+             d *= scale;
+-        result[ji] =
+-                MakeAuxPlaintext(cc, elementParamsPtr, Rotate(diag, -step * (ji / step)), 1, towersToDrop, diag.size());
++        result[ji] = MakeAuxPlaintext(cc, elementParamsPtr, Rotate(diag, -step * (ji / step)), 1, towersToDrop, slots);
+     }
+     return result;
+ }
+@@ -2151,7 +2281,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+             for (auto& v : vecA)
+                 v *= scale;
+             result[ji] = MakeAuxPlaintext(cc, elementParamsPtr, Rotate(vecA, -step * (ji / step)), 1, towersToDrop,
+-                                          vecA.size());
++                                          2 * slots);
+         }
+     } else {
+         // horizontal concatenation - used during homomorphic decoding
+@@ -2174,7 +2304,7 @@ std::vector<ReadOnlyPlaintext> FHECKKSRNS::EvalLinearTransformPrecompute(
+             for (auto& v : vec)
+                 v *= scale;
+             result[ji] = MakeAuxPlaintext(cc, elementParamsPtr, Rotate(vec, -step * (ji / step)), 1, towersToDrop,
+-                                          vec.size());
++                                          2 * slots);
+         }
+     }
+ 
+@@ -2244,6 +2374,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+     // running accumulated correction; plaintexts pre-absorb the per-level Aut_{-delta_s}
+     int32_t runningAcc = 0;
+ 
++    // Determine the actual number of slots: the smallest power-of-two
++    // length for which the plaintext is a repeating pattern. All diagonals
++    // are expected to share the same actual slot count, so inspect the
++    // first diagonal and use that value for all.
++    auto computeActualSlots = [](const std::vector<std::complex<double>>& v) -> int32_t {
++        const double eps = 1e-12;
++        size_t n = v.size();
++        size_t k = 1;
++        while (k <= n) {
++            if (n % k == 0) {
++                bool ok = true;
++                for (size_t i = 0; i < n; ++i) {
++                    if (std::abs(v[i] - v[i % k]) > eps) {
++                        ok = false;
++                        break;
++                    }
++                }
++                if (ok)
++                    return static_cast<int32_t>(k);
++            }
++            k <<= 1;
++        }
++        return static_cast<int32_t>(n);
++    };
++
+     if (uint32_t M4 = M / 4; slots == M4 || flagStCComplex) {
+         //------------------------------------------------------------------------------
+         // fully-packed mode
+@@ -2255,6 +2410,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+             const int32_t shiftScale = 1 << ((s - flagRem) * p.layersCollapse + p.remCollapse);
+             const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
+             const uint32_t limit = p.b * p.g;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto& firstDiag = coeff[s][0];
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2267,9 +2429,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+ 
+                     auto rot = Rotate(coeff[s][ij],
+                                       ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, slots));
+-
++                    rot.resize(actualSlots);
+                     result[s][ij] = MakeAuxPlaintext(cc, paramsVector[s - stop], rot, 1, level0 - compositeDegree * s,
+-                                                     rot.size());
++                                                     actualSlots);
+                 }
+             }
+             runningAcc += offset * shiftScale;
+@@ -2277,6 +2439,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+ 
+         if (flagRem == 1) {
+             const uint32_t limit = p.bRem * p.gRem;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto& firstDiag = coeff[stop][0];
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2288,8 +2457,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+                     auto rot = Rotate(coeff[stop][ij], ReduceRotation(-static_cast<int32_t>(p.gRem) * (ij / p.gRem) +
+                                                                               offsetRem + runningAcc,
+                                                                       slots));
+-
+-                    result[stop][ij] = MakeAuxPlaintext(cc, paramsVector[0], rot, 1, level0, rot.size());
++                    rot.resize(actualSlots);
++                    result[stop][ij] = MakeAuxPlaintext(cc, paramsVector[0], rot, 1, level0, actualSlots);
+                 }
+             }
+         }
+@@ -2305,6 +2474,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+             const int32_t shiftScale = 1 << ((s - flagRem) * p.layersCollapse + p.remCollapse);
+             const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
+             const uint32_t limit = p.b * p.g;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto clearTmp = coeff[s][0];
++                auto& clearTmpi = coeffi[s][0];
++                clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
++                auto& firstDiag = clearTmp;
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2312,7 +2491,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+                 if (ij != p.numRotations) {
+                     // concatenate the coefficients horizontally on their third dimension, which corresponds to the # of slots
+                     auto clearTmp = coeff[s][ij];
+-                    auto& clearTmpi = coeffi[s][ij];
++                    auto clearTmpi = coeffi[s][ij];
++
+                     clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
+                     if ((flagRem == 0) && (s == stop + 1)) {
+                         for (auto& c : clearTmp)
+@@ -2322,9 +2502,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+                     auto rot = Rotate(
+                             clearTmp,
+                             ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, 2 * slots));
+-
++                    rot.resize(actualSlots);
+                     result[s][ij] = MakeAuxPlaintext(cc, paramsVector[s - stop], rot, 1, level0 - compositeDegree * s,
+-                                                     rot.size());
++                                                     actualSlots);
+                 }
+             }
+             runningAcc += offset * shiftScale;
+@@ -2332,6 +2512,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+ 
+         if (flagRem == 1) {
+             const uint32_t limit = p.bRem * p.gRem;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto clearTmp = coeff[stop][0];
++                auto& clearTmpi = coeffi[stop][0];
++                clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
++                auto& firstDiag = clearTmp;
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2339,15 +2529,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalCoeffsToSlotsPrecomp
+                 if (ij != p.numRotationsRem) {
+                     // concatenate the coefficients on their third dimension, which corresponds to the # of slots
+                     auto clearTmp = coeff[stop][ij];
+-                    auto& clearTmpi = coeffi[stop][ij];
++                    auto clearTmpi = coeffi[stop][ij];
++
+                     clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
+                     for (auto& c : clearTmp)
+                         c *= scale;
+ 
+                     auto rot = Rotate(clearTmp,
+                                       ReduceRotation(-p.gRem * (ij / p.gRem) + offsetRem + runningAcc, 2 * slots));
+-
+-                    result[stop][ij] = MakeAuxPlaintext(cc, paramsVector[0], rot, 1, level0, rot.size());
++                    rot.resize(actualSlots);
++                    result[stop][ij] = MakeAuxPlaintext(cc, paramsVector[0], rot, 1, level0, actualSlots);
+                 }
+             }
+         }
+@@ -2413,6 +2604,31 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+     // CtS output now carries no extra rotation (absorbed into CtS precompute), so start at 0
+     int32_t runningAcc = 0;
+ 
++    // Determine the actual number of slots: the smallest power-of-two
++    // length for which the plaintext is a repeating pattern. All diagonals
++    // are expected to share the same actual slot count, so inspect the
++    // first diagonal and use that value for all.
++    auto computeActualSlots = [](const std::vector<std::complex<double>>& v) -> int32_t {
++        const double eps = 1e-12;
++        size_t n = v.size();
++        size_t k = 1;
++        while (k <= n) {
++            if (n % k == 0) {
++                bool ok = true;
++                for (size_t i = 0; i < n; ++i) {
++                    if (std::abs(v[i] - v[i % k]) > eps) {
++                        ok = false;
++                        break;
++                    }
++                }
++                if (ok)
++                    return static_cast<int32_t>(k);
++            }
++            k <<= 1;
++        }
++        return static_cast<int32_t>(n);
++    };
++
+     if (uint32_t M4 = cc.GetCyclotomicOrder() / 4; M4 == slots || flagStCComplex) {
+         auto coeff = CoeffDecodingCollapse(A, rotGroup, p.lvlb, flag_i);
+ 
+@@ -2421,6 +2637,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+             const int32_t shiftScale = 1 << (s * p.layersCollapse);
+             const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
+             const uint32_t limit = p.b * p.g;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto& firstDiag = coeff[s][0];
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2433,9 +2656,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+ 
+                     auto rot = Rotate(coeff[s][ij],
+                                       ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, slots));
+-
++                    rot.resize(actualSlots);
+                     result[s][ij] = MakeAuxPlaintext(cc, paramsVector[s], rot, 1, towersToDrop + compositeDegree * s,
+-                                                     rot.size());
++                                                     actualSlots);
+                 }
+             }
+             runningAcc += offset * shiftScale;
+@@ -2445,6 +2668,13 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+             const int32_t shiftScaleRem = 1 << (smax * p.layersCollapse);
+             const int32_t rotScale = shiftScaleRem * static_cast<int32_t>(p.gRem);
+             const uint32_t limit = p.bRem * p.gRem;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto& firstDiag = coeff[smax][0];
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2456,9 +2686,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+                     auto rot = Rotate(
+                             coeff[smax][ij],
+                             ReduceRotation(-rotScale * (ij / p.gRem) + offsetRem * shiftScaleRem + runningAcc, slots));
++                    rot.resize(actualSlots);
+ 
+                     result[smax][ij] = MakeAuxPlaintext(cc, paramsVector[smax], rot, 1,
+-                                                        towersToDrop + compositeDegree * smax, rot.size());
++                                                        towersToDrop + compositeDegree * smax, actualSlots);
+                 }
+             }
+         }
+@@ -2475,6 +2706,16 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+             const int32_t shiftScale = 1 << (s * p.layersCollapse);
+             const int32_t rotScale = shiftScale * static_cast<int32_t>(p.g);
+             const uint32_t limit = p.b * p.g;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto clearTmp = coeff[s][0];
++                auto& clearTmpi = coeffi[s][0];
++                clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
++                auto& firstDiag = clearTmp;
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2493,9 +2734,9 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+                     auto rot = Rotate(
+                             clearTmp,
+                             ReduceRotation(-rotScale * (ij / p.g) + offset * shiftScale + runningAcc, 2 * slots));
+-
++                    rot.resize(actualSlots);
+                     result[s][ij] = MakeAuxPlaintext(cc, paramsVector[s], rot, 1, towersToDrop + compositeDegree * s,
+-                                                     rot.size());
++                                                     actualSlots);
+                 }
+             }
+             runningAcc += offset * shiftScale;
+@@ -2503,8 +2744,25 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+ 
+         if (flagRem == 1) {
+             const int32_t shiftScaleRem = 1 << (smax * p.layersCollapse);
++            // The remainder block is evaluated with baby rotations j*shiftScaleRem and Horner giant
++            // stride tRem = shiftScaleRem * p.gRem (see EvalSlotsToCoeffs). The plaintexts must
++            // therefore be pre-rotated with the SAME giant stride so that the giant accumulation in
++            // the evaluator cancels the diagonal twist exactly. Using p.g leaves an i-dependent twist
++            // of the remainder diagonals that only matters once the +i phase factor (m==slots) lives
++            // in the remainder rows; with the phase factor on the wide phase this corrupted the
++            // SlotsToCoeffs transform. p.gRem is also what the fully-packed branch uses.
+             const int32_t rotScale = shiftScaleRem * static_cast<int32_t>(p.gRem);
+             const uint32_t limit = p.bRem * p.gRem;
++
++            int32_t actualSlots = static_cast<int32_t>(slots);
++            if (slots > 0) {
++                auto clearTmp = coeff[smax][0];
++                auto& clearTmpi = coeffi[smax][0];
++                clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
++                auto& firstDiag = clearTmp;
++                actualSlots = computeActualSlots(firstDiag);
++            }
++
+ #if !defined(__MINGW32__) && !defined(__MINGW64__)
+     #pragma omp parallel for num_threads(OpenFHEParallelControls.GetThreadLimit(limit))
+ #endif
+@@ -2512,7 +2770,8 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+                 if (ij != p.numRotationsRem) {
+                     // concatenate the coefficients on their third dimension, which corresponds to the # of slots
+                     auto clearTmp = coeff[smax][ij];
+-                    auto& clearTmpi = coeffi[smax][ij];
++                    auto clearTmpi = coeffi[smax][ij];
++
+                     clearTmp.insert(clearTmp.end(), clearTmpi.begin(), clearTmpi.end());
+                     for (auto& c : clearTmp)
+                         c *= scale;
+@@ -2520,9 +2779,10 @@ std::vector<std::vector<ReadOnlyPlaintext>> FHECKKSRNS::EvalSlotsToCoeffsPrecomp
+                     auto rot = Rotate(clearTmp,
+                                       ReduceRotation(-rotScale * (ij / p.gRem) + offsetRem * shiftScaleRem + runningAcc,
+                                                      2 * slots));
++                    rot.resize(actualSlots);  // ensure the vector is the correct size for MakeAuxPlaintext
+ 
+                     result[smax][ij] = MakeAuxPlaintext(cc, paramsVector[smax], rot, 1,
+-                                                        towersToDrop + compositeDegree * smax, rot.size());
++                                                        towersToDrop + compositeDegree * smax, actualSlots);
+                 }
+             }
+         }
+@@ -4504,4 +4764,15 @@ Ciphertext<DCRTPoly> FHECKKSRNS::KeySwitchSparse(Ciphertext<DCRTPoly>& ciphertex
+     return result;
+ }
+ 
++// Runtime accessors to the standard CKKS bootstrap Chebyshev tables.
++const std::vector<double>& GetBootTableCoeffSparse() {
++    return FHECKKSRNS::g_coefficientsSparse;
++}
++const std::vector<double>& GetBootTableCoeffSparseEncapsulated() {
++    return FHECKKSRNS::g_coefficientsSparseEncapsulated;
++}
++const std::vector<double>& GetBootTableCoeffUniform() {
++    return FHECKKSRNS::g_coefficientsUniform;
++}
++
+ }  // namespace lbcrypto
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
+index 4ac84b3..bcbb7ab 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-leveledshe.cpp
+@@ -128,35 +128,38 @@ void LeveledSHECKKSRNS::EvalSubInPlace(Ciphertext<DCRTPoly>& ciphertext, double
+ // SHE MULTIPLICATION
+ /////////////////////////////////////////
+ 
+-Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand) const {
++Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, double operand,
++                                                 int32_t target_level) const {
+     auto result = ciphertext->Clone();
+-    EvalMultInPlace(result, operand);
++    EvalMultInPlace(result, operand, target_level);
+     return result;
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const {
++void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand, int32_t target_level) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+     if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+         if (ciphertext->GetNoiseScaleDeg() == 2)
+             ModReduceInternalInPlace(ciphertext, cryptoParams->GetCompositeDegree());
+     }
+-    EvalMultCoreInPlace(ciphertext, operand);
++
++    EvalMultCoreInPlace(ciphertext, operand, target_level);
+ }
+ 
+-Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                 std::complex<double> operand) const {
++Ciphertext<DCRTPoly> LeveledSHECKKSRNS::EvalMult(ConstCiphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                                 int32_t target_level) const {
+     auto result = ciphertext->Clone();
+-    EvalMultInPlace(result, operand);
++    EvalMultInPlace(result, operand, target_level);
+     return result;
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const {
++void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                        int32_t target_level) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+     if (cryptoParams->GetScalingTechnique() != FIXEDMANUAL) {
+         if (ciphertext->GetNoiseScaleDeg() == 2)
+             ModReduceInternalInPlace(ciphertext, cryptoParams->GetCompositeDegree());
+     }
+-    EvalMultCoreInPlace(ciphertext, operand);
++    EvalMultCoreInPlace(ciphertext, operand, target_level);
+ }
+ 
+ void LeveledSHECKKSRNS::EvalMultInPlace(Ciphertext<DCRTPoly>& ciphertext, ConstPlaintext& plaintext) const {
+@@ -454,12 +457,22 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalAddOrSub(Cons
+ 
+ #if NATIVEINT == 128
+ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                                        double operand) const {
++                                                                        double operand, double scaling_factor) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+ 
+     uint32_t precision = 52;
+     double powP = std::pow(2, precision);
+ 
++    // Target-level support: the 64-bit branch encodes the constant scaled by the requested
++    // scFactor (or, when scaling_factor == -1, by the level's scaling factor). This branch
++    // encodes the constant at the canonical scaling factor 2^P (P = GetPlaintextModulus()), so
++    // when a target scFactor is supplied we prescale the operand by scFactor / 2^P; the shift
++    // below then lands the constant on scFactor. With scaling_factor == -1 the operand is left
++    // untouched and the behaviour is identical to before (encode at 2^P).
++    if (scaling_factor != -1.0) {
++        operand *= scaling_factor / std::exp2(cryptoParams->GetPlaintextModulus());
++    }
++
+     // the idea is to break down real numbers
+     // expressed as input_mantissa * 2^input_exponent
+     // into (input_mantissa * 2^52) * 2^(p - 52 + input_exponent)
+@@ -501,7 +514,7 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCip
+ }
+ #else  // NATIVEINT == 64
+ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCiphertext<DCRTPoly>& ciphertext,
+-                                                                        double operand) const {
++                                                                        double operand, double scaling_factor) const {
+     const auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+ 
+     const std::vector<DCRTPoly>& cv = ciphertext->GetElements();
+@@ -510,7 +523,10 @@ std::vector<DCRTPoly::Integer> LeveledSHECKKSRNS::GetElementForEvalMult(ConstCip
+     for (uint32_t i = 0; i < numTowers; ++i)
+         moduli[i] = cv[0].GetElementAtIndex(i).GetModulus();
+ 
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    double scFactor = scaling_factor;
++    if (scaling_factor == -1.0) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
+ 
+     #if defined(HAVE_INT128)
+     typedef int128_t DoubleInteger;
+@@ -846,20 +862,42 @@ void LeveledSHECKKSRNS::AdjustLevelsAndDepthToOneInPlace(Ciphertext<DCRTPoly>& c
+     }
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand) const {
++void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, double operand,
++                                            int32_t target_level) const {
++    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
++    double scFactor;
++    if (target_level == -1) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    } else {
++        scFactor = cryptoParams->GetScalingFactorRealBig(target_level) /
++                   cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
++
+     auto& cv = ciphertext->GetElements();
+-    auto factors = GetElementForEvalMult(ciphertext, operand);
++    auto factors = GetElementForEvalMult(ciphertext, operand, scFactor);
+     for (uint32_t i = 0; i < cv.size(); ++i)
+         cv[i] = cv[i] * factors;
+ 
+     ciphertext->SetNoiseScaleDeg(ciphertext->GetNoiseScaleDeg() + 1);
+ 
+-    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
+     ciphertext->SetScalingFactor(ciphertext->GetScalingFactor() * scFactor);
++
++    if (target_level != -1) {
++        this->LevelReduceInternalInPlace(ciphertext, (target_level - ciphertext->GetLevel()));
++    }
+ }
+ 
+-void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand) const {
++void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, std::complex<double> operand,
++                                            int32_t target_level) const {
++    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
++    double scFactor;
++    if (target_level == -1) {
++        scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    } else {
++        scFactor = cryptoParams->GetScalingFactorRealBig(target_level) /
++                   cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
++    }
++
+     auto& cv = ciphertext->GetElements();
+ 
+     // MultByMonomialInPlace
+@@ -871,17 +909,18 @@ void LeveledSHECKKSRNS::EvalMultCoreInPlace(Ciphertext<DCRTPoly>& ciphertext, st
+     monomialDCRT = monomial;
+     monomialDCRT.SetFormat(Format::EVALUATION);
+ 
+-    auto factorsRe = GetElementForEvalMult(ciphertext, operand.real());
+-    auto factorsIm = monomialDCRT * GetElementForEvalMult(ciphertext, operand.imag());
++    auto factorsRe = GetElementForEvalMult(ciphertext, operand.real(), scFactor);
++    auto factorsIm = monomialDCRT * GetElementForEvalMult(ciphertext, operand.imag(), scFactor);
+ 
+     for (uint32_t i = 0; i < cv.size(); ++i)
+         cv[i] = (cv[i] * factorsRe) + (cv[i] * factorsIm);
+ 
+     ciphertext->SetNoiseScaleDeg(ciphertext->GetNoiseScaleDeg() + 1);
+ 
+-    auto cryptoParams = std::dynamic_pointer_cast<CryptoParametersCKKSRNS>(ciphertext->GetCryptoParameters());
+-    double scFactor = cryptoParams->GetScalingFactorReal(ciphertext->GetLevel());
+     ciphertext->SetScalingFactor(ciphertext->GetScalingFactor() * scFactor);
++    if (target_level != -1) {
++        this->LevelReduceInternalInPlace(ciphertext, (target_level - ciphertext->GetLevel()));
++    }
+ }
+ 
+ uint32_t LeveledSHECKKSRNS::FindAutomorphismIndex(uint32_t index, uint32_t m) const {
+diff --git a/src/pke/lib/scheme/ckksrns/ckksrns-utils.cpp b/src/pke/lib/scheme/ckksrns/ckksrns-utils.cpp
+index 6cd1f25..cc1217c 100644
+--- a/src/pke/lib/scheme/ckksrns/ckksrns-utils.cpp
++++ b/src/pke/lib/scheme/ckksrns/ckksrns-utils.cpp
+@@ -463,7 +463,7 @@ std::vector<std::vector<std::complex<double>>> CoeffEncodingOneLevel(const std::
+         auto& coeff1 = coeff[(s += log2slots)];
+         auto& coeff2 = coeff[(s += log2slots)];
+ 
+-        const std::complex<double> b = flag_i && (m == 2) ? neg_exp_M_PI : 1;
++        const std::complex<double> b = flag_i && (m == slots) ? neg_exp_M_PI : 1;
+         for (uint32_t k = 0; k < slots; k += m) {
+             const uint32_t lenq = m << 2;
+             const uint32_t lenh = m >> 1;
+@@ -505,7 +505,7 @@ std::vector<std::vector<std::complex<double>>> CoeffDecodingOneLevel(const std::
+         auto& coeff1 = coeff[(s += log2slots)];
+         auto& coeff2 = coeff[(s += log2slots)];
+ 
+-        const std::complex<double> b = flag_i && (m == 2) ? pos_exp_M_PI : 1;
++        const std::complex<double> b = flag_i && (m == slots) ? pos_exp_M_PI : 1;
+         for (uint32_t k = 0; k < slots; k += m) {
+             const uint32_t lenq = m << 2;
+             const uint32_t lenh = m >> 1;

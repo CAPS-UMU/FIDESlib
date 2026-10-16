@@ -39,22 +39,22 @@ std::vector<int> GetbroadcastRotationIndices(const int bStep, const int initsize
  *
  *  out_i = \sum_{j = 0}^{size - 1} in_{i%size + j*size}
  *
- *  with a bsgs algorithm using baby-step size bStep
+ *  with a bsgs algorithm using baby-step size bStep.
  *
- *  bStep, stride, size - should be powers of two
- */
-void Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size);
-
-/**
- * Compute a rotate and accumulate starting at a given factor:
+ *  When `startFactor` > 1 the fold starts at factor `startFactor` instead of 1: level s rotates
+ *  the current accumulator by {stride*s, 2*stride*s, ..., < min(stride*size, bStep*stride*s)}
+ *  for s = startFactor, startFactor*bStep, ... — the start-offset variant used by
+ *  `AccumulateSumInPlace(ct, slots, stride, start)`. It follows the same P2b lazy discipline as
+ *  the plain fold and is otherwise identical, so start=1 api calls behave the same regardless of
+ *  which overload is used.
  *
- *  rotations are stride*startFactor, stride*(startFactor*2), ...
- *
- *  This is useful when the first accumulation step must start at n instead of 1.
+ *  The fold is metadata-neutral: it never rewrites `ctxt.slots` (O10). Callers that need the
+ *  sparse re-interpretation of a full fold (e.g. the bootstrap PartialSum) set `ctxt.slots`
+ *  themselves.
  *
  *  bStep, stride, size and startFactor - should be powers of two
  */
-void Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor);
+void Accumulate(Ciphertext& ctxt, const int bStep, const int stride, const int size, const int startFactor = 1);
 
 /**
  *  Compute a rotate and broadcast where:

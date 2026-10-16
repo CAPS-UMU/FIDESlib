@@ -14,7 +14,6 @@
 #include <string>
 
 namespace FIDESlib {
-
 void initGPUprop();
 int GetTargetThreads(int id);
 
@@ -23,25 +22,42 @@ enum NVTX_CATEGORIES { NONE, LIFETIME, FUNCTION };
 void CudaNvtxStart(const std::string msg, NVTX_CATEGORIES cat = FUNCTION, int val = 0);
 void CudaNvtxStop(const std::string msg = "", NVTX_CATEGORIES cat = FUNCTION);
 
+// Lifetime-range memory tracking. Objects that open a LIFETIME range (via CudaNvtxStart /
+// CudaNvtxRange) can register a getter returning their current memory footprint; the range
+// message then renders as "N x Label - X.XX MB". Getter values can be registered per named
+// component (e.g. "Precomputed" and "Buffers"), which renders a breakdown like
+// "1 x Context - 345.67 MB (Buffers 100.50 MB, Precomputed 245.17 MB)". Unregister is
+// idempotent, and getters are only queried while their object is registered (an object must
+// unregister before its members die).
+//
+// Re-rendering is deduplicated: the range is only (re)emitted when the live count or the
+// aggregate byte total actually changed, so size-change notifications that end up not altering
+// the value (e.g. an aux poly that reallocates to the same size) do not churn the timeline.
+using NvtxLifetimeBytesProvider = std::function<uint64_t()>;
+void CudaNvtxLifetimeRegisterBytes(const std::string& msg, const void* obj, const NvtxLifetimeBytesProvider& getter, const std::string& component = "");
+void CudaNvtxLifetimeUnregisterBytes(const std::string& msg, const void* obj, const std::string& component = "");
+void CudaNvtxLifetimeRefresh(const std::string& msg);
+std::string CudaNvtxFormatBytes(uint64_t bytes);
+
 class CudaNvtxRange {
-	const std::string msg;
-	const NVTX_CATEGORIES cat;
-	bool valid = true;
+    const std::string msg;
+    const NVTX_CATEGORIES cat;
+    bool valid = true;
 
   public:
-	explicit CudaNvtxRange(const std::string msg, NVTX_CATEGORIES cat = FUNCTION, int val = 0) : msg(msg), cat(cat) {
-		CudaNvtxStart(msg, cat, val);
-	}
+    explicit CudaNvtxRange(const std::string msg, NVTX_CATEGORIES cat = FUNCTION, int val = 0) : msg(msg), cat(cat) {
+        CudaNvtxStart(msg, cat, val);
+    }
 
-	CudaNvtxRange(CudaNvtxRange&& r) noexcept : msg(r.msg), cat(r.cat) {
-		this->valid = r.valid;
-		r.valid		= false;
-	}
+    CudaNvtxRange(CudaNvtxRange&& r) noexcept : msg(r.msg), cat(r.cat) {
+        this->valid = r.valid;
+        r.valid = false;
+    }
 
-	~CudaNvtxRange() {
-		if (valid)
-			CudaNvtxStop(msg, cat);
-	}
+    ~CudaNvtxRange() {
+        if (valid)
+            CudaNvtxStop(msg, cat);
+    }
 };
 
 int getNumDevices();
@@ -53,56 +69,56 @@ inline void breakpoint() {
 
 // TODO: Remove the cudart unloading.
 #define CudaCheckErrorMod                                                                    \
-	do {                                                                                     \
-		cudaDeviceSynchronize();                                                             \
-		cudaError_t e = cudaGetLastError();                                                  \
-		if (e == cudaErrorCudartUnloading) {                                                 \
-			exit(0);                                                                         \
-		} else if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled) {             \
+    do {                                                                                     \
+        cudaDeviceSynchronize();                                                             \
+        cudaError_t e = cudaGetLastError();                                                  \
+        if (e == cudaErrorCudartUnloading) {                                                 \
+            exit(0);                                                                         \
+        } else if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled) {             \
                                                                                              \
-			printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
-			FIDESlib::breakpoint();                                                          \
-			exit(0);                                                                         \
-		}                                                                                    \
-	} while (0)
+            printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
+            FIDESlib::breakpoint();                                                          \
+            exit(0);                                                                         \
+        }                                                                                    \
+    } while (0)
 
 #define CudaCheckErrorModMGPU                                                                \
-	do {                                                                                     \
-		cudaStreamSynchronize(0);                                                            \
-		cudaError_t e = cudaGetLastError();                                                  \
-		if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled) {                    \
-			printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
-			FIDESlib::breakpoint();                                                          \
-			exit(0);                                                                         \
-		}                                                                                    \
-	} while (0)
+    do {                                                                                     \
+        cudaStreamSynchronize(0);                                                            \
+        cudaError_t e = cudaGetLastError();                                                  \
+        if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled) {                    \
+            printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e)); \
+            FIDESlib::breakpoint();                                                          \
+            exit(0);                                                                         \
+        }                                                                                    \
+    } while (0)
 
 // TODO: FIX THE CUDARTUNLOADING ERROR, IT HAPPENS WHEN THE LIBRARY IS BEING UNLOADED, CAN BE IGNORED FOR NOW
 #define CudaCheckErrorModNoSync                                                                                          \
-	do {                                                                                                                 \
-		/*cudaDeviceSynchronize();*/                                                                                     \
-		cudaError_t e = cudaGetLastError();                                                                              \
-		if (e == cudaErrorCudartUnloading) {                                                                             \
-			exit(0);                                                                                                     \
-		} else if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled && e != cudaErrorGraphExecUpdateFailure) { \
-			void* array[10];                                                                                             \
-			size_t size;                                                                                                 \
-			size = backtrace(array, 10);                                                                                 \
-			backtrace_symbols_fd(array, size, STDERR_FILENO);                                                            \
-			printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e));                             \
-			FIDESlib::breakpoint();                                                                                      \
-			exit(0);                                                                                                     \
-		}                                                                                                                \
-	} while (0)
+    do {                                                                                                                 \
+        /*cudaDeviceSynchronize();*/                                                                                     \
+        cudaError_t e = cudaGetLastError();                                                                              \
+        if (e == cudaErrorCudartUnloading) {                                                                             \
+            exit(0);                                                                                                     \
+        } else if (e != cudaSuccess && e != cudaErrorPeerAccessAlreadyEnabled && e != cudaErrorGraphExecUpdateFailure) { \
+            void* array[10];                                                                                             \
+            size_t size;                                                                                                 \
+            size = backtrace(array, 10);                                                                                 \
+            backtrace_symbols_fd(array, size, STDERR_FILENO);                                                            \
+            printf("Cuda failure %s:%d: '%s'\n", __FILE__, __LINE__, cudaGetErrorString(e));                             \
+            FIDESlib::breakpoint();                                                                                      \
+            exit(0);                                                                                                     \
+        }                                                                                                                \
+    } while (0)
 
 #define NCCLCHECK(cmd)                                                                              \
-	do {                                                                                            \
-		ncclResult_t res = cmd;                                                                     \
-		if (res != ncclSuccess) {                                                                   \
-			printf("Failed, NCCL error %s:%d '%s'\n", __FILE__, __LINE__, ncclGetErrorString(res)); \
-			exit(EXIT_FAILURE);                                                                     \
-		}                                                                                           \
-	} while (0)
+    do {                                                                                            \
+        ncclResult_t res = cmd;                                                                     \
+        if (res != ncclSuccess) {                                                                   \
+            printf("Failed, NCCL error %s:%d '%s'\n", __FILE__, __LINE__, ncclGetErrorString(res)); \
+            exit(EXIT_FAILURE);                                                                     \
+        }                                                                                           \
+    } while (0)
 
 class Event;
 
@@ -110,51 +126,50 @@ extern std::map<void*, int> free;
 
 class Stream {
   private:
-	cudaStream_t ptr_ = nullptr;
+    cudaStream_t ptr_ = nullptr;
 
   public:
-	cudaEvent_t ev = nullptr;
-	bool updated   = false;
-	// Event ev;
+    cudaEvent_t ev = nullptr;
+    bool updated = false;
+    // Event ev;
 
-	void init(int priority = 0);
+    void init(int priority = 0);
 
-	cudaStream_t ptr() {
-		updated = false;
-		return ptr_;
-	}
+    cudaStream_t ptr() {
+        updated = false;
+        return ptr_;
+    }
 
-	void initDefault();
+    void initDefault();
 
-	// void wait(const Event &ev) const;
-	void wait(Stream& s, bool external = false);
-	void wait(cudaStream_t s);
+    // void wait(const Event &ev) const;
+    void wait(Stream& s, bool external = false);
+    void wait(cudaStream_t s);
 
-	Stream();
+    Stream();
 
-	Stream(Stream& s) = delete;
+    Stream(Stream& s) = delete;
 
-	Stream(const Stream& s) = delete;
+    Stream(const Stream& s) = delete;
 
-	Stream& operator=(const Stream&) = delete;
+    Stream& operator=(const Stream&) = delete;
 
-	Stream(Stream&& s) noexcept;
+    Stream(Stream&& s) noexcept;
 
-	~Stream();
+    ~Stream();
 
-	void record(bool external = false);
+    void record(bool external = false);
 
-	void wait_recorded(const Stream& s);
+    void wait_recorded(const Stream& s);
 
-	void capture_begin();
+    void capture_begin();
 
-	void capture_end();
+    void capture_end();
 };
 
 template <bool capture> void run_in_graph(cudaGraphExec_t& exec, Stream& s, std::function<void()> run);
 
 void* GPUmalloc(int id, int bytes, cudaStream_t stream, bool cache = false);
 void GPUfree(void* ptr, int id, int bytes, cudaStream_t stream, bool cache = false);
-
 } // namespace FIDESlib
 #endif // FIDESLIB_CUDAUTILS_CUH
