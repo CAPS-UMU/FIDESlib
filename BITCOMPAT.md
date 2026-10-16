@@ -1,9 +1,9 @@
 # CPU/GPU Bit-Compatibility: Issues and Plan
 
 > **Note:** this document records the bit-compatibility campaign that 2.2.0 completes. All the
-> R-series findings and the O-series items that gate bit-exactness (O1, O2, O6a–O6e, O8) are
-> resolved; it is kept as the design/rationale record for the release. A few non-compatibility
-> follow-ups (O3–O5, O7, O9–O11) remain noted below.
+> R-series findings and the O-series bit-compatibility items (O1–O6, O8–O11) are resolved; it is
+> kept as the design/rationale record for the release. The only remaining note is the
+> non-compatibility api type-erasure design decision (O7).
 
 **Goal:** every FIDESlib GPU operation produces ciphertexts that are bit-identical to the
 patched-OpenFHE CPU equivalent, verified by exact ciphertext comparison (`ASSERT_EQ_CIPHERTEXT`),
@@ -191,7 +191,7 @@ compile-time `PARTIAL_SUM_RADIX` — see O8) drives both sides: the CPU
 fallbacks call the general form with it, and the GPU calls `Accumulate(*, ACCUMULATE_SUM_RADIX,
 …)` (FIDESlib's existing `bStep` parameter — no new GPU code). The api GPU paths also restore
 the OpenFHE-visible slot count after the fold (whether that restore belongs in `Accumulate`
-itself is an open decision — see O10). Radix-2 keeps the rotation-key footprint at the
+itself stays at the api boundary — O10 resolved). Radix-2 keeps the rotation-key footprint at the
 power-of-two set (see O8, radix/key-size tradeoff — key minimization drove this choice).
 Acceptance test: `OpenFHECompatTests.AccumulateSum`. The `start`-offset variant shares the same
 unified lazy radix fold on the GPU (single `Accumulate(ct, ACCUMULATE_SUM_RADIX, stride, slots,
@@ -290,17 +290,23 @@ indexed expressions as arguments.
 
 ## Open issues
 
-### O3. api `Rescale` semantic divergence under AUTO scaling techniques
-CPU fallback calls `context->Rescale` (a no-op for FLEXIBLE*/FIXEDAUTO); the GPU path performs a
-real rescale. Decide the intended api semantics and align (excluded from `EvalArithmetic` for now).
+### O3. api `Rescale` semantic divergence under AUTO scaling techniques *(resolved — documented)*
+CPU `context->Rescale` is a no-op for FLEXIBLE*/FIXEDAUTO; the GPU path performs a real rescale.
+Decision: FIDESlib's api `Rescale`/`RescaleInPlace` is the **explicit** rescale (FIXEDMANUAL
+semantics). Under flexible scaling OpenFHE deliberately no-ops `Rescale`, so the two differ **by
+design**; this is recorded in `Ciphertext::rescaleInternal` ("this wouldn't do anything in
+OpenFHE"), and the api Rescale is intentionally excluded from `EvalArithmetic` outside FIXEDMANUAL
+(covered by `RescaleInPlace`).
 
-### O4. Chebyshev range-transform prelude not aligned
-For bounds other than (−1, 1), the GPU applies add-then-mult on the input; CPU builds
-`T[0] = EvalMult(x, α); ModReduce; EvalAddInPlace(−1−β)`. Different rounding order. All current
-tests use (−1, 1). Align the GPU prelude to the CPU order when needed.
+### O4. Chebyshev range-transform prelude *(resolved — aligned)*
+The GPU prelude now builds `T[0] = EvalMult(x, α); rescale; EvalAddInPlace(−1−β)` — the same
+multiply-then-add rounding order as OpenFHE — for bounds other than (−1, 1) (see
+`ApproxModEval.cu`; the affine map now uses the interval midpoint, #42).
 
-### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU
-The GPU has no mirrored linear path. Only matters if low-degree series are used through the api.
+### O5. Chebyshev degree < 5 takes `EvalChebyshevSeriesLinear` on CPU *(resolved — mirrored)*
+The GPU mirrors the CPU linear path: `evalChebyshevSeries` dispatches to
+`evalChebyshevSeriesLinear` for `degree < 5` (`ApproxModEval.cu`), so low-degree series used
+through the api are handled identically.
 
 ### O6. Tier-2 configurations *(swept; O6a–O6e all fixed)*
 Each configuration now has a dedicated test in `OpenFheCompatTests.cu`. Of the five findings,
@@ -533,16 +539,11 @@ loop from `startFactor`, radix-2 = doubling of the remaining range), which runs 
 fold — so `AccumulateSumInPlaceStart` is **bit-exact**. The reference change is folded into
 `deps/fideslib-1.6.1-compile.patch` and lives on the OpenFHE fork branch `1.6.1-fideslib`.
 
-### O9. `MODES(name)` macro ignores its parameter
-`test/ParametrizedTest.cuh`'s `MODES(name)` declares identifiers literally named `name_fix`,
-`name_fixauto`, `name_flex`, `name_flexext` — it never token-pastes with `##`, so the `name`
-argument is ignored and every invocation declares the same four externs. Harmless as long as
-nothing depends on per-name declarations (repeated identical externs are legal), but the macro
-doesn't do what its signature advertises. Either fix it to `name##_fix` (and update/verify any
-code relying on the literal names) or delete it if dead. Surfaced during the O2 macro audit;
-not a correctness hazard for the assert paths, so left untouched.
+### O9. `MODES(name)` macro ignores its parameter *(resolved)*
+`test/ParametrizedTest.cuh`'s `MODES(name)` now token-pastes with `##` (`name##_fix`,
+`name##_fixauto`, ...), so each invocation declares per-name externs as intended.
 
-### O10. `Accumulate` slots-narrowing — decide the fix layer
+### O10. `Accumulate` slots-narrowing — decide the fix layer *(resolved)*
 `FIDESlib::CKKS::Accumulate` rewrites the ciphertext's `slots` field after a full fold
 (`AccumulateBroadcast.cu`: `if (size * stride == ctxt.slots) ctxt.slots = stride;` — same
 pattern in `AccumulateCascadeImpl` and `Broadcast`). The guard is a caller-intent heuristic —
@@ -576,23 +577,17 @@ code relying on the narrowing convention would break — worth confirming with t
 maintainers. `Broadcast` has the same trailing `slots` rewrite with no in-tree consumers;
 leave it alone for this fix but it is the same pattern.
 
-### O11. api `EvalBootstrap` GPU dispatch drops parameters
-Two silent divergences between the api's CPU fallback and GPU path (`api/CryptoContext.cpp`,
-`EvalBootstrap`/`EvalBootstrapInPlace`), found while auditing the dispatch during the
-combination sweep:
+### O11. api `EvalBootstrap` GPU dispatch drops parameters *(resolved)*
+Both dispatch divergences are closed in the current tree (`api/CryptoContext.cpp`,
+`EvalBootstrap`/`EvalBootstrapInPlace`):
 
-- **`numIterations`/`precision` ignored on GPU.** The CPU fallback forwards both to
-  `context->EvalBootstrap(ct, numIterations, precision)` (META-BTS iterated bootstrapping);
-  the GPU path unconditionally runs a single `FIDESlib::CKKS::Bootstrap`. A caller requesting
-  two iterations gets one, silently, with correspondingly lower precision.
-- **`btsfirstboot` (StC-first) misroutes on GPU.** api `EvalBootstrapSetup` exposes
-  `btsfirstboot` and forwards it into the CPU precomputation (`BTSlotsEncoding`), but FIDESlib
-  has no StC-first pipeline (`Bootstrap.cuh` exposes only the CtS-first `Bootstrap` and
-  `BootstrapCPUraise`); the GPU path runs CtS-first against StC-first precomputations.
-
-Both are O3-class semantic gaps (api contract, not bit-compat): decide whether to fall back to
-CPU when the request can't be honored on GPU (`numIterations > 1`, StC-first setups), throw, or
-implement the missing GPU paths. Until then they fail silently rather than loudly.
+- **`numIterations`/`precision` are forwarded on GPU.** The GPU path calls
+  `FIDESlib::CKKS::Bootstrap(*res_gpu, slots, prescaled, numIterations, precision)`, matching the
+  CPU fallback's iterated bootstrapping; covered by `EvalBootstrapIterative` /
+  `EvalBootstrapIterativeFixedAuto` / `OpenFHEBootstrapIterative`.
+- **SlotsToCoeffs-first is a real GPU pipeline.** `EvalBootstrapStCFirst` (and `btsfirstboot`
+  setups) run the StC-first GPU path, guarded by `CheckBootstrapMode`; covered by
+  `EvalBootstrapStCFirst*` and `OpenFHEBootstrapStCFirst`.
 
 ## Plan forward
 
@@ -737,8 +732,8 @@ The follow-up combination sweep added four more green configurations (see O6) an
 O6e, now closed in the current tree (`EvalBootstrapFixedAuto` re-enabled, bit-exact).
 **O6c is also closed**: the SPARSE_ENCAPSULATED bootstrap is now bit-exact across sparse, dense,
 LT and iterative configurations (`EvalBootstrapSparseEncaps{,Dense,LT,Iterative}`), so no
-SPARSE_ENCAPSULATED carve-out remains. The remaining work is the smaller
-semantic gaps (O3–O5, O11) and the api type-erasure decision (O7).
+SPARSE_ENCAPSULATED carve-out remains. The remaining O-items (O3–O5, O9–O11) are closed too;
+the only remaining note is the non-compatibility api type-erasure design decision (O7).
 
 ## Validation methodology (reusable)
 
