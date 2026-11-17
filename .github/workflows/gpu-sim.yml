@@ -1,0 +1,136 @@
+name: GPU tests (simulated)
+
+# Optional, non-required check. The runners have no GPU, so this runs a subset
+# of the tests on a simulated NVIDIA H100
+# (https://github.com/pantheongpu/pantheonsim). A simulator cannot reproduce
+# hardware-specific behaviour or timing, so it complements real-GPU testing and
+# does not replace it.
+
+# A push to main keeps the simulator build cache on the default branch, where
+# pull requests can restore it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "CMakeLists.txt"
+      - "api/**"
+      - "src/**"
+      - "test/**"
+      - "deps/**"
+      - ".github/workflows/gpu-sim.yml"
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "api/**"
+      - "src/**"
+      - "test/**"
+      - "deps/**"
+      - ".github/workflows/gpu-sim.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENFHE_PREFIX: ${{ github.workspace }}/openfhe-install
+
+jobs:
+  gpu-tests:
+    name: gtest on a simulated H100
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up the simulated GPU and CUDA toolkit
+        uses: pantheongpu/setup-pantheonsim@dda0c8df8d72627c295edbae525354ba2bcb1687 # v0.1.4
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+
+      # FIDESlib needs the patched OpenFHE 1.6.1 from deps/. Building it takes
+      # a while, so the install is cached until the patch or the tag changes.
+      - name: Restore the patched OpenFHE
+        id: openfhe-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPENFHE_PREFIX }}
+          key: openfhe-1.6.1-${{ runner.os }}-${{ hashFiles('deps/fideslib-1.6.1-compile.patch', 'deps/build.sh') }}
+
+      # Same source and flags as deps/build.sh, without OpenFHE's own tests,
+      # examples and benchmarks.
+      - name: Build the patched OpenFHE
+        if: steps.openfhe-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v1.6.1 \
+            https://github.com/openfheorg/openfhe-development.git "$RUNNER_TEMP/openfhe-src"
+          git -C "$RUNNER_TEMP/openfhe-src" apply "$GITHUB_WORKSPACE/deps/fideslib-1.6.1-compile.patch"
+          cmake -S "$RUNNER_TEMP/openfhe-src" -B "$RUNNER_TEMP/openfhe-build" \
+            -D CMAKE_BUILD_TYPE=Release \
+            -D BUILD_STATIC=ON \
+            -D BUILD_SHARED=OFF \
+            -D BUILD_UNITTESTS=OFF \
+            -D BUILD_EXAMPLES=OFF \
+            -D BUILD_BENCHMARKS=OFF \
+            -D CMAKE_INSTALL_PREFIX="$OPENFHE_PREFIX"
+          cmake --build "$RUNNER_TEMP/openfhe-build" -j"$(nproc)"
+          cmake --install "$RUNNER_TEMP/openfhe-build"
+
+      # The simulator needs PTX and a shared CUDA runtime (the static one
+      # cannot run on a simulated driver). 80-virtual embeds PTX only, but
+      # only without LTO: the Release build turns on LTO, and its device link
+      # adds SASS, which the simulator would run instead of the PTX. So this
+      # builds RelWithDebInfo. The include file stops the static library from
+      # device-linking on its own, because the test executable does it too
+      # and the two registrations clash at link time.
+      # Two test files include nccl.h without using it. NCCL is left out (the
+      # tests use one GPU and the library builds without it), so an empty
+      # header stands in.
+      - name: Configure
+        run: |
+          mkdir -p "$RUNNER_TEMP/stub"
+          touch "$RUNNER_TEMP/stub/nccl.h"
+          cat > "$RUNNER_TEMP/no-lib-devlink.cmake" <<'CMAKE'
+          cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL
+            set_target_properties fideslib PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS OFF)
+          CMAKE
+          cmake -S . -B build \
+            -D CMAKE_BUILD_TYPE=RelWithDebInfo \
+            -D CMAKE_PROJECT_INCLUDE="$RUNNER_TEMP/no-lib-devlink.cmake" \
+            -D CUDA_PATH="$(dirname "$(dirname "$(command -v nvcc)")")" \
+            -D FIDESLIB_ARCH=80-virtual \
+            -D CMAKE_CUDA_RUNTIME_LIBRARY=Shared \
+            -D CMAKE_CUDA_FLAGS="-I$RUNNER_TEMP/stub" \
+            -D OPENFHE_INSTALL_PREFIX="$OPENFHE_PREFIX" \
+            -D FIDESLIB_INSTALL_OPENFHE=OFF \
+            -D FIDESLIB_COMPILE_TESTS=ON \
+            -D FIDESLIB_COMPILE_BENCHMARKS=OFF
+
+      - name: Build
+        run: cmake --build build --target fideslib-test -j3
+
+      # Left out: the multi-GPU test, which needs NCCL, and the inverse NTT
+      # tests plus nine OpenFHE tests (rotations, AccumulateSum*,
+      # ConvolutionTransform). Those use the 1D inverse NTT kernel for small
+      # rings, which reads shared memory written by other threads without a
+      # barrier (src/INTT_1D.cu), and give wrong results on the simulator.
+      - name: Test
+        working-directory: build
+        run: |
+          # Some of the serialization tests write here.
+          mkdir -p /tmp/opencode
+          include='OpenFHECompatTests.*:MathTests/*:BaseTests/*:NTTTests/*:LimbKernelTests/*:AccumulateBroadcast.*:P2PTransferTest.SingleGPU*'
+          exclude='*SimulateMultiGPU*:*INTT*:*InverseNTT*'
+          for t in AccumulateSum AccumulateSumInPlace AccumulateSumInPlaceStart \
+                   AccumulateSumInPlaceStartOffset ConvolutionTransform \
+                   EvalFastRotation EvalFastRotationHoisted EvalRotate \
+                   EvalRotateInPlace; do
+            exclude="$exclude:OpenFHECompatTests.$t"
+          done
+          timeout 3000 vgpu run ./fideslib-test --gtest_filter="$include-$exclude"
